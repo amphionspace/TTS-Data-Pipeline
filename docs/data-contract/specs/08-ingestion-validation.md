@@ -32,11 +32,12 @@ standard 校验音频头和 bytes，不声称已完整解码全部波形；deep 
 计划和发布 manifest 保存 excluded_source_files；发布范围注明排除，不声称覆盖上游全部文件。
 被排除文件内容变化必须重新核对规则；恢复要求排除策略相同。不能据此自动忽略其他未知坏包。
 逐记录排除与整文件排除分开配置。启用前必须固定显式配方与逐条拒收明细。
-当前支持对已逐条核实的 Parquet 零帧或容器格式错误音频作精确排除：记录源相对路径、源文件 bytes/SHA256、原始零起始行号、
-上游 audio_ID、音频 bytes/SHA256、condition 和 reason。
+当前支持对 Galgame / LibriHeavy 已逐条核实的 Parquet 零帧、容器格式错误或无法识别的音频作精确排除：记录源相对路径、源文件 bytes/SHA256、原始零起始行号、
+上游 ID（Galgame 为 audio_ID，LibriHeavy 为 id）、音频 bytes/SHA256、condition 和 reason。
 必须核验源文件与记录身份。zero_decoded_frames 要求读取器报告 0 帧、实际读取也返回 0 帧；
-sndfile_malformed 要求当前固定版本读取器在打开音频时报告 SF_ERR_MALFORMED_FILE (3)。
-其他异常、目标恢复可读或身份不匹配均失败。后者只声明当前读取器拒收，不声称其他解码器也无法恢复音频。
+sndfile_malformed 要求当前固定版本读取器在打开音频时报告 SF_ERR_MALFORMED_FILE (3)；
+sndfile_unrecognised 要求报告 SF_ERR_UNRECOGNISED_FORMAT (1)，且该条记录已经人工核实并列入内容固定的清单。
+其他异常、目标恢复可读或身份不匹配均失败。这两种错误条件只声明当前读取器拒收，不声称其他解码器也无法恢复音频。
 不得重编号原始行号；未排除样本保持原 ID。manifest 保存 excluded_source_records 与 rejected_rows，
 输出行数 + 明确排除数 = 源 Parquet footer 行数；查不到排除目标或出现未知错误都不能发布。
 排除清单纳入固定计划，恢复要求完全相同；不得把空音频修复为伪造波形或自动排除整文件。

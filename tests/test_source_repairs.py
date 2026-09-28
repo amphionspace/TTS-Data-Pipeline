@@ -117,7 +117,7 @@ def test_malformed_policy_does_not_hide_other_errors_or_readable_audio():
     sf.write(buffer, np.zeros(100), 16000, format="WAV")
     for data, message in [
         (b"not audio", "different decoder error"),
-        (buffer.getvalue(), "no longer rejected as malformed"),
+        (buffer.getvalue(), "no longer rejected as sndfile_malformed"),
     ]:
         row = {"audio_ID": "fixture", "audio": {"bytes": data}}
         item = {
@@ -218,3 +218,70 @@ def test_native_lance_consumes_multiple_archive_batches(tmp_path):
     archive(root / "source.tar.bz2", members)
     result = convert("ljspeech", root, tmp_path / "out")
     assert result["rows"] == 4 and result["audio_bytes"] == 4 * len(data)
+
+
+def test_unrecognised_record_is_excluded_without_renumbering(tmp_path):
+    root, source, rejected, _ = corpus(tmp_path, b"1" + b"\x00" * 23, "sndfile_unrecognised")
+    result = convert("galgame", root, tmp_path / "out", record_exclusions=[rejected])
+    assert result["rows"] == 2 and result["rejected_rows"] == 1
+    assert result["inputs"][0]["rows"] == 3
+    rows = release_dataset(tmp_path / "out").to_table().to_pylist()
+    assert {r["source_key"] for r in rows} == {"game/part.parquet#row=0", "game/part.parquet#row=2"}
+    assert file_hash(source) == rejected["sha256"]
+
+
+def test_libriheavy_exact_rejection_preserves_ids_and_text(tmp_path):
+    import hashlib
+
+    from test_mls_libriheavy import audio_bytes
+
+    from tts_data_pipeline.source_exclusions import validate_record_exclusions
+
+    root = tmp_path / "raw"
+    source = root / "default/large/part.parquet"
+    source.parent.mkdir(parents=True)
+    bad = malformed_opus()
+    rows = [
+        {
+            "id": f"clip-{i}",
+            "audio": {"bytes": data, "path": f"{i}.opus"},
+            "text_original": "Book text",
+            "text_transcription": "ASR text",
+            "speaker_id": "7",
+        }
+        for i, data in enumerate([audio_bytes(), bad, audio_bytes()])
+    ]
+    pq.write_table(pa.Table.from_pylist(rows), source)
+    rejected = {
+        "path": "default/large/part.parquet",
+        "row": 1,
+        "id": "clip-1",
+        "bytes": source.stat().st_size,
+        "sha256": file_hash(source),
+        "audio_bytes": len(bad),
+        "audio_sha256": hashlib.sha256(bad).hexdigest(),
+        "condition": "sndfile_malformed",
+        "reason": "reviewed fixture",
+    }
+    with pytest.raises(sf.LibsndfileError):
+        convert("libriheavy", root, tmp_path / "bad", config="large")
+    result = convert(
+        "libriheavy", root, tmp_path / "out", config="large", record_exclusions=[rejected]
+    )
+    assert result["rows"] == 2 and result["rejected_rows"] == 1
+    output = release_dataset(tmp_path / "out").to_table().to_pylist()
+    assert [r["source_key"] for r in output] == ["clip-0", "clip-2"]
+    assert all(
+        r["text"] == "Book text" and r["text_variants"][0]["text"] == "ASR text" for r in output
+    )
+    assert file_hash(source) == rejected["sha256"]
+    with pytest.raises(ValueError, match="original ID field"):
+        validate_record_exclusions("libriheavy", [{**rejected, "audio_ID": "clip-1"}])
+    with pytest.raises(ValueError, match="Excluded record changed"):
+        convert(
+            "libriheavy",
+            root,
+            tmp_path / "wrong",
+            config="large",
+            record_exclusions=[{**rejected, "id": "wrong"}],
+        )

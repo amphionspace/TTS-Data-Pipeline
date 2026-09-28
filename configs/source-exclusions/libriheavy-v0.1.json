@@ -1,0 +1,293 @@
+{
+  "dataset_id": "libriheavy",
+  "release_id": "v0.1",
+  "files": [],
+  "records": [
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 960,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_21",
+      "audio_bytes": 259,
+      "audio_sha256": "f8fc9701e2803072f2e65ab286694cb872d99a7eadb52a3ac89f2a27f4c048d9",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 963,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_29",
+      "audio_bytes": 259,
+      "audio_sha256": "3678df6a0831d553444c7a4e905734f3c56b2795d54f4aed8ea9900b5f7e1c58",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 964,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_24",
+      "audio_bytes": 259,
+      "audio_sha256": "ca4f82757c1fbeb9b801fba5796207c8d2b1ebd74437a77be9cf3cb7906d2ad0",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 970,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_31",
+      "audio_bytes": 259,
+      "audio_sha256": "4adbbbfc1e8cbb9079187367cc534a33fbda9ee2922fb96cf790aa64a6739655",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 973,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_34",
+      "audio_bytes": 259,
+      "audio_sha256": "179ad4e9e22cc72bfedbd1333b053a14b6756490db735e14df1abe01596996f5",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 983,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_43",
+      "audio_bytes": 259,
+      "audio_sha256": "cc1402459eb5eabe7df1dda81e3e20c79072c06b5a08ab331180d8a6299d5476",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 986,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_58",
+      "audio_bytes": 259,
+      "audio_sha256": "0b1c6109d7c72900cf571b88273efcad89a95644dedee2b10e5e2b97384b4ded",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 995,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_61",
+      "audio_bytes": 259,
+      "audio_sha256": "7d982943d980129a9fe985c6c955755ce96847dcc652e17a66c0f731f5d8bd4d",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1000,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_66",
+      "audio_bytes": 259,
+      "audio_sha256": "875c12e7668f70ed2ce952feda76f3fcdaf84e2e7b6bfbb190a18a32b2c637e7",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1008,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_72",
+      "audio_bytes": 259,
+      "audio_sha256": "ca5d67b9aef2f534b0771ee53c256e37a9833a0616409e240bc9ec104a609011",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1009,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_77",
+      "audio_bytes": 259,
+      "audio_sha256": "dbcc786221f177f915d601651520bbd47ea6a34803177bf8cd4d37384197fbbc",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1011,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_80",
+      "audio_bytes": 259,
+      "audio_sha256": "653cb4759293e753d76d470f2318d9d9900e2aaa7f1fea92faa0aef8721b5405",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1024,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_91",
+      "audio_bytes": 259,
+      "audio_sha256": "080c01f2b329cdcca491e7e0275f145330cf8ef3644cc6ddb95a7cfbb0951e34",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1036,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_98",
+      "audio_bytes": 259,
+      "audio_sha256": "8e8c591626d13e17adfe196f8cc446bba9a4676dee392c26c2b996c2bd719eae",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1037,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_99",
+      "audio_bytes": 259,
+      "audio_sha256": "430f68849a896da1775d29c073de6e26d53ac7f906ab581597b32e0cb9353d11",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1045,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_102",
+      "audio_bytes": 259,
+      "audio_sha256": "2cb35ff1dcf4036a4a0df2b2591e2da22bc0311b3dc30edbbab41968744df05d",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1046,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_106",
+      "audio_bytes": 259,
+      "audio_sha256": "7cde43e4b83bdab78998334e707be35d14d4efbffd29d785cc9077b39a38752c",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1048,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_105",
+      "audio_bytes": 259,
+      "audio_sha256": "61a482e2a9915d12e990e82306a901609a7fd83b4a02d3023a34b3e451c945fe",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1050,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_109",
+      "audio_bytes": 259,
+      "audio_sha256": "a4e69f99e429590eaec2795570bc71fc5b6312e0a31f2e95bb736e81901584af",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00003-of-0020/large-00075-of-00147.parquet",
+      "row": 1051,
+      "id": "large/12532/elements_of_conchology_1901_librivox_64kb_mp3/elements_of_conchology_01_ruschenberger_64kb_112",
+      "audio_bytes": 259,
+      "audio_sha256": "28b50d2dcaffbdf191292901edbfb8a466f42d9c091ddaad16f1e435bd468a07",
+      "bytes": 450148942,
+      "sha256": "23f0672074ced16f36eb9358df840379f6e20fba2349158fc63750990c32dad4",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00006-of-0020/large-00107-of-00147.parquet",
+      "row": 16,
+      "id": "large/3157/commentary_epistles_paul_corinthians_1_1411_librivox_64kb_mp3/comm_corinthians_1_53_calvin_64kb_9",
+      "audio_bytes": 316,
+      "audio_sha256": "18395c98ff3fcaa078d5ee87e621674a38def617b3c0cfcebc98145b28c12d55",
+      "bytes": 448053032,
+      "sha256": "888a1b7217701dde63b74ad5ac5338cb0b8e3a0a18548425f057d0c3220c0f5f",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00006-of-0020/large-00107-of-00147.parquet",
+      "row": 18,
+      "id": "large/3157/commentary_epistles_paul_corinthians_1_1411_librivox_64kb_mp3/comm_corinthians_1_53_calvin_64kb_6",
+      "audio_bytes": 316,
+      "audio_sha256": "44649271e03077e1e01aff34279f3aa14525041002a163e1bc517a28df858002",
+      "bytes": 448053032,
+      "sha256": "888a1b7217701dde63b74ad5ac5338cb0b8e3a0a18548425f057d0c3220c0f5f",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00006-of-0020/large-00107-of-00147.parquet",
+      "row": 21,
+      "id": "large/3157/commentary_epistles_paul_corinthians_1_1411_librivox_64kb_mp3/comm_corinthians_1_53_calvin_64kb_11",
+      "audio_bytes": 316,
+      "audio_sha256": "21bb5eebe493045cf18ba7f24bff90de556bc6013816005034094269d880fe00",
+      "bytes": 448053032,
+      "sha256": "888a1b7217701dde63b74ad5ac5338cb0b8e3a0a18548425f057d0c3220c0f5f",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00006-of-0020/large-00107-of-00147.parquet",
+      "row": 23,
+      "id": "large/3157/commentary_epistles_paul_corinthians_1_1411_librivox_64kb_mp3/comm_corinthians_1_53_calvin_64kb_15",
+      "audio_bytes": 316,
+      "audio_sha256": "384b027bbbb9795818dbc07498290876e31464af1dbff5bc5460327fc021d0e1",
+      "bytes": 448053032,
+      "sha256": "888a1b7217701dde63b74ad5ac5338cb0b8e3a0a18548425f057d0c3220c0f5f",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00006-of-0020/large-00107-of-00147.parquet",
+      "row": 24,
+      "id": "large/3157/commentary_epistles_paul_corinthians_1_1411_librivox_64kb_mp3/comm_corinthians_1_53_calvin_64kb_16",
+      "audio_bytes": 316,
+      "audio_sha256": "b59211d133160478dd56855a22e564ddb9d26aa94407d43f83728404e6c6506f",
+      "bytes": 448053032,
+      "sha256": "888a1b7217701dde63b74ad5ac5338cb0b8e3a0a18548425f057d0c3220c0f5f",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00006-of-0020/large-00107-of-00147.parquet",
+      "row": 25,
+      "id": "large/3157/commentary_epistles_paul_corinthians_1_1411_librivox_64kb_mp3/comm_corinthians_1_53_calvin_64kb_14",
+      "audio_bytes": 316,
+      "audio_sha256": "8a080ee7d9a7d69475af11967e185f554ae81dedc4ac04929f96355bccafe3a0",
+      "bytes": 448053032,
+      "sha256": "888a1b7217701dde63b74ad5ac5338cb0b8e3a0a18548425f057d0c3220c0f5f",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    }
+  ]
+}
