@@ -17,6 +17,9 @@ worker 通过官方 write_fragments 写同一表的数据文件，验证完成�
 强制杀进程或断电可能留下临时目录，确认所属进程已退出后才可清理。
 旧版本运行可能仍在 .state 下保留 identity.sqlite，不要在旧进程运行时删除或替换它。
 日志放 pipeline reports。未发布数据位于 v0.1.incomplete，恢复不能直接当成训练数据。
+已发布数据由正式 manifest 显示 complete 状态；完成复核且协调进程退出后可清理该 release 的 .state。
+进度脚本优先读取正式 manifest，完成任务不会因清理工作目录而从状态列表消失。
+运行中或失败任务的 .state 继续保留；正式 manifest 未保存的历史 worker/总耗时字段显示 null，不推算伪造值。
 
 ## 命令
 
