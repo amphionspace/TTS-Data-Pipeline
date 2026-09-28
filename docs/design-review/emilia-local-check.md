@@ -97,24 +97,27 @@ recording_id/group_id 包含 dataset + language + 11 字符来源键。
    原始 JSON 同时保留；导入注明 upstream / unknown_version。
    缺分数保留 null，训练配方明确缺值和阈值策略。
 
-## DNSMOS 同表保存（用户确认）
+## 已有评分直接初始化统一 annotation
 
-每个 dataset 的 `samples.lance` 保存结构化列 `ann__dnsmos__upstream_v1`，
-其类型沿用 v0.1 annotation struct，`result.score` 为 float64。
-有分数的值形如 `{status:ok, input_fingerprint:..., error_code:null, result:{score:3.2927}}`。
-无上游分数的行整列为 null；非法分数必须显式失败/报告，不能静默补 0。
+DNSMOS 属于原本就计划支持的 annotation 指标。Emilia 已有结果，因此接入时把这些结果
+填入 `samples.lance` 对应的统一 annotation 结构；没有结果的数据集或样本保留 null，
+以后计算得到的结果仍进入同一种指标结构。上游自带和后续计算只是结果的来源不同，
+不为 Emilia 新建一套专用评分字段，也不要求把已有分数重新算一遍才能使用。
 
-`upstream_v1` 是本次导入 run 的版本，不是 DNSMOS 模型版本；run/profile manifest
-注明是上游已有评分、来源字段 dnsmos、模型/实现版本 unknown_version。
-输入指纹固定导入所依据的原始记录/音频；它证明导入对应关系，不代表我们重新算过该分数。
-Emilia 与 Emilia-YODAS 在各自数据集下固定 profile/run，不能凭相同字段名假定评分实现相同。
+沿用 contract 的 `ann__<task>__<run_id>` 版本机制和 annotation struct；
+DNSMOS 的 `result.score` 为 float64。具体 task/run 名是实施细节，
+此前举的 `ann__dnsmos__upstream_v1` 不是用户指定的字段名或独立评分体系。
+有结果的样本为 ok 并保存分数；没有结果为 null，不能用 0 代替缺失。
+原始 JSON 可同时保留，但训练筛选、抽样直接读取结构化 annotation 列。
 
-基础 27 列写入和验证后，通过标注发布阶段在同表追加该列并固定新 snapshot；
-不把标注列硬塞进当前要求恰好 27 列的 base ingest。
-训练读取包含该列的 snapshot，仅投影 `ann__dnsmos__upstream_v1.result.score` 等小列即可筛选/抽样，
-不用训练时解析 metadata JSON，也不把分数存成另一份复制音频的数据集。
-以后重新计算时新增独立 run 列，不覆盖上游值。这个设计符合已有 contract，
-但通用标注发布执行器目前未实现；两个 adapter 接入时需一并实现、验收这次上游评分导入。
+导入结果在 run/profile manifest 中注明来自上游字段 dnsmos；模型/实现版本未知时
+如实记录 unknown_version。以后计算或补齐时沿用同一指标定义与结果 schema，
+按已有约定发布新 run/snapshot，可明确继承旧结果，不覆盖不可变历史版本。
+统一存储结构不意味着不同模型版本的分数已经校准为可直接比较。
+
+实现上先验证基础 27 列，再在同表发布带已有 annotation 的 snapshot；
+这是一次接入交付的一部分，不要求用户另起一次评分任务，也不复制一份音频表。
+现有通用标注发布执行器尚未实现，两个 adapter 接入时需实现并验收已有结果的导入。
 
 ## 下一步
 
