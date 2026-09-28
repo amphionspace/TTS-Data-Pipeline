@@ -128,3 +128,10 @@ Galgame 累计排除 1,341 条（包含先前 3 条），LibriHeavy 排除 27 �
 所有保留行的原始位置均与源文件一致。79 项测试与 Ruff 检查通过。
 未知错误仍失败；不修改原始 bytes，不自动扩大排除范围。contract/schema/release 保持 v0.1。
 运行任务通过显式代码迁移复用原 checkpoint，实际旧代码哈希保留，恢复时逐片复核哈希。
+
+本次恢复已启动，两个任务均为 64 workers。Galgame 保留 118 个完成检查点（7,026,443 行），
+LibriHeavy 保留 283 个（9,331,886 行）；重启后进度先统计逐片重新核验通过的检查点，
+因此计数会暂时低于保留数，不表示删除了已完成数据。
+修复运行于 `reports/runtime/source-audio-fix` 的独立 Git 工作树。
+旧 `galgame-malformed-fix`、`local-finalization` 工作树已删除；
+`before-cache-fix` 和主工作树源码仍有其他任务使用，在这些任务结束前保持冻结。
