@@ -10,7 +10,12 @@ worker 通过官方 write_fragments 写同一表的数据文件，验证完成�
 协调者做全局身份对账、统一 commit、sample_id BTREE 索引与 snapshot 计数验证，最后原子发布。
 最终数据没有 batch 目录；内部恢复仍可按批记录。
 
-工作状态在 `datasets/<dataset_id>/.state/v0.1/`，包括 plan/status/checkpoints/identity.sqlite。
+工作状态在 `datasets/<dataset_id>/.state/v0.1/`，包括 plan/status/checkpoints。
+全局身份审计的 identity.sqlite 是可重建临时文件，放在 `TMPDIR/tts-finalize-*/`，不写共享数据目录。
+启动前把 TMPDIR 指向有足够空间的本地磁盘；Python 默认临时目录通常为 /tmp。
+每个审计连接的 SQLite 页缓存上限为 64 MiB；成功或 Python 异常退出后关闭并清理临时库。
+强制杀进程或断电可能留下临时目录，确认所属进程已退出后才可清理。
+旧版本运行可能仍在 .state 下保留 identity.sqlite，不要在旧进程运行时删除或替换它。
 日志放 pipeline reports。未发布数据位于 v0.1.incomplete，恢复不能直接当成训练数据。
 
 ## 命令
@@ -48,6 +53,11 @@ python scripts/conversion_status.py
 standard：来源完整哈希、逐记录验证、原 bytes 哈希/音频头、完整 Lance 文件回读、跨批 ID 唯一、索引和 snapshot。
 deep：额外全音频解码、有限值/帧数验证，以及来源内容再次哈希。
 小规模 fixture、真实来源抽样、全量数据验收是不同证据；性能基准需注明数据范围和冷热缓存。
+
+收尾日志按批报告身份扫描行数，随后报告索引提交阶段。可选诊断字段
+`manifest.finalization` 记录临时库大小与 identity_scan / identity_queries /
+table_commit_and_index / total 秒数，不参与样本 ID 或 record_revision。
+三份真实数据的本地对照结果与运行边界见 [本地收尾验证](design-review/local-finalization.md)。
 
 新标注任务的 schema 变更由单一协调者提交，转换器的并行 fragment 写法不等于可以任意并发增列。
 

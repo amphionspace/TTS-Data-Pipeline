@@ -91,6 +91,54 @@ def test_global_identity_rejects_duplicate_checkpoint(tmp_path):
         finalize(stage, {"batches": [batch, batch], "dataset": "mls_sidon", "deep_verify": False})
 
 
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_final_audit_uses_local_scratch_and_cleans_up_on_success_or_failure(
+    tmp_path, monkeypatch, duplicate
+):
+    import sqlite3
+
+    import tts_data_pipeline.bulk as module
+
+    root = mls_corpus(tmp_path)
+    batch = source_plan("mls_sidon", root, 1)[0]
+    stage = tmp_path / "shared-output" / "v0.1.incomplete"
+    stage.mkdir(parents=True)
+    run_batch(("mls_sidon", str(root), str(stage), batch, 1024, False))
+    scratch = tmp_path / "local-scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(module.tempfile, "tempdir", str(scratch))
+    paths = []
+    connect = sqlite3.connect
+
+    def capture(path, *args, **kwargs):
+        paths.append(Path(path))
+        assert Path(path).is_relative_to(scratch)
+        return connect(path, *args, **kwargs)
+
+    monkeypatch.setattr(module.sqlite3, "connect", capture)
+    shards = {
+        p: (p.stat().st_size, p.stat().st_mtime_ns)
+        for p in (stage / "samples.lance/data").glob("*.lance")
+    }
+    plan = {
+        "batches": [batch, batch] if duplicate else [batch],
+        "dataset": "mls_sidon",
+        "deep_verify": False,
+    }
+    if duplicate:
+        with pytest.raises(sqlite3.IntegrityError):
+            finalize(stage, plan)
+    else:
+        result = finalize(stage, plan)
+        assert result["rows"] == result["validation"]["unique_ids"] == 1
+        assert result["finalization"]["identity_database_bytes"] > 0
+        assert result["finalization"]["phase_seconds"]["total"] > 0
+    assert len(paths) == 1 and not paths[0].exists()
+    assert not list(scratch.iterdir())
+    assert not (module.state_directory(stage) / "identity.sqlite").exists()
+    assert all((p.stat().st_size, p.stat().st_mtime_ns) == stats for p, stats in shards.items())
+
+
 def test_libriheavy_bulk_all_configs_and_checksum(tmp_path):
     root = tmp_path / "raw"
     for config in libriheavy.CONFIGS:

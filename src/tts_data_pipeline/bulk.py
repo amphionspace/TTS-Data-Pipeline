@@ -5,10 +5,12 @@ import json
 import multiprocessing
 import shutil
 import sqlite3
+import tempfile
 import time
 import traceback
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -193,25 +195,34 @@ def run_batch(job):
     return batch["name"], result["rows"], False
 
 
+@contextmanager
+def identity_database():
+    """Rebuildable audit scratch follows TMPDIR, separate from shared output storage."""
+    with tempfile.TemporaryDirectory(prefix="tts-finalize-") as folder:
+        database = Path(folder) / "identity.sqlite"
+        with closing(sqlite3.connect(database)) as db:
+            db.execute("PRAGMA journal_mode=OFF")
+            db.execute("PRAGMA synchronous=OFF")
+            db.execute("PRAGMA cache_size=-65536")  # Bound this connection's page cache to 64 MiB.
+            db.execute(
+                "CREATE TABLE identity(sample_id TEXT PRIMARY KEY, source_key TEXT, "
+                "source_config TEXT) WITHOUT ROWID"
+            )
+            yield db, database
+
+
 def finalize(stage, plan):
-    """Global ID checks use disk; audio was already verified inside every batch."""
-    database = state_directory(stage) / "identity.sqlite"
-    database.unlink(missing_ok=True)  # Rebuildable final audit, never a source or checkpoint.
-    db = sqlite3.connect(database)
-    db.execute("PRAGMA journal_mode=OFF")
-    db.execute("PRAGMA synchronous=OFF")
-    db.execute(
-        "CREATE TABLE identity(sample_id TEXT PRIMARY KEY, source_key TEXT, "
-        "source_config TEXT) WITHOUT ROWID"
-    )
+    """Global ID checks use local scratch; audio was already verified in each batch."""
+    started = time.monotonic()
     shards, parents, fragments, inputs = [], [], [], []
     dependencies, code_sha256 = None, None
     code_versions = {}
     rejected_records = []
     rows, duration, output_bytes, audio_bytes = 0, 0.0, 0, 0
     speakers, languages, rates = Counter(), Counter(), Counter()
-    try:
-        for batch in plan["batches"]:
+    with identity_database() as (db, database):
+        print(f"{plan['dataset']}: final identity audit using {database}", flush=True)
+        for number, batch in enumerate(plan["batches"], start=1):
             checkpoint = checkpoint_path(stage, batch)
             manifest = json.loads(checkpoint.read_text())
             if manifest.get("identity_scheme") != identity_scheme(plan["dataset"]):
@@ -265,6 +276,12 @@ def finalize(stage, plan):
                         zip(*(chunk.column(i).to_pylist() for i in range(3))),
                     )
             db.commit()
+            print(
+                f"{plan['dataset']}: final identity scan {number}/{len(plan['batches'])} "
+                f"batches, {rows} rows, {time.monotonic() - started:.1f}s",
+                flush=True,
+            )
+        scan_finished = time.monotonic()
         unique_ids = db.execute("SELECT COUNT(*) FROM identity").fetchone()[0]
         if unique_ids != rows:
             raise ValueError("Global identity count mismatch")
@@ -283,8 +300,11 @@ def finalize(stage, plan):
             "AND a.source_config<b.source_config GROUP BY a.source_config,b.source_config"
         ).fetchall()
         db.commit()
-    finally:
-        db.close()
+        database_bytes = database.stat().st_size
+    audit_finished = time.monotonic()
+    print(
+        f"{plan['dataset']}: final identity checks passed; committing table and index", flush=True
+    )
     if sorted(rejected_records, key=lambda r: (r["path"], r["row"])) != plan.get(
         "excluded_source_records", []
     ):
@@ -350,6 +370,16 @@ def finalize(stage, plan):
             "extra_source_records": extra_records,
             "repeated_keys_within_config": within_config,
             "config_overlap_by_source_key": overlap,
+        },
+        "finalization": {
+            "scratch_storage": "temporary_directory",
+            "identity_database_bytes": database_bytes,
+            "phase_seconds": {
+                "identity_scan": round(scan_finished - started, 3),
+                "identity_queries": round(audit_finished - scan_finished, 3),
+                "table_commit_and_index": round(time.monotonic() - audit_finished, 3),
+                "total": round(time.monotonic() - started, 3),
+            },
         },
         "finished_at": datetime.now(timezone.utc).isoformat(),
     }
