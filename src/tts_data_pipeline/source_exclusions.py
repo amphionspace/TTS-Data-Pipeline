@@ -1,4 +1,4 @@
-"""Explicit, content-pinned rejection of individually reviewed Parquet records."""
+"""Explicit, content-pinned rejection of individually reviewed source records."""
 
 import hashlib
 import io
@@ -8,7 +8,47 @@ from pathlib import PurePosixPath
 import soundfile as sf
 
 
+def record_exclusion_key(item):
+    """Stable ordering for Parquet row locations and archive source keys."""
+    return item["path"], item.get("source_key", ""), item.get("row", -1)
+
+
+def validate_missing_transcripts(records):
+    seen = set()
+    for item in records:
+        path = PurePosixPath(item["path"])
+        key = item["source_key"]
+        if path.is_absolute() or ".." in path.parts or str(path) != item["path"]:
+            raise ValueError("Record exclusion path must be a canonical source-relative path")
+        if not isinstance(key, str) or not key or PurePosixPath(key).name != key:
+            raise ValueError("Missing-transcript exclusion requires a source key")
+        if (str(path), key) in seen or not item.get("reason"):
+            raise ValueError("Record exclusions require unique locations and a reason")
+        seen.add((str(path), key))
+        if item["condition"] != "missing_transcript" or "row" in item:
+            raise ValueError("Unsupported Wenet record exclusion condition")
+        prefix = path.name.removesuffix(".tar.gz")
+        if (item["audio_member"], item["missing_member"]) != (
+            f"{prefix}/wavs/{key}.wav",
+            f"{prefix}/txts/{key}.txt",
+        ):
+            raise ValueError("Excluded Wenet members do not match the source key")
+        for field in ("sha256", "audio_sha256"):
+            if not re.fullmatch(r"[0-9a-f]{64}", item[field]):
+                raise ValueError("Record exclusion requires full SHA256 digests")
+        if item["bytes"] <= 0 or item["audio_bytes"] <= 0:
+            raise ValueError("Record exclusion requires positive source and audio sizes")
+
+
+def verify_excluded_audio(data, item):
+    if len(data) != item["audio_bytes"] or hashlib.sha256(data).hexdigest() != item["audio_sha256"]:
+        raise ValueError("Excluded record changed; review policy")
+
+
 def validate_record_exclusions(dataset, records):
+    if dataset == "wenetspeech4tts":
+        validate_missing_transcripts(records)
+        return
     id_fields = {"galgame": "audio_ID", "libriheavy": "id"}
     if records and dataset not in id_fields:
         raise ValueError("Record exclusions are supported only for Galgame and LibriHeavy")

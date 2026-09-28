@@ -135,3 +135,15 @@ LibriHeavy 保留 283 个（9,331,886 行）；重启后进度先统计逐片重
 修复运行于 `reports/runtime/source-audio-fix` 的独立 Git 工作树。
 旧 `galgame-malformed-fix`、`local-finalization` 工作树已删除；
 `before-cache-fix` 和主工作树源码仍有其他任务使用，在这些任务结束前保持冻结。
+
+## WenetSpeech4TTS Basic_6 缺失一条转写（2026-09-28）
+
+完整扫描 `Basic/WenetSpeech4TTS_Basic_6.tar.gz`，132,677 个普通成员：66,339 个 WAV、
+66,338 个 TXT，无重复、额外成员或特殊链接。与 Basic filelist 全量对账只缺
+`X0000004983_6617014_S00105-S00111.txt`；其 WAV 存在，完整解码为 370,688 帧 / 16 kHz。
+源 archive SHA256 为 `839320506976c980c8fdb115ceeec602232bfccb5365ae5c2ba3ca96b805f49e`。
+用户批准缺项无法修复时丢弃该条，精确策略见 configs/source-exclusions/wenetspeech4tts-v0.1.json。
+只排除这一个 source_key，预计本包输出 66,338 条；保留原始文件、源 ID 与所有正常记录。
+恢复时验证缺失事实、存在音频哈希和来源依赖，未知错误仍失败，禁止自动跳过整包。
+
+修复在 `reports/runtime/wenet-pairing` / `fix/wenet-pairing` 工作树，避免修改其他在跑任务源码。

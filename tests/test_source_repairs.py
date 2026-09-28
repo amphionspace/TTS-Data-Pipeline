@@ -285,3 +285,102 @@ def test_libriheavy_exact_rejection_preserves_ids_and_text(tmp_path):
             config="large",
             record_exclusions=[{**rejected, "id": "wrong"}],
         )
+
+
+def wenet_missing_transcript(tmp_path):
+    import hashlib
+
+    from test_adapters import archive, audio
+
+    root = tmp_path / "raw"
+    prefix = "WenetSpeech4TTS_Basic_0"
+    path = root / "Basic" / (prefix + ".tar.gz")
+    data = audio()
+    keys = [f"X1_S0000{i}" for i in range(3)]
+    members = [(f"{prefix}/wavs/{key}.wav", data) for key in keys]
+    members.extend(
+        (f"{prefix}/txts/{key}.txt", f"{key}\thello\n".encode()) for key in (keys[0], keys[2])
+    )
+    archive(path, members)
+    (root / "filelists").mkdir()
+    (root / "DNSMOS_P808Scores").mkdir()
+    (root / "filelists/Basic_filelist.lst").write_text(
+        "".join(
+            f"{key}\t../Basic/{prefix}/wavs/{key}.wav\t../Basic/{prefix}/txts/{key}.txt\n"
+            for key in keys
+        )
+    )
+    (root / "DNSMOS_P808Scores/Basic_DNSMOS.lst").write_text(
+        "".join(f"{key}\t3.6\n" for key in keys)
+    )
+    item = {
+        "path": str(path.relative_to(root)),
+        "bytes": path.stat().st_size,
+        "sha256": file_hash(path),
+        "source_key": keys[1],
+        "audio_member": f"{prefix}/wavs/{keys[1]}.wav",
+        "missing_member": f"{prefix}/txts/{keys[1]}.txt",
+        "audio_bytes": len(data),
+        "audio_sha256": hashlib.sha256(data).hexdigest(),
+        "condition": "missing_transcript",
+        "reason": "reviewed fixture: one declared transcript absent",
+    }
+    policy = tmp_path / "policy.json"
+    policy.write_text(
+        json.dumps(
+            {"dataset_id": "wenetspeech4tts", "release_id": "v0.1", "files": [], "records": [item]}
+        )
+    )
+    return root, path, members, keys, item, policy
+
+
+def test_wenet_missing_transcript_exact_exclusion_accounts_for_declared_records(tmp_path):
+    from tts_data_pipeline.adapters import wenetspeech4tts
+
+    root, path, members, keys, item, policy = wenet_missing_transcript(tmp_path)
+    with pytest.raises(ValueError, match="Unpaired"):
+        convert("wenetspeech4tts", root, tmp_path / "unfiltered")
+    result = bulk_convert(
+        "wenetspeech4tts", root, tmp_path / "out", workers=1, exclusions_path=policy
+    )
+    assert result["rows"] == 2 and result["rejected_rows"] == 1
+    assert result["excluded_source_records"] == [item]
+    restored = release_dataset(tmp_path / "out").to_table().to_pylist()
+    assert [r["source_key"] for r in restored] == [keys[0], keys[2]]
+    assert all(json.loads(r["metadata_json"])["upstream_dnsmos_p808"] == 3.6 for r in restored)
+    assert file_hash(path) == item["sha256"]
+    with pytest.raises(ValueError, match="Excluded record changed"):
+        list(
+            wenetspeech4tts.iter_records(
+                root, "fixture", excluded_records=[{**item, "audio_sha256": "0" * 64}]
+            )
+        )
+    with pytest.raises(ValueError, match="source changed"):
+        convert(
+            "wenetspeech4tts",
+            root,
+            tmp_path / "wrong-source",
+            record_exclusions=[{**item, "sha256": "0" * 64}],
+        )
+
+
+@pytest.mark.parametrize(
+    "failure", ["restored_text", "missing_audio", "another_missing_text", "duplicate_audio"]
+)
+def test_wenet_rejection_does_not_hide_other_archive_changes(tmp_path, failure):
+    from test_adapters import archive
+
+    from tts_data_pipeline.adapters import wenetspeech4tts
+
+    root, path, members, keys, item, policy = wenet_missing_transcript(tmp_path)
+    if failure == "restored_text":
+        members.append((item["missing_member"], f"{keys[1]}\trestored".encode()))
+    elif failure == "missing_audio":
+        members = [m for m in members if m[0] != item["audio_member"]]
+    elif failure == "another_missing_text":
+        members = [m for m in members if not m[0].endswith(keys[0] + ".txt")]
+    else:
+        members.append(next(m for m in members if m[0] == item["audio_member"]))
+    archive(path, members)
+    with pytest.raises(ValueError):
+        list(wenetspeech4tts.iter_records(root, "fixture", excluded_records=[item]))

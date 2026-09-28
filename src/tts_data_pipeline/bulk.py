@@ -21,7 +21,7 @@ from .adapters import ADAPTERS, identity_scheme, libriheavy
 from .contract import schema_description
 from .convert import convert, file_hash
 from .schema import VERSION, base_schema, digest
-from .source_exclusions import validate_record_exclusions
+from .source_exclusions import record_exclusion_key, validate_record_exclusions
 from .writer import STORAGE_FORMAT, STORAGE_VERSION, TABLE_PATH, commit_fragments, file_batches
 from .writer import dependencies as storage_dependencies
 
@@ -305,7 +305,7 @@ def finalize(stage, plan):
     print(
         f"{plan['dataset']}: final identity checks passed; committing table and index", flush=True
     )
-    if sorted(rejected_records, key=lambda r: (r["path"], r["row"])) != plan.get(
+    if sorted(rejected_records, key=record_exclusion_key) != plan.get(
         "excluded_source_records", []
     ):
         raise ValueError("Excluded record counts/locations differ from plan")
@@ -408,9 +408,7 @@ def bulk_convert(
         if policy["dataset_id"] != dataset or policy["release_id"] != VERSION:
             raise ValueError("Exclusion policy targets another dataset or release")
         exclusions = sorted(policy.get("files", []), key=lambda item: item["path"])
-        record_exclusions = sorted(
-            policy.get("records", []), key=lambda item: (item["path"], item["row"])
-        )
+        record_exclusions = sorted(policy.get("records", []), key=record_exclusion_key)
     validate_record_exclusions(dataset, record_exclusions)
     output.parent.mkdir(parents=True, exist_ok=True)
     lock = output.with_name(output.name + ".lock").open("a")
