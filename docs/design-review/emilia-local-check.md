@@ -3,7 +3,7 @@
 核查日期：2026-09-28。范围仅为 `/workspace/data/DATA-TTS/Emilia` 和
 `/workspace/data/DATA-TTS/Emilia-YODAS`，不包含 Emilia2。
 结论：可以按现有 Lance v0.1 基础 schema 接入，两者保留独立 dataset_id。
-本次只核查数据和验证映射，尚未实现两个 adapter，也没有启动转换或改写原始数据。
+两个 adapter 已实现；按用户最新要求先转换基础数据，annotation 延后。原始数据只读。
 
 ## 本地清单
 
@@ -97,30 +97,30 @@ recording_id/group_id 包含 dataset + language + 11 字符来源键。
    原始 JSON 同时保留；导入注明 upstream / unknown_version。
    缺分数保留 null，训练配方明确缺值和阈值策略。
 
-## 已有评分直接初始化统一 annotation
+## 当前执行范围：基础转换，annotation 延后
 
-DNSMOS 属于原本就计划支持的 annotation 指标。Emilia 已有结果，因此接入时把这些结果
-填入 `samples.lance` 对应的统一 annotation 结构；没有结果的数据集或样本保留 null，
-以后计算得到的结果仍进入同一种指标结构。上游自带和后续计算只是结果的来源不同，
-不为 Emilia 新建一套专用评分字段，也不要求把已有分数重新算一遍才能使用。
+按用户最新指示，本次仅生成基础 27 列 samples.lance。
+DNSMOS、phone_count、源 duration 及所有其他原 JSON 字段完整保留在 metadata.upstream，
+暂不新增 annotation 列，不计算评分，不按 DNSMOS 过滤。后续定义 annotation schema 后，
+可以从已保存的原值导入同表，无需重新读取 raw 或重编码音频。
 
-沿用 contract 的 `ann__<task>__<run_id>` 版本机制和 annotation struct；
-DNSMOS 的 `result.score` 为 float64。具体 task/run 名是实施细节，
-此前举的 `ann__dnsmos__upstream_v1` 不是用户指定的字段名或独立评分体系。
-有结果的样本为 ok 并保存分数；没有结果为 null，不能用 0 代替缺失。
-原始 JSON 可同时保留，但训练筛选、抽样直接读取结构化 annotation 列。
+## 转换实现与验证
 
-导入结果在 run/profile manifest 中注明来自上游字段 dnsmos；模型/实现版本未知时
-如实记录 unknown_version。以后计算或补齐时沿用同一指标定义与结果 schema，
-按已有约定发布新 run/snapshot，可明确继承旧结果，不覆盖不可变历史版本。
-统一存储结构不意味着不同模型版本的分数已经校准为可直接比较。
+独立 adapter 为 emilia.py / emilia_yodas.py，共享 _emilia.py 的严格 tar JSON/MP3 配对。
+配对按完整 member stem，允许音频和文本任意先后；缺项、重复、ID/语言/speaker 归属冲突、
+不安全路径、截断音频、缺少 tar 结束块或结束块后存在非零内容均报错，不静默跳过。
+原 MP3 bytes 保持不变，原生采样率实测，统一 source_split=train，原 split 未知保持 null。
 
-实现上先验证基础 27 列，再在同表发布带已有 annotation 的 snapshot；
-这是一次接入交付的一部分，不要求用户另起一次评分任务，也不复制一份音频表。
-现有通用标注发布执行器尚未实现，两个 adapter 接入时需实现并验收已有结果的导入。
+全量采用 standard 校验：完整来源哈希、逐记录验证、写后全量回读与字节哈希、全局 ID 和索引验证。
+其含义不是每条音频完整解码或音文一致性通过。真实小包使用 deep 验证，另做六语言 Lance 预览。
+小包完整解码时 libmpg123 输出了部分 MP3 码流警告，现有解码器仍返回有限波形及声明帧数，
+因此通过现有 deep 检查不代表码流无瑕疵；原 bytes 和日志保留，后续质量处理单独核实，
+本次不自动修改或过滤这些内容。全量遇到结构错误或读取异常仍失败。
 
-## 下一步
+发布位置：
+- `datasets/emilia/v0.1/{manifest.json,samples.lance/}`
+- `datasets/emilia_yodas/v0.1/{manifest.json,samples.lance/}`
 
-按上述规则实现两个薄 adapter 和共享配对读取器；先完成小包/真实多语言转换与 Lance 回读，
-核对原 bytes、身份、speaker 范围、原元数据及缺失值，再开始全量转换。
-本次核查没有发现需要修改 v0.1 基础格式的阻塞；完整性及训练质量仍需后续各阶段验收。
+各使用 64 workers，1 GiB Lance 文件目标、4 GiB 输入调度组；运行日志与实际命令在
+pipeline 的 reports/current-conversion。启动入口固定在独立 emilia-conversion 工作树，
+不修改其他运行任务的源码或重启它们。manifest 在全部验证和索引完成后才正式发布。

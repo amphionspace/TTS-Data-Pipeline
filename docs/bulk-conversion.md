@@ -99,3 +99,10 @@ Galgame 启动/恢复必须带 `--exclusions configs/source-exclusions/galgame-v
 各任务实际启动命令和代码快照位置以 reports/current-conversion/launch.json 为准；
 仍使用旧代码快照的任务不能直接从修改后的工作源码恢复。
 常规 resume 继续严格核对代码；单次已审核的兼容迁移在计划与发布 manifest 中保留完整旧/新版本证据。
+
+## Emilia / Emilia-YODAS
+
+新增 emilia 与 emilia_yodas，原始目录分别为 Emilia 与 Emilia-YODAS，各使用 64 workers。
+两个来源仍按 v0.1 的 27 列写入，原 DNSMOS 等字段保存在 metadata.upstream，annotation 延后。
+完整成员配对和 tar 结束校验，不把每包首条核查当作全量验收。来源映射与验证边界见
+[本地核查](design-review/emilia-local-check.md)。
