@@ -1,0 +1,54 @@
+{
+  "example_only": true,
+  "runnable": false,
+  "contract_version": "v0.1",
+  "artifact_kind": "annotation",
+  "dataset_id": "libriheavy",
+  "release_id": "v0.1",
+  "status": "complete",
+  "storage_format": "lance",
+  "storage_version": "2.2",
+  "storage_kind": "sample_column",
+  "table_path": "samples.lance",
+  "lance_version": 3,
+  "column": "ann__audio_quality__run_001",
+  "schema_version": "audio_quality_v1",
+  "schema_sha256": "<schema hash>",
+  "task": "audio_quality",
+  "run_id": "run_001",
+  "target_kind": "sample",
+  "profile_id": "<metric profile hash>",
+  "inputs": [
+    {
+      "table_path": "datasets/libriheavy/v0.1/samples.lance",
+      "lance_version": 2,
+      "manifest_sha256": "<base manifest hash>",
+      "manifest_path": "datasets/libriheavy/v0.1/manifest.json"
+    }
+  ],
+  "rows": 3,
+  "coverage": {
+    "total_targets": 4,
+    "ok": 2,
+    "failed": 1,
+    "unsupported": 0,
+    "skipped": 0,
+    "missing": 1
+  },
+  "validation": {
+    "unique_targets": true,
+    "input_fingerprints_verified": true,
+    "base_unchanged": true
+  },
+  "dependencies": {
+    "pylance": "12.0.0"
+  },
+  "code_sha256": {
+    "scorer.py": "<code hash>"
+  },
+  "finished_at": "2026-09-28T00:00:00+00:00",
+  "table_rows": 4,
+  "selection": {
+    "kind": "all_base_samples"
+  }
+}

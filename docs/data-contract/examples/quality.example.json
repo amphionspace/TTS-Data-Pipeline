@@ -1,0 +1,49 @@
+{
+  "example_only": true,
+  "runnable": false,
+  "contract_version": "v0.1",
+  "task": "audio_quality",
+  "run_id": "run_001",
+  "storage_kind": "sample_column",
+  "table_path": "samples.lance",
+  "lance_version": 3,
+  "column": "ann__audio_quality__run_001",
+  "rows": [
+    {
+      "sample_id": "<sample-A>",
+      "value": {
+        "status": "ok",
+        "input_fingerprint": "<fingerprint-A>",
+        "error_code": null,
+        "result": {
+          "score": 4.1
+        }
+      }
+    },
+    {
+      "sample_id": "<sample-B>",
+      "value": null
+    },
+    {
+      "sample_id": "<sample-C>",
+      "value": {
+        "status": "failed",
+        "input_fingerprint": "<fingerprint-C>",
+        "error_code": "decode_failed",
+        "result": null
+      }
+    },
+    {
+      "sample_id": "<sample-D>",
+      "value": {
+        "status": "ok",
+        "input_fingerprint": "<fingerprint-D>",
+        "error_code": null,
+        "result": {
+          "score": 0.0
+        }
+      }
+    }
+  ],
+  "note": "Synthetic illustration only. B is missing; C failed; D is a real zero within this example."
+}

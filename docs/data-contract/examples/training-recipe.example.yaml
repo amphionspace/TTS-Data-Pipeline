@@ -1,0 +1,53 @@
+example_only: true
+runnable: false
+contract_version: v0.1
+# Build ID is derived only after all production recipe fields are resolved.
+storage_layout: materialized_codes
+inputs:
+  - dataset_id: libriheavy
+    release_id: v0.1
+    base_manifest_path: datasets/libriheavy/v0.1/manifest.json
+    base_manifest_sha256: null
+    samples:
+      table_path: datasets/libriheavy/v0.1/samples.lance
+      lance_version: null # Must include the selected annotation columns.
+    annotation_runs: [] # Each entry: run manifest SHA256, column/table, snapshot.
+    view_run: null
+    feature_runs: [] # Each entry: run manifest SHA256, profile, table, snapshot.
+text_selection: null
+speaker_mapping_run: null
+deduplication_run: null
+quality:
+  task: audio_quality
+  run_id: run_001
+  threshold: null
+  missing_policy: null # keep / exclude / fixed fallback
+  failed_policy: null
+  unsupported_policy: null
+  skipped_policy: null
+codec_profile_id: null
+text_tokenizer_profile_id: null
+speaker_feature_profile_id: null
+reference_pairing:
+  require_confirmed_same_speaker: true
+  allow_same_segment: false
+  allow_time_overlap: false
+  reference_count: null
+sampling:
+  seed: null
+  unit: null # utterance or duration
+  language_weights: null
+  source_weights: null
+  quality_weight_function: null
+  normalization: null
+  replacement: null
+  epoch_budget: null
+evaluation:
+  policy: null # group isolation or explicit no_holdout
+model_protocol:
+  version: null
+  maximum_context: null
+  padding_and_loss_mask: null
+distributed:
+  partition_policy: null
+  resume_policy: null

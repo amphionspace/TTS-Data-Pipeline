@@ -1,0 +1,422 @@
+{
+  "contract_version": "v0.1",
+  "representation": "Arrow type descriptors; semantic validation is additional",
+  "base": [
+    {
+      "name": "schema_version",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "sample_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "record_revision",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "dataset_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "source_snapshot",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "source_key",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "source_config",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "source_split",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "source_locator_json",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "recording_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "group_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "parent_sample_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "audio_sha256",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text_kind",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "language",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "speaker_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "speaker_scope",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "metadata_json",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "audio",
+      "nullable": true,
+      "type": "struct",
+      "fields": [
+        {
+          "name": "bytes",
+          "nullable": true,
+          "type": "large_binary"
+        },
+        {
+          "name": "path",
+          "nullable": true,
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "sample_rate",
+      "nullable": true,
+      "type": "int32"
+    },
+    {
+      "name": "channels",
+      "nullable": true,
+      "type": "int16"
+    },
+    {
+      "name": "num_frames",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "duration_seconds",
+      "nullable": true,
+      "type": "double"
+    },
+    {
+      "name": "segment_start_frame",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "segment_end_frame",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "text_variants",
+      "nullable": true,
+      "type": "list",
+      "item": {
+        "type": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "nullable": true,
+            "type": "string"
+          },
+          {
+            "name": "text",
+            "nullable": true,
+            "type": "string"
+          },
+          {
+            "name": "language",
+            "nullable": true,
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ],
+  "view": [
+    {
+      "name": "view_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "view_revision",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "view_run_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "source_view_key",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "view_kind",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "parent_sample_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "parent_audio_sha256",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "timeline_profile_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text_kind",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "language",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "speaker_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "speaker_scope",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "recording_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "group_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "parent_view_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "metadata_json",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "start_frame",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "end_frame",
+      "nullable": true,
+      "type": "int64"
+    }
+  ],
+  "annotation_targets": [
+    {
+      "name": "target_kind",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "target_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "input_fingerprint",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "status",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "error_code",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "item_count",
+      "nullable": true,
+      "type": "int64"
+    }
+  ],
+  "quality_example": {
+    "type": "struct",
+    "fields": [
+      {
+        "name": "status",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "input_fingerprint",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "error_code",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "result",
+        "nullable": true,
+        "type": "struct",
+        "fields": [
+          {
+            "name": "score",
+            "nullable": true,
+            "type": "double"
+          }
+        ]
+      }
+    ]
+  },
+  "codec_example": {
+    "example_only": true,
+    "note": "K=2 is a storage example, not the selected Qwen tokenizer layout",
+    "fields": [
+      {
+        "name": "target_kind",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "target_id",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "feature_key",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "input_fingerprint",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "profile_id",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "audio_sha256",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "timeline_profile_id",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "status",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "error_code",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "codes_sha256",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "start_frame",
+        "nullable": true,
+        "type": "int64"
+      },
+      {
+        "name": "end_frame",
+        "nullable": true,
+        "type": "int64"
+      },
+      {
+        "name": "num_codec_frames",
+        "nullable": true,
+        "type": "int64"
+      },
+      {
+        "name": "num_codebooks",
+        "nullable": true,
+        "type": "int32"
+      },
+      {
+        "name": "codes",
+        "nullable": true,
+        "type": "list",
+        "item": {
+          "type": "list",
+          "item": {
+            "type": "int16"
+          },
+          "size": 2
+        }
+      }
+    ]
+  }
+}

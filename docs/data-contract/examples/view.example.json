@@ -1,0 +1,23 @@
+{
+  "example_only": true,
+  "runnable": false,
+  "view_id": "<view hash>",
+  "view_revision": "<revision hash>",
+  "view_run_id": "run_001",
+  "source_view_key": "source_segment_001",
+  "view_kind": "utterance",
+  "parent_sample_id": "<carrier ID>",
+  "parent_audio_sha256": "<carrier bytes SHA256>",
+  "timeline_profile_id": "<verified timeline profile SHA256>",
+  "start_frame": 0,
+  "end_frame": 1600,
+  "text": "这是一条示例。",
+  "text_kind": "human_transcript",
+  "language": "zh",
+  "speaker_id": "example:recording_001:S1",
+  "speaker_scope": "recording",
+  "recording_id": "example:recording_001",
+  "group_id": "example:recording_001",
+  "parent_view_id": null,
+  "metadata_json": "{}"
+}

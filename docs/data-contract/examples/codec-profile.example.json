@@ -1,0 +1,23 @@
+{
+  "example_only": true,
+  "runnable": false,
+  "kind": "audio_codec",
+  "architecture": "Qwen3-TTS tokenizer (select exact variant)",
+  "weights_sha256": null,
+  "implementation_revision": null,
+  "timeline_profile_id": null,
+  "sample_rate": null,
+  "channel_policy": null,
+  "resampling": null,
+  "normalization": null,
+  "chunking": null,
+  "axes": [
+    "time",
+    "codebook"
+  ],
+  "num_codebooks": null,
+  "vocab_sizes": null,
+  "storage_dtype": null,
+  "encoder_precision": null,
+  "note": "Null fields must be resolved and verified before computing a production profile_id."
+}

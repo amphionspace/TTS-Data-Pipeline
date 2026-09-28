@@ -1,0 +1,36 @@
+{
+  "example_only": true,
+  "representation": "JSON projection; bytes redacted; hashes refer to the original synthetic record",
+  "record": {
+    "schema_version": "v0.1",
+    "sample_id": "cd8a07045156ec4c75c68cd77e34cd543c71dd7e822be773211017be3f7a504c",
+    "record_revision": "3517e9a25da881717fa4a56179d79bb88f49f7b60bd0319bf8e7e8f9e721ec69",
+    "dataset_id": "example_synthetic",
+    "source_snapshot": "source-file-v1:sha256:7fc719c8b9ef7f9a5d861e5dc0c06368ff8151492dd74124973be39b1cbe2ef8",
+    "source_key": "tone_001",
+    "source_config": null,
+    "source_split": "train",
+    "source_locator_json": "{\"path\": \"tone.wav\", \"root\": \"example\"}",
+    "recording_id": null,
+    "group_id": null,
+    "parent_sample_id": null,
+    "audio_sha256": "2976da01e205a110c9fa41d47659e238a5c6d3c3f3137582f2949853faa201dd",
+    "text": null,
+    "text_kind": null,
+    "language": null,
+    "speaker_id": null,
+    "speaker_scope": null,
+    "metadata_json": "{\"asset_kind\": \"synthetic_tone\", \"example_only\": true}",
+    "audio": {
+      "bytes": "<binary omitted: 3244 bytes>",
+      "path": "tone.wav"
+    },
+    "sample_rate": 16000,
+    "channels": 1,
+    "num_frames": 1600,
+    "duration_seconds": 0.1,
+    "segment_start_frame": null,
+    "segment_end_frame": null,
+    "text_variants": []
+  }
+}

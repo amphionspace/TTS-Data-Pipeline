@@ -1,0 +1,8 @@
+pylance==12.0.0
+pyarrow>=19
+soundfile>=0.13
+numpy>=2
+PyYAML>=6
+py7zr>=1.1.3,<2
+pytest>=8
+ruff>=0.11

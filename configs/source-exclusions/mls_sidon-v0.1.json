@@ -1,0 +1,12 @@
+{
+  "dataset_id": "mls_sidon",
+  "release_id": "v0.1",
+  "files": [
+    {
+      "path": "english/00128-of-00128/train-00000.tar.gz",
+      "bytes": 67010560,
+      "sha256": "8081d95d30063cef6c26fcfcb37b9bbe649461728557a9ce1ec9e7b6928d41bb",
+      "reason": "Upstream object is truncated as gzip/tar; local size and SHA256 match Hugging Face LFS. User approved excluding this entire archive."
+    }
+  ]
+}

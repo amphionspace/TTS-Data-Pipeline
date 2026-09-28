@@ -1,0 +1,33 @@
+{
+  "example_only": true,
+  "runnable": false,
+  "target_kind": "sample",
+  "target_id": "<sample ID>",
+  "feature_key": "<feature SHA256>",
+  "input_fingerprint": "<input SHA256>",
+  "profile_id": "<complete profile SHA256>",
+  "audio_sha256": "<audio SHA256>",
+  "timeline_profile_id": "<timeline SHA256>",
+  "start_frame": 0,
+  "end_frame": 1600,
+  "status": "ok",
+  "error_code": null,
+  "num_codec_frames": 3,
+  "num_codebooks": 2,
+  "codes": [
+    [
+      1,
+      2
+    ],
+    [
+      3,
+      4
+    ],
+    [
+      5,
+      6
+    ]
+  ],
+  "codes_sha256": "<canonical header + newline + int16 LE payload SHA256>",
+  "note": "Synthetic K=2 array only; not a Qwen codec inference result or configuration."
+}

@@ -1,0 +1,18 @@
+{
+  "dataset_id": "galgame",
+  "release_id": "v0.1",
+  "files": [],
+  "records": [
+    {
+      "path": "Lump_of_Sugar_Kodomo_no_Asobi/train-00002-of-00003.parquet",
+      "row": 219,
+      "audio_ID": "mit_b001073__Lump_of_Sugar_Kodomo_no_Asobi",
+      "audio_sha256": "4594c2cbb07ea69942aec91ad0aaa627d83ac656b3832a0c513c9244c69af00a",
+      "bytes": 377177745,
+      "sha256": "30cf262e6dc478847f83c130334dc56da65e7d8fef1a1b415144a1b200caccd6",
+      "audio_bytes": 3759,
+      "condition": "zero_decoded_frames",
+      "reason": "Source OGG has zero header frames and decodes to zero frames; verified in failed batch-00065."
+    }
+  ]
+}
