@@ -29,7 +29,7 @@ def test_archive_cache_can_migrate_threads_without_losing_spooled_pairs():
         assert store.count == 2
 
 
-def corpus(tmp_path):
+def corpus(tmp_path, bad_audio=None, condition="zero_decoded_frames"):
     import hashlib
 
     root = tmp_path / "raw"
@@ -41,7 +41,7 @@ def corpus(tmp_path):
         sf.write(buffer, np.zeros(frames), 16000, format="WAV")
         return buffer.getvalue()
 
-    good, bad = wav(1600), wav(0)
+    good, bad = wav(1600), wav(0) if bad_audio is None else bad_audio
     rows = [
         {"audio": {"bytes": data, "path": f"{i}.wav"}, "audio_ID": str(i), "text": "hello"}
         for i, data in enumerate([good, bad, good])
@@ -56,8 +56,8 @@ def corpus(tmp_path):
         "audio_bytes": len(bad),
         "audio_sha256": hashlib.sha256(bad).hexdigest(),
         "audio_ID": "1",
-        "condition": "zero_decoded_frames",
-        "reason": "fixture exact empty record",
+        "condition": condition,
+        "reason": "fixture exact rejected record",
     }
     policy = tmp_path / "policy.json"
     policy.write_text(
@@ -66,6 +66,68 @@ def corpus(tmp_path):
         )
     )
     return root, source, rejected, policy
+
+
+def malformed_opus():
+    """Valid Opus packets and OGG CRC, but EOS granule exceeds available samples."""
+    import struct
+
+    buffer = io.BytesIO()
+    sf.write(buffer, np.zeros(4800), 48000, format="OGG", subtype="OPUS")
+    data = bytearray(buffer.getvalue())
+    offset = 0
+    while offset < len(data):
+        segments = data[offset + 26]
+        length = 27 + segments + sum(data[offset + 27 : offset + 27 + segments])
+        if data[offset + 5] & 4:
+            struct.pack_into("<q", data, offset + 6, 10_000_000)
+            data[offset + 22 : offset + 26] = b"\x00" * 4
+            crc = 0
+            for byte in data[offset : offset + length]:
+                crc ^= byte << 24
+                for _ in range(8):
+                    crc = ((crc << 1) ^ (0x04C11DB7 if crc & 0x80000000 else 0)) & 0xFFFFFFFF
+            struct.pack_into("<I", data, offset + 22, crc)
+        offset += length
+    return bytes(data)
+
+
+def test_exact_malformed_record_rejection_preserves_neighbors_and_accounts_for_rows(tmp_path):
+    root, source, rejected, policy = corpus(tmp_path, malformed_opus(), "sndfile_malformed")
+    with pytest.raises(sf.LibsndfileError) as error:
+        convert("galgame", root, tmp_path / "unfiltered")
+    assert error.value.code == 3
+    result = bulk_convert("galgame", root, tmp_path / "filtered", workers=1, exclusions_path=policy)
+    assert result["rows"] == 2 and result["rejected_rows"] == 1
+    assert result["excluded_source_records"] == [rejected]
+    assert result["inputs"][0]["rows"] == 3
+    rows = release_dataset(tmp_path / "filtered").to_table().to_pylist()
+    assert {r["source_key"] for r in rows} == {"game/part.parquet#row=0", "game/part.parquet#row=2"}
+    assert file_hash(source) == rejected["sha256"]
+    with pytest.raises(ValueError, match="Excluded record changed"):
+        convert("galgame", root, tmp_path / "wrong", record_exclusions=[{**rejected, "row": 0}])
+
+
+def test_malformed_policy_does_not_hide_other_errors_or_readable_audio():
+    import hashlib
+
+    from tts_data_pipeline.source_exclusions import verify_excluded_row
+
+    buffer = io.BytesIO()
+    sf.write(buffer, np.zeros(100), 16000, format="WAV")
+    for data, message in [
+        (b"not audio", "different decoder error"),
+        (buffer.getvalue(), "no longer rejected as malformed"),
+    ]:
+        row = {"audio_ID": "fixture", "audio": {"bytes": data}}
+        item = {
+            "audio_ID": "fixture",
+            "audio_bytes": len(data),
+            "audio_sha256": hashlib.sha256(data).hexdigest(),
+            "condition": "sndfile_malformed",
+        }
+        with pytest.raises(ValueError, match=message):
+            verify_excluded_row(row, item)
 
 
 def test_exact_empty_record_exclusion_accounts_for_footer_without_renumbering(tmp_path):

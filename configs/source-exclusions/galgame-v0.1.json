@@ -4,6 +4,28 @@
   "files": [],
   "records": [
     {
+      "path": "ALcot_Clover_Day_s/train-00000-of-00003.parquet",
+      "row": 3860,
+      "audio_ID": "0050504__ALcot_Clover_Day_s",
+      "audio_bytes": 4193,
+      "audio_sha256": "86700afafcf2a0112f9183d7e5d7412931c05fd3f086ce89e117ed976881e1c0",
+      "bytes": 375918185,
+      "sha256": "dee7b6c58001769d9d5d766df0f43a4cf5cf5a3c1838ac0f35674e35f5aa565d",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed Opus container has an end granule one sample beyond its decodable packet total; libsndfile 1.2.2 rejects opening with SF_ERR_MALFORMED_FILE (3). Full failed-batch header scan: 77414 rows, exactly two such records."
+    },
+    {
+      "path": "ALcot_Clover_Day_s/train-00001-of-00003.parquet",
+      "row": 7277,
+      "audio_ID": "0041491__ALcot_Clover_Day_s",
+      "audio_bytes": 7176,
+      "audio_sha256": "e552b9cae1b8fb7688b300a42a5a0e87027c47c2912a425c501e8fd9f51a7160",
+      "bytes": 408545801,
+      "sha256": "9c5841f0fb90d3db22c746b2183db2ef582543c4f3d0302a7e437e49de4b0708",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed Opus container has an end granule one sample beyond its decodable packet total; libsndfile 1.2.2 rejects opening with SF_ERR_MALFORMED_FILE (3). Full failed-batch header scan: 77414 rows, exactly two such records."
+    },
+    {
       "path": "Lump_of_Sugar_Kodomo_no_Asobi/train-00002-of-00003.parquet",
       "row": 219,
       "audio_ID": "mit_b001073__Lump_of_Sugar_Kodomo_no_Asobi",

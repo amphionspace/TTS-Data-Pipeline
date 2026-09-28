@@ -82,7 +82,7 @@ CLI 也支持 aishell3、ljspeech、vctk、hifitts、wenetspeech4tts、genshin_v
 
 ## 本次修复后的恢复
 
-Galgame 启动/恢复必须带 `--exclusions configs/source-exclusions/galgame-v0.1.json`，仅排除已核实的单条零帧音频。
+Galgame 启动/恢复必须带 `--exclusions configs/source-exclusions/galgame-v0.1.json`，仅排除已逐条核实并固定源文件、行号与音频哈希的零帧或容器格式错误音频。
 各任务实际启动命令和代码快照位置以 reports/current-conversion/launch.json 为准；
 仍使用旧代码快照的任务不能直接从修改后的工作源码恢复。
 常规 resume 继续严格核对代码；单次已审核的兼容迁移在计划与发布 manifest 中保留完整旧/新版本证据。

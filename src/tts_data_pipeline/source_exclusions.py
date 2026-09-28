@@ -1,4 +1,4 @@
-"""Explicit, content-pinned rejection of individual zero-frame Parquet records."""
+"""Explicit, content-pinned rejection of individually reviewed Parquet records."""
 
 import hashlib
 import io
@@ -27,7 +27,7 @@ def validate_record_exclusions(dataset, records):
                 raise ValueError("Record exclusion requires full SHA256 digests")
         if item["bytes"] <= 0 or item["audio_bytes"] <= 0 or not item["audio_ID"]:
             raise ValueError("Record exclusion requires source sizes and original audio ID")
-        if item["condition"] != "zero_decoded_frames":
+        if item["condition"] not in {"zero_decoded_frames", "sndfile_malformed"}:
             raise ValueError("Unsupported record exclusion condition")
 
 
@@ -39,6 +39,18 @@ def verify_excluded_row(row, item):
         or hashlib.sha256(data).hexdigest() != item["audio_sha256"]
     ):
         raise ValueError("Excluded record changed; review policy")
+    if item["condition"] == "sndfile_malformed":
+        try:
+            with sf.SoundFile(io.BytesIO(data)):
+                pass
+        except sf.LibsndfileError as exc:
+            # SF_ERR_MALFORMED_FILE; other decoder errors must still fail.
+            if exc.code != 3:
+                raise ValueError("Excluded record has a different decoder error") from exc
+            return
+        raise ValueError("Excluded record is no longer rejected as malformed")
+    if item["condition"] != "zero_decoded_frames":
+        raise ValueError("Unsupported record exclusion condition")
     with sf.SoundFile(io.BytesIO(data)) as audio:
         if audio.frames != 0 or len(audio.read(1)) != 0:
             raise ValueError("Excluded record is no longer zero-frame audio")
