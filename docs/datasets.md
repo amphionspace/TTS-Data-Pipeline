@@ -4,7 +4,8 @@
 目前实现 13 个适配器（下表 ✓），新增九个的真实小样本已验证，尚未整库转换。
 写入后端为 Lance，release 固定 v0.1；旧产物已清理，全量转换已启动，进度以状态脚本为准。
 最新来源复核见 [LibriHeavy / MLS 核查](design-review/libriheavy-mls-check.md)。
-Emilia / Emilia-YODAS 已完成本地接入前核查，尚未实现 adapter；见 [本地核查](design-review/emilia-local-check.md)。
+Emilia / Emilia-YODAS 的 adapter 已在 `feat/emilia-conversion` 工作树实现，入口为
+`reports/runtime/emilia-conversion/scripts/tts_data.py`；主工作树源码仍供原有任务使用，保持冻结。见 [本地核查](design-review/emilia-local-check.md)。
 其他适配器按接入优先级逐一补齐，
 不创建看起来可运行的空实现。转换不能依赖源数据中旧机器的绝对路径。
 
