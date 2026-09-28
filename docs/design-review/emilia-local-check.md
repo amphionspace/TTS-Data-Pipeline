@@ -124,3 +124,14 @@ DNSMOS、phone_count、源 duration 及所有其他原 JSON 字段完整保留�
 各使用 64 workers，1 GiB Lance 文件目标、4 GiB 输入调度组；运行日志与实际命令在
 pipeline 的 reports/current-conversion。启动入口固定在独立 emilia-conversion 工作树，
 不修改其他运行任务的源码或重启它们。manifest 在全部验证和索引完成后才正式发布。
+
+## 本次启动记录
+
+96 项测试通过，Ruff 检查与格式检查通过，21 份 contract 与 unified 部署副本完全一致。
+真实完整小包：Emilia FR-B000022 为 273 条，Emilia-YODAS ZH-B000008 为 2,410 条，
+均完成完整配对、结束块检查、来源 SHA256、deep 解码与 Lance 写后回读；另有 12 组
+（两来源 × 六语言）各 8 条预览完成解码与原 bytes 回读。解码器警告的限制见上文。
+
+2026-09-28 已启动两来源全量：Emilia 2,360 包 / 719 调度批次，
+Emilia-YODAS 1,983 包 / 608 调度批次，各 64 workers，standard 验证。
+新任务为独立转换，没有重启现有数据集。当前进度以 status 和日志为准，不把启动当作发布完成。
