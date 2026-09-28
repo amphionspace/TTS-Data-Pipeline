@@ -86,3 +86,10 @@ Galgame 启动/恢复必须带 `--exclusions configs/source-exclusions/galgame-v
 各任务实际启动命令和代码快照位置以 reports/current-conversion/launch.json 为准；
 仍使用旧代码快照的任务不能直接从修改后的工作源码恢复。
 常规 resume 继续严格核对代码；单次已审核的兼容迁移在计划与发布 manifest 中保留完整旧/新版本证据。
+
+## Wenet 缺失转写修复入口
+
+本次恢复固定使用 `reports/runtime/wenet-pairing/scripts/tts_data.py`，
+并传入该工作树的 `configs/source-exclusions/wenetspeech4tts-v0.1.json`。
+仅排除已完整核实的一条缺失转写，保留其他记录；主工作树源码仍有旧任务使用，保持冻结。
+实际命令以 reports/current-conversion/launch.json 为准。
