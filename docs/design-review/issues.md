@@ -118,13 +118,13 @@ fix/galgame-malformed-audio；Galgame 恢复使用此版本，其他任务保持
 
 ## Galgame / LibriHeavy 精确拒收修复（2026-09-28）
 
-已完整扫描三个失败批次的 28 个 Parquet 文件：Galgame 76,384 行、LibriHeavy 68,310 行。
+已完整扫描四个失败批次的 37 个 Parquet 文件：Galgame 76,384 行、LibriHeavy 102,917 行。
 Galgame 的 Windmill_Hatsukoi_Sankaime 两片混入 1,338 条 `.tag` 数据（24–96 bytes），
-不具备可识别音频头；LibriHeavy large 两片有 26 条只有 OpusHead/OpusTags、没有音频包的记录。
+不具备可识别音频头；LibriHeavy large 三片有 27 条只有 OpusHead/OpusTags、没有音频包的记录。
 这些记录按源文件 SHA256、原行号、上游 ID 和音频 SHA256 固定在各 dataset 的排除清单。
-Galgame 累计排除 1,341 条（包含先前 3 条），LibriHeavy 排除 26 条。
+Galgame 累计排除 1,341 条（包含先前 3 条），LibriHeavy 排除 27 条。
 
-四个受影响源文件逐条通过 adapter/schema 验证：25,679 条保留、1,364 条拒收；
+五个受影响源文件逐条通过 adapter/schema 验证：29,523 条保留、1,365 条拒收；
 所有保留行的原始位置均与源文件一致。79 项测试与 Ruff 检查通过。
 未知错误仍失败；不修改原始 bytes，不自动扩大排除范围。contract/schema/release 保持 v0.1。
 运行任务通过显式代码迁移复用原 checkpoint，实际旧代码哈希保留，恢复时逐片复核哈希。

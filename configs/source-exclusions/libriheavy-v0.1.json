@@ -288,6 +288,17 @@
       "sha256": "888a1b7217701dde63b74ad5ac5338cb0b8e3a0a18548425f057d0c3220c0f5f",
       "condition": "sndfile_malformed",
       "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
+    },
+    {
+      "path": "default/large/shard-00011-of-0020/large-00128-of-00145.parquet",
+      "row": 1431,
+      "id": "large/5717/inside_earth_1603_librivox_64kb_mp3/insideearth_05_anderson_64kb_54",
+      "audio_bytes": 246,
+      "audio_sha256": "94a7b8c7b00898cef6d9dc200e4965c17c9c845312e5e19bade069e40f2a2f16",
+      "bytes": 456020956,
+      "sha256": "0d1721a5188acb9721ea4f85d0f4f9073e7877e294b3714099370be16b257091",
+      "condition": "sndfile_malformed",
+      "reason": "Reviewed OGG contains only OpusHead and OpusTags, with zero audio packets; libsndfile 1.2.2 reports SF_ERR_MALFORMED_FILE (3)."
     }
   ]
 }
