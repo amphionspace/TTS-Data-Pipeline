@@ -1,0 +1,27 @@
+{
+  "example_only": true,
+  "runnable": false,
+  "target_kind": "sample",
+  "target_id": "<sample ID>",
+  "parent_sample_id": "<sample ID>",
+  "feature_key": "<feature SHA256>",
+  "input_fingerprint": "<input SHA256>",
+  "profile_id": "<complete profile SHA256>",
+  "audio_sha256": "<audio SHA256>",
+  "timeline_profile_id": "<timeline SHA256>",
+  "start_frame": 0,
+  "end_frame": 1600,
+  "native_sample_rate": 16000,
+  "encoder_input_num_frames": 2400,
+  "encoder_input_sha256": "<canonical float32 effective waveform SHA256>",
+  "status": "ok",
+  "error_code": null,
+  "embedding_dim": 3,
+  "embedding": [
+    0.125,
+    -0.25,
+    0.5
+  ],
+  "embedding_sha256": "<canonical float32 vector SHA256>",
+  "note": "Synthetic D=3 storage example, not a real Qwen speaker embedding or dimension."
+}

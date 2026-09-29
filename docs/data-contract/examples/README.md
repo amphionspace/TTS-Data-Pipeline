@@ -8,8 +8,14 @@
 | quality.example.json | 同一主表的 missing / failed / ok / 0 分区分 |
 | annotation-manifest.example.json | 列内质量 run 的 manifest、snapshot 与覆盖统计 |
 | view.example.json | 原生帧区间、父音频与 speaker 范围 |
-| codec-profile.example.json | 必须填全并验证才能生成 profile_id 的模板 |
+| codec-profile.example.json | Qwen 12Hz 候选模板，必须填全并验证；只对 profile 对象生成 ID |
 | codec-row.example.json | [time,codebook] 整数数组；K=2 仅用于说明 |
+| speaker-profile.example.json | 冻结 ECAPA 候选；实际维度、权重和 frontend 待核验 |
+| speaker-row.example.json | D=3 的合成向量存储示例 |
+| feature-manifest.example.json | codec run 的固定输入/快照/完整终态记账示例 |
+| feature-subset-manifest.example.json | 一个父 sample、100 个 views 中选择两个的 run；绑定 targets 表 |
+| feature-targets.example.json | 上述子集的真实合成 ID 和目标集合摘要输入 |
+| training-modes.example.json | 冻结/在线、speaker-only/ICL 和 self 的条件字段投影 |
 | training-recipe.example.yaml | 固定所有来源 snapshot、质量策略、codec 和采样的模板 |
 
 manifest 的整数 snapshot 只是例子，不表示生产已提交。质量分数与 codes 是示意值，不能作为真实模型输出。

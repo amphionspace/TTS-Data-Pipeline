@@ -28,11 +28,16 @@ quality:
 codec_profile_id: null
 text_tokenizer_profile_id: null
 speaker_feature_profile_id: null
+speaker_conditioning_mode: frozen_embedding # Or online_speaker_encoder after unfreezing.
+speaker_frontend_profile: null # Required complete definition for the online path.
+speaker_encoder_trainable: false # May be true only on the online path.
+reference_policy: other_same_speaker # self must be explicitly requested by a recipe.
+require_reference_codec: false # Depends on speaker-only vs ICL model protocol.
 reference_pairing:
   require_confirmed_same_speaker: true
   allow_same_segment: false
   allow_time_overlap: false
-  reference_count: null
+  reference_count: 1
 sampling:
   seed: null
   unit: null # utterance or duration
@@ -45,6 +50,9 @@ sampling:
 evaluation:
   policy: null # group isolation or explicit no_holdout
 model_protocol:
+  conditioning: speaker_only # icl requires reference codes.
+  uses_speaker_conditioning: true
+  requires_reference_text: false
   version: null
   maximum_context: null
   padding_and_loss_mask: null

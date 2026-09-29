@@ -1,0 +1,191 @@
+{
+  "example_only": true,
+  "runnable": false,
+  "contract_version": "v0.1",
+  "artifact_kind": "feature",
+  "kind": "codec",
+  "status": "complete",
+  "dataset_id": "example_synthetic",
+  "release_id": "v0.1",
+  "run_id": "synthetic_view_subset_001",
+  "target_kind": "view",
+  "profile_id": "<verified complete profile SHA256>",
+  "profile": {
+    "kind": "audio_codec",
+    "architecture": "Qwen3-TTS-Tokenizer-12Hz",
+    "model": {
+      "repo_id": "Qwen/Qwen3-TTS-Tokenizer-12Hz",
+      "revision": "7dd38ad4e9bad454aae9cd937d0cd577604fe229",
+      "config_sha256": null,
+      "weights": null
+    },
+    "implementation": {
+      "code_sha256": null,
+      "qwen_tts_version": "0.1.1",
+      "dependencies_sha256": null
+    },
+    "timeline_profile_id": null,
+    "timeline": {
+      "decoder": "soundfile",
+      "soundfile_version": "0.13.1",
+      "libsndfile_version": null,
+      "output_rate": "native",
+      "output_channels": "native",
+      "dtype": "float32",
+      "length_policy": "exact_match_base_frames",
+      "implicit_pad_or_trim": "none"
+    },
+    "waveform": {
+      "order": [
+        "decode_native",
+        "crop_native",
+        "mix_channels",
+        "resample"
+      ],
+      "channel_policy": "arithmetic_mean_float32",
+      "sample_rate": 24000,
+      "resampling": {
+        "implementation": "scipy.signal.resample_poly",
+        "version": "1.15.3",
+        "up_down": "reduce_by_gcd",
+        "window": [
+          "kaiser",
+          5.0
+        ],
+        "padtype": "constant",
+        "cval": 0.0,
+        "length": "ceil(native_crop_frames * 24000 / native_sample_rate)",
+        "same_rate": "identity"
+      },
+      "normalization": "none",
+      "silence_trim": "none",
+      "augmentation": "none"
+    },
+    "inference": {
+      "eval": true,
+      "precision": "float32",
+      "autocast": false,
+      "tf32": false,
+      "randomness": "none",
+      "batch_semantics": "per_target_independent",
+      "padding_and_valid_lengths": null,
+      "chunking": "none"
+    },
+    "output": {
+      "axes": [
+        "time",
+        "codebook"
+      ],
+      "num_codebooks": 16,
+      "vocab_sizes": [
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048,
+        2048
+      ],
+      "storage_dtype": "int16",
+      "special_tokens": "none",
+      "length_rule": null
+    },
+    "reproducibility": {
+      "comparator": "exact_integer"
+    }
+  },
+  "storage_format": "lance",
+  "storage_kind": "result_table",
+  "storage_version": "2.2",
+  "schema_version": "v0.1",
+  "schema_sha256": "<codec_schema(16,int16) descriptor SHA256>",
+  "table_path": "features/codec/<profile_id>/synthetic_view_subset_001/features.lance",
+  "lance_version": 2,
+  "rows": 2,
+  "selection": {
+    "mode": "subset",
+    "input_alias": "views",
+    "available_target_rows": 100,
+    "target_count": 2,
+    "target_set_sha256": "90b7f9bf342dcd5b07b972b4f1a8828c505b7f25ec5427bf8fd7c6ce13f0f885",
+    "table": {
+      "table_path": "features/codec/<profile_id>/synthetic_view_subset_001/targets.lance",
+      "lance_version": 2,
+      "schema_sha256": "be6b6b7ee55f8084b2b33c9a155e67fe63d9202b71e1d1c23ec334f143aba8de",
+      "rows": 2
+    }
+  },
+  "inputs": [
+    {
+      "alias": "base",
+      "artifact_kind": "base",
+      "manifest_path": "datasets/example_synthetic/v0.1/manifest.json",
+      "manifest_sha256": "<base manifest SHA256>",
+      "table_path": "datasets/example_synthetic/v0.1/samples.lance",
+      "lance_version": 2
+    },
+    {
+      "alias": "views",
+      "artifact_kind": "view",
+      "manifest_path": "datasets/example_synthetic/v0.1/views/synthetic_views/manifest.json",
+      "manifest_sha256": "<view manifest SHA256>",
+      "table_path": "datasets/example_synthetic/v0.1/views/synthetic_views/views.lance",
+      "lance_version": 3
+    }
+  ],
+  "coverage": {
+    "total_targets": 2,
+    "ok": 2,
+    "failed": 0,
+    "unsupported": 0,
+    "skipped": 0,
+    "missing": 0
+  },
+  "error_counts": {},
+  "output": {
+    "axes": [
+      "time",
+      "codebook"
+    ],
+    "num_codebooks": 16,
+    "storage_dtype": "int16",
+    "padding_stored": false
+  },
+  "validation": {
+    "unique_targets": 2,
+    "orphan_targets": 0,
+    "selected_target_set_matches": true,
+    "parent_references_checked": 2,
+    "fingerprints_checked": 2,
+    "successful_payload_hashes_checked": 2,
+    "same_key_payload_conflicts": 0,
+    "recomputed_candidates_checked": 0,
+    "equivalent_candidates_retained_canonical": 0,
+    "limitation": "Synthetic example: one parent, 100 available views, two selected views; no model inference executed."
+  },
+  "execution": {
+    "code_sha256": "<feature executor source digest>",
+    "dependencies_sha256": "<locked environment digest>",
+    "gpu_models": [
+      "<actual GPU>"
+    ],
+    "gpu_count": 1,
+    "cpu_workers": 8,
+    "encoder_batch_size": 16,
+    "scratch_policy": "local_TMPDIR",
+    "batch_equivalence_report_sha256": "<validation report SHA256>",
+    "canonical_result_policy": "first_validated_durable_commit_per_feature_key"
+  },
+  "finished_at": "2026-09-29T00:00:00+00:00",
+  "note": "Non-runnable synthetic view subset. Selection rows are in feature-targets.example.json; targets and features publish together.",
+  "parent_sample_rows": 1
+}

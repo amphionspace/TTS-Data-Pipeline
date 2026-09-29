@@ -29,5 +29,9 @@
     ]
   ],
   "codes_sha256": "<canonical header + newline + int16 LE payload SHA256>",
-  "note": "Synthetic K=2 array only; not a Qwen codec inference result or configuration."
+  "note": "Synthetic K=2 array only; not a Qwen codec inference result or configuration.",
+  "parent_sample_id": "<sample ID>",
+  "native_sample_rate": 16000,
+  "encoder_input_num_frames": 2400,
+  "encoder_input_sha256": "<canonical float32 effective waveform SHA256>"
 }

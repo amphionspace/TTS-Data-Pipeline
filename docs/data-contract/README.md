@@ -18,11 +18,12 @@
 | [03 身份与版本](specs/03-identity.md) | 来源身份、内容指纹、Lance snapshot、失效与复现 |
 | [04 视图与时间轴](specs/04-views-timelines.md) | 长录音、片段、对话、说话人范围、坐标 |
 | [05 标注与质量](specs/05-annotations.md) | 一对一列扩展、一对多结果表、缺分数、提交与索引 |
-| [06 Codec 与特征](specs/06-codecs.md) | 多 tokenizer/profile、数组结构、缓存与训练 token 空间 |
+| [06 Codec 与特征](specs/06-codecs.md) | 公共特征身份、codec 数组、多 profile、生成/恢复/索引与覆盖验收 |
 | [07 训练构建](specs/07-training-builds.md) | 固定输入、参考配对、筛选、采样、分布式读取 |
 | [08 接入与验收](specs/08-ingestion-validation.md) | adapter、完整性、全量回读、失败与断点恢复 |
 | [09 Lance 操作](specs/09-lance-operations.md) | 查询、索引、并发写、快照保留与清理 |
 | [10 Manifest 与兼容性](specs/10-manifests.md) | 发布清单、版本固定、schema 与 profile 演进 |
+| [11 Speaker embedding](specs/11-speaker-embeddings.md) | 逐片段 embedding、冻结/在线 encoder、参考配对；不强制保存 mel |
 | [类型描述](schemas/arrow-schemas.json) | 与 Python schema 一起生成的 Arrow 类型树 |
 | [示例](examples/README.md) | 仅用于理解约定，示例分数与 codes 不是模型结果 |
 

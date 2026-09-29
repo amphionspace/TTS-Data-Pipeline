@@ -46,12 +46,20 @@ batch_manifests 仅是执行审计摘要，不能成为读取发布的必要依�
 ## Run 与 build 额外字段
 
 run 固定 task、run_id、target_kind、profile_id/profile、输入依赖与 schema、覆盖数、各 status 数、未运行数。
-rows 对 sample_column 表示非 null 结果数，table_rows 表示所引用 samples snapshot 的总行数。
-coverage.total_targets 表示该 run 声明的任务范围大小，必须 ≤ table_rows；范围外行和范围内未运行行均不写结果，
+仅对 storage_kind=sample_column：rows 表示非 null 结果数，table_rows 表示所引用 samples snapshot 的总行数。
+这类 run 的 coverage.total_targets 表示声明的任务范围大小，必须 ≤ table_rows；范围外行和范围内未运行行均不写结果，
 两者通过 manifest 固定的 selection 或选择表区分。coverage 的各状态加 missing 等于 total_targets。
 独立一对一结果表 rows 是物理结果行数；一对多 rows 是事件数，并另记 target_rows 和目标状态统计。
 每个任务定义 result 类型/指标范围。manifest 的 snapshot/column 是结果位置，run_id 不是查询 latest 的别名。
-feature 固定 kind、profile、codes 形状/dtype/轴/哈希序列化以及成功/失败数量。
+feature 固定 kind、完整 profile、target_kind、输出形状/dtype/轴/数组哈希序列化以及全部终态数量。
+codec 的 codes 与 speaker 的 embedding 分别按 06/11 定义；profile hash 只覆盖完整 profile 对象。
+feature 不继承 sample_column 的 table_rows 上限。输入别名和 selection 固定生成范围，具体字段见 06 第 8 节。
+selection.available_target_rows 是目标 samples 或 views 快照的行数；可选 parent_sample_rows 仅为审计统计。
+subset 的 targets.lance 由同一 run manifest 的 selection.table 固定路径、snapshot、schema 摘要和行数，随 run 发布并保留。
+feature 发布必须 rows = selection.target_count = coverage.total_targets = ok + failed + unsupported + skipped，missing=0。
+完整终态记账仍可包含失败，训练只用所需特征均为 ok 的记录。
+execution 记录实际软硬件、CPU/GPU 并发和 batch 参数，validation 记录逐项覆盖数与边界；
+示例见 [feature manifest](../examples/feature-manifest.example.json)。
 build 固定 recipe 哈希、全部 inputs、storage_layout、模型输入协议、候选/排除/配对计数、时长/token 统计。
 
 ## Schema 演进

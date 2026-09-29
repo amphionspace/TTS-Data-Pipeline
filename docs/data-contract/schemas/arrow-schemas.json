@@ -299,6 +299,23 @@
       "type": "int64"
     }
   ],
+  "feature_targets": [
+    {
+      "name": "target_kind",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "target_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "parent_sample_id",
+      "nullable": false,
+      "type": "string"
+    }
+  ],
   "quality_example": {
     "type": "struct",
     "fields": [
@@ -346,6 +363,11 @@
         "type": "string"
       },
       {
+        "name": "parent_sample_id",
+        "nullable": true,
+        "type": "string"
+      },
+      {
         "name": "feature_key",
         "nullable": true,
         "type": "string"
@@ -386,12 +408,27 @@
         "type": "string"
       },
       {
+        "name": "encoder_input_sha256",
+        "nullable": true,
+        "type": "string"
+      },
+      {
         "name": "start_frame",
         "nullable": true,
         "type": "int64"
       },
       {
         "name": "end_frame",
+        "nullable": true,
+        "type": "int64"
+      },
+      {
+        "name": "native_sample_rate",
+        "nullable": true,
+        "type": "int32"
+      },
+      {
+        "name": "encoder_input_num_frames",
         "nullable": true,
         "type": "int64"
       },
@@ -416,6 +453,106 @@
           },
           "size": 2
         }
+      }
+    ]
+  },
+  "speaker_embedding_example": {
+    "example_only": true,
+    "note": "D=3 illustrates storage; actual D comes from the selected speaker encoder",
+    "fields": [
+      {
+        "name": "target_kind",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "target_id",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "parent_sample_id",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "feature_key",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "input_fingerprint",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "profile_id",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "audio_sha256",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "timeline_profile_id",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "status",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "error_code",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "encoder_input_sha256",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "embedding_sha256",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "start_frame",
+        "nullable": true,
+        "type": "int64"
+      },
+      {
+        "name": "end_frame",
+        "nullable": true,
+        "type": "int64"
+      },
+      {
+        "name": "native_sample_rate",
+        "nullable": true,
+        "type": "int32"
+      },
+      {
+        "name": "encoder_input_num_frames",
+        "nullable": true,
+        "type": "int64"
+      },
+      {
+        "name": "embedding_dim",
+        "nullable": true,
+        "type": "int32"
+      },
+      {
+        "name": "embedding",
+        "nullable": true,
+        "type": "list",
+        "item": {
+          "type": "float"
+        },
+        "size": 3
       }
     ]
   }

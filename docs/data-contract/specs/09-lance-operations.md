@@ -17,7 +17,7 @@ for batch in ds.to_batches(columns=["sample_id", "language", "duration_seconds"]
 查询 metadata/quality 时不选择 audio；查询少数样本使用 sample_id 标量索引，音频按需读取。
 批量全库任务使用顺序扫描；不要对数百万样本逐个发 SQL 查询。
 
-samples 必有 sample_id BTREE；views 有 view_id 索引；独立结果表有 target_id 索引；codec 有 target_id/feature_key 索引。
+samples 必有 sample_id BTREE；views 有 view_id 索引；独立结果表有 target_id 索引；codec/speaker embedding 有 target_id/feature_key 索引，view 特征还有 parent_sample_id 索引。
 语言、speaker、quality 等索引由实际过滤模式选择；写了索引不代表所有 filter 都会使用它，应检查执行计划。
 索引不检查唯一性、不执行外键，也不保证所有 merge 都不扫描。
 用户给定 ID 必须先验证/安全构造过滤表达式；本 contract 的 sample_id 是 64 个小写十六进制字符（256 bit）。
@@ -38,13 +38,15 @@ v0.1 基础 audio 使用 Arrow struct<bytes:large_binary,path:string>，直接�
 这是内嵌二进制列，不等于启用了 Lance 专门的 Blob 扩展 API；不能对该列直接假定 take_blobs 可用。
 大长音频如需 Blob 格式，先验证 decoder、范围读取、版本兼容和迁移方案，再显式演进 storage profile。
 不因引擎支持外部 URI 就默认依赖可能被删除的 raw 文件；发布自包含。
-codec 使用 Arrow 嵌套整数数组，读训练代码不需要加载原音频列。
+codec 使用 Arrow 嵌套整数数组；只读 codes 和缓存 embedding 时不需要加载原音频列。
+在线 speaker encoder 路径按固定快照读取所选参考音频，frontend 实时提取，不要求预先保存 mel。
 
 ## 快照保留和清理
 
 基础 manifest、标注 run、feature run 和 build 都是 snapshot 的保留根。可为这些版本创建 Lance tag，
 但 tag 只是辅助，recipe 仍保存整数 snapshot 和 manifest 哈希。
 禁止对被引用版本执行 cleanup_old_versions；只保留最新版本会破坏训练复现。
+子集 feature run 的 selection.table 引用的 targets.lance 与 features.lance 均须保留，不能将选择表视为临时文件。
 
 清理流程：枚举全部 complete manifest → 收集被引用 snapshot → 检查无并发写/未完成任务 →
 确认可回收版本 → 调用受支持的引擎清理 API → 验证仍保留的版本可读。

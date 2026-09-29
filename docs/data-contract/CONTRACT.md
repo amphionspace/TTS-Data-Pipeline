@@ -17,6 +17,8 @@ Qwen 风格 TTS 训练（模型从头初始化）
 
 原始数据、统一数据、派生结果和训练 build 各有职责。原始来源不被修改；统一音频不因训练实验重复解码存储；
 训练读取阶段不计算质量分数、不运行 codec 推理、不做全库 join。
+冻结 speaker encoder 可直接读取缓存 embedding；未来解冻则读取原音频/view，按当前 frontend 在线提取，
+不把某一种 mel 规定为统一层必备产物。参见 [Speaker 两条路径](specs/11-speaker-embeddings.md)。
 
 ## 2. 固定决定
 

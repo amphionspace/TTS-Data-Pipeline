@@ -6,9 +6,16 @@ import re
 from pathlib import Path
 
 import _bootstrap  # noqa: F401
+import pyarrow as pa
 import yaml
 
-from tts_data_pipeline.contract import contract_types
+from tts_data_pipeline.contract import contract_types, feature_targets_schema, schema_description
+from tts_data_pipeline.feature_contract import (
+    target_set_sha256,
+    validate_feature_coverage,
+    validate_speaker_mode,
+)
+from tts_data_pipeline.schema import digest
 
 
 def check(target=None):
@@ -39,6 +46,44 @@ def check(target=None):
     )
     assert example["rows"] == coverage["total_targets"] - coverage["missing"]
     assert example["table_rows"] >= coverage["total_targets"]
+    feature = json.loads((root / "examples/feature-manifest.example.json").read_text())
+    subset = json.loads((root / "examples/feature-subset-manifest.example.json").read_text())
+    for manifest in (feature, subset):
+        validate_feature_coverage(manifest)
+        assert (
+            sum(manifest["error_counts"].values()) == manifest["rows"] - manifest["coverage"]["ok"]
+        )
+        assert (
+            manifest["profile"]
+            == json.loads((root / "examples/codec-profile.example.json").read_text())["profile"]
+        )
+    targets = json.loads((root / "examples/feature-targets.example.json").read_text())["rows"]
+    assert pa.Table.from_pylist(targets, schema=feature_targets_schema()).to_pylist() == targets
+    assert len(targets) == subset["selection"]["target_count"]
+    assert target_set_sha256(targets) == subset["selection"]["target_set_sha256"]
+    assert (
+        digest(schema_description(feature_targets_schema()))
+        == subset["selection"]["table"]["schema_sha256"]
+    )
+    samples = sorted(
+        (
+            {
+                "target_kind": "sample",
+                "target_id": digest(["sample", i]),
+                "parent_sample_id": digest(["sample", i]),
+            }
+            for i in range(100)
+        ),
+        key=lambda row: row["target_id"],
+    )
+    assert target_set_sha256(samples) == feature["selection"]["target_set_sha256"]
+    modes = json.loads((root / "examples/training-modes.example.json").read_text())
+    assert modes["example_only"] and not modes["runnable"]
+    for case in modes["cases"]:
+        validate_speaker_mode(case["recipe"], case["record"])
+    for name in ("codec-profile", "speaker-profile"):
+        template = json.loads((root / f"examples/{name}.example.json").read_text())
+        assert template["example_only"] and not template["runnable"]
     if target is not None:
         expected = {p.relative_to(root) for p in files}
         deployed = {

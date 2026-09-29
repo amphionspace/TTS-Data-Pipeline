@@ -15,7 +15,8 @@ DATA-TTS-UNIFIED/
 │   │       │   └── alignment/<run_id>/{manifest.json,results.lance/,targets.lance/}
 │   │       ├── views/<run_id>/{manifest.json,views.lance/}
 │   │       └── features/
-│   │           └── codec/<profile_id>/<run_id>/{manifest.json,features.lance/}
+│   │           ├── codec/<profile_id>/<run_id>/{manifest.json,features.lance/}
+│   │           └── speaker_embedding/<profile_id>/<run_id>/{manifest.json,features.lance/}
 │   └── mls_sidon/v0.1/...
 ├── builds/<build_id>/{manifest.json,recipe.json,records.lance/}
 └── assets/<dataset_id>/<release_id>/{manifest.json,assets.lance/}
@@ -42,9 +43,13 @@ DATA-TTS-UNIFIED/
 追加标注列可使主表产生新 snapshot，但不能覆盖基础 manifest 指定的旧版本。
 来源集合增加或基础映射修正需要另一个显式批准的 release；派生任务更新只增加 run。
 
-恢复控制文件位于 `datasets/<dataset_id>/.state/v0.1/`，只包含计划、检查点、身份审计临时库与状态。
+恢复控制文件位于 `datasets/<dataset_id>/.state/v0.1/`，只包含计划、检查点与状态；身份审计临时 SQLite 放本地 TMPDIR。
 这是工作状态，不是公开数据，也不是训练依赖。stdout 日志、性能报告、问题清单保存在 pipeline 的 reports/docs。
 可以在数据集目录外另置工作状态，但必须保证程序记录实际位置；当前入口按上述默认规则。
 
 普通读取只接受 complete manifest 引用的 snapshot。不读取 incomplete、临时 batch 输出或未发布的最新版本。
 清理之前按 manifest 依赖判断可达性；整个 `.lance` 目录不是可随意清理的缓存。
+
+codec 和 speaker embedding 独立 profile/run，具体发布和工作目录见 [06](06-codecs.md)。
+子集 feature run 在 features.lance 同目录另有 targets.lance，由该 run manifest 的 selection.table 固定；全体选择无此表。
+mel 不是统一层必备产物；冻结/在线 speaker encoder 的两条路径见 [11](11-speaker-embeddings.md)。

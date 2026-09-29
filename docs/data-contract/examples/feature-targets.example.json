@@ -1,0 +1,16 @@
+{
+  "example_only": true,
+  "runnable": false,
+  "rows": [
+    {
+      "target_kind": "view",
+      "target_id": "4ef9c573388ce4fdc57fe8a182d46180f5d33b4401b98ba2b8c317a7996ebd0f",
+      "parent_sample_id": "d7795d4a34ac9da311243527d0649d70dc4cc2106d2adb807a80f8dc19ac4502"
+    },
+    {
+      "target_kind": "view",
+      "target_id": "5640b4bc628fd4ea6e35ec79990292244196d2996a0bb824449667f5093a8ca0",
+      "parent_sample_id": "d7795d4a34ac9da311243527d0649d70dc4cc2106d2adb807a80f8dc19ac4502"
+    }
+  ]
+}

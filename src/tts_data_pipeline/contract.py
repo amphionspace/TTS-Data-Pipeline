@@ -63,6 +63,7 @@ def codec_schema(num_codebooks, dtype="int16"):
     strings = [
         "target_kind",
         "target_id",
+        "parent_sample_id",
         "feature_key",
         "input_fingerprint",
         "profile_id",
@@ -71,15 +72,57 @@ def codec_schema(num_codebooks, dtype="int16"):
         "status",
         "error_code",
         "codes_sha256",
+        "encoder_input_sha256",
     ]
     return pa.schema(
         [
             *[pa.field(k, pa.string()) for k in strings],
             pa.field("start_frame", pa.int64()),
             pa.field("end_frame", pa.int64()),
+            pa.field("native_sample_rate", pa.int32()),
+            pa.field("encoder_input_num_frames", pa.int64()),
             pa.field("num_codec_frames", pa.int64()),
             pa.field("num_codebooks", pa.int32()),
             pa.field("codes", pa.list_(pa.list_(pa.type_for_alias(dtype), num_codebooks))),
+        ]
+    )
+
+
+def speaker_embedding_schema(dimension):
+    if dimension < 1:
+        raise ValueError("Speaker embedding requires a positive dimension")
+    strings = [
+        "target_kind",
+        "target_id",
+        "parent_sample_id",
+        "feature_key",
+        "input_fingerprint",
+        "profile_id",
+        "audio_sha256",
+        "timeline_profile_id",
+        "status",
+        "error_code",
+        "encoder_input_sha256",
+        "embedding_sha256",
+    ]
+    return pa.schema(
+        [
+            *[pa.field(k, pa.string()) for k in strings],
+            pa.field("start_frame", pa.int64()),
+            pa.field("end_frame", pa.int64()),
+            pa.field("native_sample_rate", pa.int32()),
+            pa.field("encoder_input_num_frames", pa.int64()),
+            pa.field("embedding_dim", pa.int32()),
+            pa.field("embedding", pa.list_(pa.float32(), dimension)),
+        ]
+    )
+
+
+def feature_targets_schema():
+    return pa.schema(
+        [
+            pa.field(k, pa.string(), nullable=False)
+            for k in ("target_kind", "target_id", "parent_sample_id")
         ]
     )
 
@@ -110,6 +153,7 @@ def contract_types():
         "base": schema_description(base_schema()),
         "view": schema_description(view_schema()),
         "annotation_targets": schema_description(annotation_targets_schema()),
+        "feature_targets": schema_description(feature_targets_schema()),
         "quality_example": type_description(
             annotation_type(pa.struct([pa.field("score", pa.float64())]))
         ),
@@ -117,5 +161,10 @@ def contract_types():
             "example_only": True,
             "note": "K=2 is a storage example, not the selected Qwen tokenizer layout",
             "fields": schema_description(codec_schema(2)),
+        },
+        "speaker_embedding_example": {
+            "example_only": True,
+            "note": "D=3 illustrates storage; actual D comes from the selected speaker encoder",
+            "fields": schema_description(speaker_embedding_schema(3)),
         },
     }

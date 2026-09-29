@@ -69,7 +69,7 @@ view_revision = SHA256(canonical_json(除 view_revision 外的所有视图列))�
 
 feature_key = SHA256(canonical_json(["feature-v1", audio_sha256, timeline_profile_id,
   start_frame, end_frame, profile_id]))；整条音频也填写明确区间。
-多次执行相同输入/profile 可以共享 feature_key；实际输出还用 codes_sha256 验证，不能仅凭 key 宣称确定性。
+多次执行相同输入/profile 可以共享 feature_key；实际输出还用 codes_sha256 或 embedding_sha256 验证，不能仅凭 key 宣称确定性。
 
 ## 关联约束
 
@@ -81,3 +81,6 @@ run 内 (target_kind,target_id,item_id) 唯一；同一 target 的任务完成�
 
 Lance `_rowid`、row index、fragment ID 只在指定 snapshot 下作为执行定位使用，不能替代上述业务键。
 新来源或映射迁移如需沿用旧标注，必须验证身份映射和输入指纹，禁止按文件名自动继承。
+
+codec/speaker 特征的 input_fingerprint 对象、encoder_input_sha256 的波形定义和数组摘要格式
+固定在 [06](06-codecs.md)。这两类纯音频任务不依赖文本和 speaker 标签修订。
