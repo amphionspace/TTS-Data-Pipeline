@@ -41,6 +41,9 @@ Qwen 风格 TTS 训练（模型从头初始化）
 8. 为 `sample_id` 建标量索引。不能把 Lance 内部行号或物理文件位置当永久 ID。
 9. 已发布 manifest、main 与固定逻辑快照不可变；允许在 samples.lance 新增 annotation/selection 分支、在特征表新增 build 分支文件。引用必须固定 table/branch/version，不跟随 latest。
 10. 发布前校验，失败不静默丢数据。原始全量转换、标注任务和训练构建都要明确处理与验证覆盖范围。
+11. selection 明确音频区间决定；新来源须核实当前 bytes 与来源范围的关系。需要裁剪时发布配套文本的显式 view，
+    不覆盖 base、不重复应用上游已执行范围，也不由 codec 临时猜边界。规则与当前能力边界见
+    [12 音频区间决策](specs/12-selections.md#音频区间决策与新数据集接入)。
 
 ## 4. 为什么用这种组织
 

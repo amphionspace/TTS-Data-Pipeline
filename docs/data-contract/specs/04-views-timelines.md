@@ -20,6 +20,11 @@
 一个 view 对应一个连续区间。非连续拼接需新的派生音频及变换记录，不能伪装成单一区间。
 视图文本纠错发布新视图 run 或指向该 view 的标注 run，不静默覆盖旧表。
 
+是否使用完整 sample、生成 view 或保留待核实，由
+[12 的音频区间决策](12-selections.md#音频区间决策与新数据集接入)在选择阶段明确。
+上游的原录音时间范围若已经应用到当前独立片段，不得重复裁剪。
+有 parent_view_id 时，start_frame/end_frame 仍指根父 sample 的原生时间轴，不改为父 view 的局部坐标。
+
 ## 时间轴
 
 frame 指每声道采样帧，区间为 `[start_frame,end_frame)`；0 ≤ start < end ≤ 指定时间轴有效帧数。

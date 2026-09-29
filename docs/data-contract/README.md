@@ -24,7 +24,7 @@
 | [09 Lance 操作](specs/09-lance-operations.md) | 查询、索引、并发写、快照保留与清理 |
 | [10 Manifest 与兼容性](specs/10-manifests.md) | 发布清单、版本固定、schema 与 profile 演进 |
 | [11 Speaker embedding](specs/11-speaker-embeddings.md) | 逐片段 embedding、冻结/在线 encoder、参考配对；不强制保存 mel |
-| [12 Selection](specs/12-selections.md) | 分支原因列、完整排除继承、全局去重、原子发布和特征关联 |
+| [12 Selection](specs/12-selections.md) | 分支原因列、音频区间核查与裁剪 view、新来源接入、排除继承、全局去重和发布 |
 | [类型描述](schemas/arrow-schemas.json) | 与 Python schema 一起生成的 Arrow 类型树 |
 | [示例](examples/README.md) | 仅用于理解约定，示例分数与 codes 不是模型结果 |
 
