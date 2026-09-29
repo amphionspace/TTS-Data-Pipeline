@@ -1,0 +1,18 @@
+{
+  "contract_version": "v0.1",
+  "purpose": "supervised_tts",
+  "reference_policy": "self",
+  "duration_seconds": {"min_inclusive": 1.0, "max_inclusive": 120.0},
+  "text_normalization": {"name": "unicode-strip-v1", "implementation": "python.str.strip", "python_version": "3.11"},
+  "language_aliases": {"en-US": "en", "zh-CN": "zh"},
+  "supported_languages": ["de", "en", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "zh"],
+  "source_priority": ["aishell3", "csemotions", "emilia", "emilia_yodas", "galgame", "genshin_voice", "hifitts", "hifitts2", "libriheavy", "libritts_r", "ljspeech", "mls_sidon", "starrail_voice", "vctk", "wenetspeech4tts", "wutheringwaves"],
+  "representative_order": ["source_priority", "sample_id"],
+  "duplicate_conflict": "exclude_unresolved_group",
+  "reason_priority": [103, 102, 104, 1002, 101, 1001, 2001, 2002, 3001, 3002, 5001, 4002, 7001, 4001],
+  "annotation_inputs": [],
+  "evaluation": {"status": "not_assigned"},
+  "audio_presence_evidence": "published_ingest_required_nonempty_bytes_and_full_readback; check audio_sha256 and native frame metadata again; no new full audio decode",
+  "initial_exclusion_evidence": ["wutheringwaves:32 one-frame records", "galgame:7 reviewed >300s transcript mismatches"],
+  "initial_root_reason": "First selection; prior source-ingestion exclusions already excluded from pinned base manifests; published-data findings are fixed in exclusions.jsonl."
+}

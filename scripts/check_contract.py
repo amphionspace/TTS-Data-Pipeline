@@ -104,9 +104,13 @@ def check_annotation_examples(root):
         assert (replacement is None) == (source is None)
         if replacement is not None:
             assert replacement.strip() and str(source) in revisions["text_sources"]
-            assert row["annotation"]["status"] == "ok"
-            assert row["annotation"]["result"] == {"action": "replace", "text": replacement}
-        raw = row["base_text"] if replacement is None else replacement
+            if source == 0:
+                assert replacement == row["base_text"].strip()
+                assert revisions["text_sources"]["0"]["kind"] == "base_normalization"
+            else:
+                assert row["annotation"]["status"] == "ok"
+                assert row["annotation"]["result"] == {"action": "replace", "text": replacement}
+        raw = row["base_text"] if replacement is None or source == 0 else replacement
         assert row["text_revision"] == digest(["selected-text-v1", raw, revisions["normalization"]])
 
 

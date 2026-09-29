@@ -65,7 +65,7 @@ for batch in ds.to_batches(columns=["sample_id", "text", "language"], batch_size
 | [环境](docs/environment.md) | Conda、中科大源与依赖 |
 
 selection存储验证与性能见 [验证报告](docs/design-review/selection-validation.md)，codec决定见 [提取计划](docs/design-review/feature-extraction-plan.md)。
-本轮未生成生产selection或启动GPU提取。
+正式selection入口与规则见 [selection执行说明](docs/selection.md)；GPU提取尚未启动。
 
 src 保存转换逻辑；scripts 保存入口与探查工具；tests 保存回归检查。
 reports、artifacts 和缓存被 Git 忽略。原始数据只读。

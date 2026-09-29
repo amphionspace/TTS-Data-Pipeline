@@ -110,10 +110,14 @@ ASR/文本修订绑定实际输入音频和被修订文本（若使用）。来�
 
 selection按rules固定的run优先级与缺值策略选择文本，不用更新时间/latest决定。
 采用修订时，在selection增nullable string selected_text，以及nullable uint32 selected_text_source：
-实际非空替换值与来源码同时存在；其余两列同时为null，回退基础text。来源码指向manifest的text_sources字典。
+覆盖值与来源码同时存在；其余两列同时为null，回退基础text。来源码指向manifest的text_sources字典。
+0保留给base_normalization：对基础文本去掉首尾空白后实际变化的值。1及以上表示固定文本修订来源。
+annotation替换必须非空；base_normalization得到空串时保留该覆盖值，但该行必须按缺文本排除。
 source记录准确annotation manifest/分支/列和输入bv；不单独凭uint8码假设可支持任意多来源。
 基础文本本来为空且无有效替换时仍是缺文本；不以空串或null修订伪造成功。
-通用strip等规范化按rules在采用文本后应用，不为所有受影响行复制文本。
+通用strip按rules在采用文本后应用。本次selection将发生变化的文本写成稀疏selected_text覆盖，
+未变化的沿用base；不把内部空白、标点或内容一起清洗。selected_text已是最终规范化值，读取不能按truthiness回退：
+必须判断is not None，以免把已清为空串的文本又替换回原值。其他规范化须明确输入/输出顺序。
 
 text_revision统一使用
 `SHA256(canonical_json(["selected-text-v1", selected_raw_text, normalization_definition]))`，

@@ -84,7 +84,8 @@ flags=0 只说明此次已执行检查未命中，不代表检查过所有质量
 遇到未知字典版本、未知码或未知 bit 的消费者须拒绝解释，而非默认入选。
 
 可选文本覆盖列为selected_text:string与selected_text_source:uint32，均nullable且同时有值或同时null。
-只写实际采用的非空修订；null回退基础text。来源码固定在text_sources，通用strip仍由rules执行。
+只写实际变化的选用文本；null回退基础text。来源码0保留给base_normalization，1及以上固定修订来源。
+本次strip后的变化值会实际存入selected_text；空串表示去空白后没有文本，reason必须为非零。
 有修订时重复比较、缺文本判断和音文分数都使用最终选用文本/revision；详见05。
 
 ## 已确认排除与继承
@@ -133,7 +134,7 @@ duplicates.lance 保存所有组大小 >1 的成员，含 dataset_id/release_id/
 ## 规范化、用途与评估
 
 原始文本的首尾空白保留；首版训练采用 `unicode-strip-v1` 的选用文本变换，由 rules 固定具体实现，
-去重比较也使用它。这是读取/构建时的派生值，不往 base 写新 text；不声称上游空白是转换错误。
+去重比较也使用它。这是selection中的稀疏派生覆盖值，不往base写新text；不声称上游空白是转换错误。
 语言采用明确 alias 表，将 en-US→en、zh-CN→zh；其他标签只按完整列明的映射处理，
 禁止通用 split('-')[0] 丢失需要区分的信息。统计原值与选用值的条数/时长，speaker_id 保持原样。
 首版训练 selection 发布前必须固定上述规则与支持语言集合；本规范更新不等于生产规则已经执行。

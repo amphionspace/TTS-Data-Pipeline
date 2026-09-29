@@ -60,12 +60,28 @@
       "selected_text": null,
       "selected_text_source": null,
       "text_revision": "e474d1745ff05bc288a5f772df9749264795f63c6b3967a2914993c868307ae9"
+    },
+    {
+      "sample": "normalized",
+      "base_text": " \tHello\n",
+      "annotation": null,
+      "selected_text": "Hello",
+      "selected_text_source": 0,
+      "text_revision": "dee32b7386a40a20996092583a6496a672a9c69c4172889cd04bc916cee5478b"
     }
   ],
   "text_sources": {
     "1": {
       "annotation_input_alias": "text_correction_run",
       "column": "text_correction"
+    },
+    "0": {
+      "kind": "base_normalization",
+      "normalization": {
+        "name": "unicode-strip-v1",
+        "implementation": "python.str.strip",
+        "python_version": "3.11"
+      }
     }
   },
   "note": "This example explicitly keeps base text after failure; a production selection must declare its own status policy and pin text_correction_run in annotation_inputs."

@@ -30,7 +30,8 @@ direct/bulk 新发布均写出这些字段；字段含义与历史读取规则�
 
 完整方案已改为同根Lance分支；见 [验证报告](selection-validation.md) 和 [数据问题清单](data-selection-review.md)。
 已在/tmp验证LJSpeech全量及Emilia全部4,026万行元数据的merge/add_columns；不等于全局去重执行器已实现。
-主原因uint16+多重flags uint32，生产发布/完整排除继承/重复冲突裁决与保留依赖检查仍待实现。
+主原因uint16+多重flags uint32；首次selection执行器已实现完整哈希去重/冲突裁决/并行扫描/分支验证发布，
+见 [执行说明](../selection.md)。后续排除继承、annotation输入与自动保留依赖回收仍待实现，首版入口拒绝隐式重置。
 已清除历史约151GB .tmp与MLS旧SQLite，清理记录见 [维护核验](published-cleanup-review.md)。
 
 ## 标注、视图、codec 与训练执行器

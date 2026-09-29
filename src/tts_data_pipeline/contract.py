@@ -164,6 +164,14 @@ def contract_types():
         "annotation_targets": schema_description(annotation_targets_schema()),
         "feature_targets": schema_description(feature_targets_schema()),
         "selection_columns": schema_description(selection_columns_schema()),
+        "selection_text_columns": schema_description(
+            pa.schema(
+                [
+                    pa.field("selected_text", pa.string()),
+                    pa.field("selected_text_source", pa.uint32()),
+                ]
+            )
+        ),
         "quality_example": type_description(
             annotation_type(pa.struct([pa.field("score", pa.float64())]))
         ),

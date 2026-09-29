@@ -328,6 +328,18 @@
       "type": "uint32"
     }
   ],
+  "selection_text_columns": [
+    {
+      "name": "selected_text",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "selected_text_source",
+      "nullable": true,
+      "type": "uint32"
+    }
+  ],
   "quality_example": {
     "type": "struct",
     "fields": [
