@@ -1,6 +1,8 @@
 # Codec / speaker：当前决定与实施门槛
 
-截至 2026-09-29，selection 已发布，C codec 已通过八卡数值核验、持久化/恢复验证和用户试听，
+**当前进展：** 下文 C 全量启动及其验收记录为历史阶段，旧 C 已退役。逐来源区间与独立无补齐参考已复核，新的 packed BF16 已完成覆盖集精度和实际吞吐验收，见 [BF16 报告](codec-bf16-experiments.md)。
+
+历史 C 阶段：selection 已发布，C codec 已通过八卡数值核验、持久化/恢复验证和用户试听，
 正式全量执行已启动。运行入口见 [codec](../codec.md)，证据与历史比较见
 [数值验证](codec-inference-validation.md)。本轮没有修改 LM-TTS-Training。
 

@@ -1,5 +1,7 @@
 # Contract v0.1：C 全量启动后的复核
 
+**复核补充（2026-09-29）：** 本文的文档一致性与回归结果不能替代来源区间和 codec 独立参考验收。已登记 [未关闭问题](codec-open-issues.md)；原“这些边界不阻止当前提取”的表述未覆盖这两项缺口。
+
 复核范围：CONTRACT、12 份规范、Arrow 类型、全部示例，以及 selection/codec 的实际写入和恢复路径。
 规范源仍为 docs/data-contract；统一根目录只同步约定，不放运行日志、待办或实验报告。
 本次不改基础 27 列、已有 sample_id、已发布 selection 或 C 的数值 profile。

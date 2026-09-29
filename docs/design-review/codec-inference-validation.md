@@ -1,8 +1,10 @@
 # Codec C 验收与训练接口
 
-2026-09-29，北京时间。当前正式方向为 **C：FP16 / FA2 全因果注意力 / canonical batch / 16 码本**。
+**后续复核：** 下文保留历史 C 测试事实，旧全量任务已退役，unified 旧 codec 输出和状态已删除。逐来源区间核查和独立无补齐参考已补做；外部补齐/计算形状变化确实影响码字。新的 packed BF16 已完成覆盖集数值与实际吞吐验收，见 [BF16 报告](codec-bf16-experiments.md)。
+
+以下记录 2026-09-29（北京时间）历史 C 阶段。当时正式方向为 **C：FP16 / FA2 全因果注意力 / canonical batch / 16 码本**。
 用户已试听并授权全部切换 C，淘汰 A/B。C 不是 FP32 A/B 的逐码字等价实现，全部重新编码。
-正式状态和恢复入口见 [codec](../codec.md)。
+当前状态与退役说明见 [codec](../codec.md)。
 
 ## C 的数值与运行边界
 
@@ -15,7 +17,7 @@
   这是试听脚本先做 FP32 参考编码留下的真实语义；原试听报告的
   `float32_on_fp16_codebooks` 描述不准确，实际为 `float32_on_cached_fp32_codebooks`。
   该问题通过冷启动对照暴露并修正；没有用另一种冷启动 FP16 结果替代试听版本。
-- 以上逻辑位于本仓库 codec.py / codec_batch.py / codec_fast.py；没有修改第三方安装包。
+- 历史源码为 codec.py / codec_batch.py / codec_fast.py；当前实现已整理到 codec/qwen3_12hz/；没有修改第三方安装包。
   验收、profile、冻结 runtime 均包含本地实现摘要，第三方权重与源码作为只读依赖固定。
 
 验收文件保存在 `artifacts/codec-validation/c-fp16-fa2/`：八份 gpu 报告、summary、profile、

@@ -1,5 +1,7 @@
 # Codec padding 与批处理约束
 
+**最新状态：** 独立原长参考对照已完成：45 条中完整 canonical 有 40 条码字不同。旧 C 已退役，旧 unified codec 输出已清理，新的 packed BF16 验收见 [BF16 报告](codec-bf16-experiments.md)，早期过程见 [实验与研究](codec-padding-experiments.md)。下文保留历史 C 的设计约束，不能视为 padding 影响已排除的证明。
+
 有效长度裁剪输出不能消除 encoder 内部 padding 的影响。混长输入在多层 strided CNN 中
 会把前层无效位置带入后层有效输出；downsample 的 replicate padding 也必须按单条有效末尾计算。
 此外 GEMM 的批形状变化可能造成浮点差异并跨过最近邻量化的决策边界。

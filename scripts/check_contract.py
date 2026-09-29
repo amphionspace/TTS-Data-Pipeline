@@ -10,7 +10,7 @@ import _bootstrap  # noqa: F401
 import pyarrow as pa
 import yaml
 
-from tts_data_pipeline.codec_text import selected_metadata
+from tts_data_pipeline.codec.qwen3_12hz.text import selected_metadata
 from tts_data_pipeline.contract import (
     annotation_type,
     codec_text_schema,

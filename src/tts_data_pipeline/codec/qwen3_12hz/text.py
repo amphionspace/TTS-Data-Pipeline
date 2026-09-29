@@ -6,8 +6,8 @@ import json
 import lance
 import pyarrow as pa
 
-from .contract import codec_text_schema
-from .schema import digest
+from ...contract import codec_text_schema
+from ...schema import digest
 
 SOURCE_COLUMNS = [
     "sample_id",

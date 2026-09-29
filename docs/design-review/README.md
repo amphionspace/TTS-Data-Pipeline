@@ -5,6 +5,12 @@
 
 | 文档 | 用途 |
 | --- | --- |
+| [Codec FP32 小测](codec-fp32-check.md) | 同精度官方参考、固定计算、耗时与显存；全量暂停 |
+| [Codec BF16 验收与代码整理](codec-bf16-experiments.md) | 官方 BF16 单条参考、实际满载、规则消融与生产实现 |
+| [Codec padding 实验与研究](codec-padding-experiments.md) | 独立参考、无补齐/变长/Graph 候选、上游实践和性能边界 |
+| [codec-packed-experiments.md](codec-packed-experiments.md) | 固定归约、真实变长卷积、性能与重建对照 |
+| [Codec 精度归因与等速优化](codec-precision-experiments.md) | 舍入/累加差异、阶段替换、172 条验证与同卡性能门槛 |
+| [Codec 历史问题与修复进展](codec-open-issues.md) | 区间核查、padding 归因和后续验收范围 |
 | [本轮 contract 复核](contract-review.md) | C 目录、文本物化、build 引用、规范精简、清理和实现边界 |
 | [验收与契约复核](adapter-contract-review.md) | 原四个来源与新增九个来源的验证范围、契约修正和性能边界 |
 | [LibriHeavy / MLS 核查](libriheavy-mls-check.md) | 配置交集、来源清单、MLS 坏包与明确排除 |

@@ -21,13 +21,15 @@ import pyarrow as pa
 from lance.file import LanceFileReader
 from lance.fragment import FragmentMetadata, write_fragments
 
-from .codec import Encoder, array_sha256, feature_row, profile, validate_codes, waveform
-from .codec_text import materialize_text
-from .contract import codec_schema, schema_description
-from .feature_contract import make_feature_run_id, validate_feature_coverage
-from .schema import digest
-from .timestamps import BEIJING
-from .writer import remove_uncommitted_data_files
+from ...contract import codec_schema, schema_description
+from ...feature_contract import make_feature_run_id, validate_feature_coverage
+from ...schema import digest
+from ...timestamps import BEIJING
+from ...writer import remove_uncommitted_data_files
+from .audio import array_sha256, validate_codes, waveform
+from .encoder import Encoder
+from .profile import feature_row, profile
+from .text import materialize_text
 
 SCHEMA = codec_schema(16)
 INPUT_COLUMNS = [
@@ -145,7 +147,7 @@ def prepare(
     if selected["status"] != "complete":
         raise ValueError("Selection not published")
     accepted = json.loads(Path(acceptance).read_text())
-    if not accepted.get("canonical_fp16_fa2_accepted"):
+    if not accepted.get("official_bf16_accepted"):
         raise ValueError("Real cross-GPU acceptance must pass before planning production")
     definition = profile(model_root)
     if output_root is None or Path(output_root).resolve() == root:
@@ -154,7 +156,7 @@ def prepare(
         for item in accepted["evidence"]:
             if file_hash(item["path"]) != item["sha256"]:
                 raise ValueError("Acceptance evidence changed")
-    name = "qwen3-12hz-24k-k16-fp16-fa2-canonical-v1"
+    name = "qwen3-12hz-24k-k16-bf16-packed-v1"
     created = datetime.now(BEIJING).isoformat()
     p = {
         "root": str(root),
@@ -170,7 +172,7 @@ def prepare(
         "acceptance_path": str(Path(acceptance).resolve()),
         "acceptance_sha256": file_hash(acceptance),
         "execution_code_sha256": file_hash(__file__),
-        "text_code_sha256": file_hash(Path(__file__).with_name("codec_text.py")),
+        "text_code_sha256": file_hash(Path(__file__).with_name("text.py")),
         "inputs": selected["inputs"],
         "datasets": [],
     }
@@ -221,7 +223,7 @@ def validate_plan(p):
         file_hash(p["selection_path"]) != p["selection_sha256"]
         or file_hash(p["acceptance_path"]) != p["acceptance_sha256"]
         or file_hash(__file__) != p["execution_code_sha256"]
-        or file_hash(Path(__file__).with_name("codec_text.py")) != p["text_code_sha256"]
+        or file_hash(Path(__file__).with_name("text.py")) != p["text_code_sha256"]
         or profile(p["model_root"]) != p["profile"]
     ):
         raise ValueError("Pinned input, implementation, or numerical profile changed")
@@ -347,7 +349,7 @@ def run_task(args):
         or ordered_hash([r["sample_id"] for r in rows]) != task["ordered_ids_sha256"]
     ):
         raise ValueError("Task target set changed")
-    from .codec_batch import batch_indices
+    from .schedule import batch_indices
 
     lengths = [(r["num_frames"] * 24000 + r["sample_rate"] - 1) // r["sample_rate"] for r in rows]
     batches = list(batch_indices(lengths))
@@ -402,6 +404,7 @@ def run_task(args):
         "wall_seconds": time.perf_counter() - started,
         "payloads_validated": True,
         "hardware": getattr(_ENCODER, "execution_hardware", {}),
+        "worker_quantizer_audit": dict(getattr(_ENCODER, "audit", {})),
     }
     write_json(Path(d["state"]) / "checkpoints" / f"{task['id']}.json", c)
     return c

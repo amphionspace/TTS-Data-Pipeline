@@ -16,7 +16,7 @@ os.environ.setdefault("NUMBA_CACHE_DIR", "/tmp/tts-codec-numba-cache")
 import argparse
 from pathlib import Path
 
-from tts_data_pipeline.codec_run import event, prepare, run
+from tts_data_pipeline.codec.qwen3_12hz.run import event, prepare, run
 
 
 def main():

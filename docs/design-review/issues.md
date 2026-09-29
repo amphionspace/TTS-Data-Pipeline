@@ -3,6 +3,16 @@
 当前选择：Lance，contract/release v0.1。旧 Parquet 输出已删除；截至 2026-09-29，16 个 adapter 对应的 v0.1 均已发布。Emilia2 暂不接入。
 规范在 [data-contract](../data-contract/README.md)，这里单独记录实施边界。
 
+## Codec 区间与 padding 复核进展
+
+16 个来源的区间核查已完成，selection contract 明确当前分支只支持 full sample；
+未来确需裁剪的来源必须先定义显式 view，不能重复使用原录音时间坐标裁剪片段。
+旧 padded C 已退役并清理旧输出。长度对齐的实验 BF16 曾在 18,060 条上与官方
+码值一致；之后用户要求移除长度 policy，当前采用固定计算方式，接受浮点顺序差异。
+新的全量启动已暂停，FP32 对照仍属于小规模测试。
+[历史问题](codec-open-issues.md) 保留原始发现；当前数值验收范围见
+[BF16 报告](codec-bf16-experiments.md)，运行状态见 [codec](../codec.md)。
+
 ## 已处理范围：MLS 上游英文坏包按用户批准排除
 
 完整验收发现 `english/00128-of-00128/train-00000.tar.gz` 在结束前截断；独立 gzip/tar 读取复现。

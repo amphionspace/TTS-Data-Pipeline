@@ -9,7 +9,7 @@ import pyarrow as pa
 import pytest
 import soundfile as sf
 
-from tts_data_pipeline import codec_run as run
+from tts_data_pipeline.codec.qwen3_12hz import run
 from tts_data_pipeline.feature_contract import target_set_sha256
 from tts_data_pipeline.schema import base_schema, digest, make_record
 

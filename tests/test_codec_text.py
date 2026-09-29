@@ -5,7 +5,7 @@ import pyarrow as pa
 import pytest
 from test_codec_run import TEXT_SOURCES, fixture
 
-from tts_data_pipeline.codec_text import materialize_text, selected_metadata
+from tts_data_pipeline.codec.qwen3_12hz.text import materialize_text, selected_metadata
 from tts_data_pipeline.schema import digest
 
 
