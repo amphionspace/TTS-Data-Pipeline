@@ -104,7 +104,7 @@ Galgame 启动/恢复必须带 `--exclusions configs/source-exclusions/galgame-v
 
 本次恢复固定使用 `reports/runtime/wenet-pairing/scripts/tts_data.py`，
 并传入该工作树的 `configs/source-exclusions/wenetspeech4tts-v0.1.json`。
-仅排除已完整核实的一条缺失转写，保留其他记录；主工作树源码仍有旧任务使用，保持冻结。
+仅排除已完整核实的一条缺失转写，保留其他记录；该任务已完成发布。
 实际命令以 reports/current-conversion/launch.json 为准。
 ## Emilia / Emilia-YODAS
 
@@ -112,3 +112,10 @@ Galgame 启动/恢复必须带 `--exclusions configs/source-exclusions/galgame-v
 两个来源仍按 v0.1 的 27 列写入，原 DNSMOS 等字段保存在 metadata.upstream，annotation 延后。
 完整成员配对和 tar 结束校验，不把每包首条核查当作全量验收。来源映射与验证边界见
 [本地核查](design-review/emilia-local-check.md)。
+
+## 2026-09-29 恢复与 HiFiTTS2
+
+此前运行的进程均已结束，已将通过验证的修复和 Emilia adapters 合并回 main。
+新一轮运行使用固定的 reports/runtime/recovery-20260929 工作树，避免后续开发改变运行时代码哈希。
+LibriHeavy / Emilia-YODAS 的范围与排除策略、HiFiTTS2 映射详见
+[恢复与接入记录](design-review/recovery-and-hifitts2.md)。实际命令与 PID 见 reports/current-conversion/launch.json。

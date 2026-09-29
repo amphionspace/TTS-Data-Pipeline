@@ -131,3 +131,44 @@ def test_emilia_checks_archive_to_end_before_publishing(tmp_path, failure):
     with pytest.raises((ValueError, tarfile.ReadError)):
         convert("emilia", root, tmp_path / "release")
     assert not (tmp_path / "release").exists()
+
+
+def test_emilia_corrupt_header_requires_pinned_whole_archive_exclusion(tmp_path):
+    from tts_data_pipeline.convert import file_hash
+
+    root = tmp_path / "raw"
+    path, _, _ = fixture(root, "emilia_yodas")
+    good = path.with_name("EN-B000001.tar")
+    good.write_bytes(path.read_bytes())
+    with tarfile.open(path, "r:") as archive:
+        offset = list(archive)[2].offset
+    data = bytearray(path.read_bytes())
+    data[offset : offset + 512] = b"X" * 512
+    path.write_bytes(data)
+    with pytest.raises(ValueError, match="Nonzero content"):
+        list(ADAPTERS["emilia_yodas"].iter_records(root, "test", files=[path]))
+    policy = tmp_path / "policy.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "dataset_id": "emilia_yodas",
+                "release_id": "v0.1",
+                "files": [
+                    {
+                        "path": "EN/EN-B000000.tar",
+                        "bytes": path.stat().st_size,
+                        "sha256": file_hash(path),
+                        "reason": "corrupt header fixture",
+                    }
+                ],
+            }
+        )
+    )
+    result = bulk_convert(
+        "emilia_yodas", root, tmp_path / "release", workers=1, exclusions_path=policy
+    )
+    assert result["rows"] == 2 and len(result["excluded_source_files"]) == 1
+    assert len(result["inputs"]) == 1
+    path.write_bytes(bytes(data) + b"changed")
+    with pytest.raises(ValueError, match="Excluded source changed"):
+        bulk_convert("emilia_yodas", root, tmp_path / "other", workers=1, exclusions_path=policy)

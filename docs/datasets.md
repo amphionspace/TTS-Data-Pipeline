@@ -1,7 +1,7 @@
 # 数据集接入表
 
 所有 21 个目录均已盘点。这里区分“有转换规则”与“已实现转换器”。
-目前实现 15 个适配器（下表 ✓），新增九个的真实小样本已验证，尚未整库转换。
+目前实现 16 个适配器（下表 ✓），完成状态以发布 manifest 和状态脚本为准。
 写入后端为 Lance，release 固定 v0.1；旧产物已清理，全量转换已启动，进度以状态脚本为准。
 最新来源复核见 [LibriHeavy / MLS 核查](design-review/libriheavy-mls-check.md)。
 Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [本地核查](design-review/emilia-local-check.md)。
@@ -16,7 +16,7 @@ Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [�
 | Emilia-YODAS / emilia_yodas.py ✓ | 分语言 tar；JSON+MP3；支持 _id、phone_count | speaker 通常受视频范围约束；不能仅凭末尾编号跨视频合并 |
 | Galgame / galgame.py ✓ | 各游戏配置的 Parquet；audio_ID、text | 此前缺的 6 个 shard 已补齐；无 speaker 列；源配置音频采样率声明需实测 |
 | HiFiTTS / hifitts.py ✓ | tar.gz 内多个 JSONL manifest；保留原文/规范化文本与 clean/other | manifest 全量读取与音频成员对应关系 |
-| HiFiTTS2 / hifitts2.py | 章节 MP3、少量章节/切分元数据 | 当前 URL 清单缺 2,454 个文件；缺完整训练文本/切分标注 |
+| HiFiTTS2 / hifitts2.py ✓ | 用户指定本地 22.05 kHz FLAC Parquet；保留原始 split、WER/CER 等 | 5,284 片 / 12,809,875 行；见 [映射与验证](design-review/recovery-and-hifitts2.md) |
 | LJSpeech / ljspeech.py ✓ | tar.bz2；metadata.csv 的 id、原文、规范化文本 | 全量文本与 wav 配对、官方 split 不存在时显式定义构建 split |
 | LibriTTS-R / libritts_r.py ✓ | Parquet；源 id、chapter、speaker；两种文本 | 忽略旧绝对 path；完整转换全部配置，完成状态及逐配置统计见首批转换报告 |
 | VCTK / vctk.py ✓ | zip；txt 与 mic1/mic2 FLAC | 两个麦克风为同语句关联样本；防 split 泄漏，检查缺文本情况 |

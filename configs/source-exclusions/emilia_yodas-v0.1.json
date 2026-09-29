@@ -1,0 +1,13 @@
+{
+  "dataset_id": "emilia_yodas",
+  "release_id": "v0.1",
+  "files": [
+    {
+      "path": "DE/DE-B000049.tar",
+      "bytes": 1043456000,
+      "sha256": "61f48385613fb795161ccc04d7af9b6f32b20e5a6b60d49e58b96f0454ae81e9",
+      "reason": "Local tar has an invalid header at byte 59815424 after 1434 readable members, with nonzero MP3 payload where a tar header is required. Later headers resume at 59931136. Quarantine the entire untrustworthy archive; raw source unchanged, no silent partial ingestion."
+    }
+  ],
+  "records": []
+}
