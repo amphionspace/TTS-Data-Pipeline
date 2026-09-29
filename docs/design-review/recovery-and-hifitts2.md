@@ -48,4 +48,11 @@ Python tarfile 读出 1,434 个成员后，在 offset 59,815,424 遇到无效 he
 验证：106 项测试通过；32 片共 128 条真实抽样全解码；完整最小分片 987 条转换、
 Lance 读回和全解码通过，源哈希与 footer 行数对账通过，用时 8.43 秒。
 抽样不代表全库音频已验证；全量任务还将遍历每条记录并验证全部输出。
-全量使用 64 workers，1 GiB 目标 shard，4 GiB 输入批次，输出 datasets/hifitts2/v0.1。
+按用户最新要求，全量使用 128 workers，1 GiB 目标 shard，4 GiB 输入批次，输出 datasets/hifitts2/v0.1。
+
+## 启动记录
+
+已从固定 runtime recovery-20260929（代码提交 2bc07eb）启动，三个任务均为 128 workers。
+LibriHeavy 保留 372 个 checkpoint，Emilia-YODAS 保留 607 个；恢复时重新核对分片 SHA256。
+HiFiTTS2 首次全量启动，输出 /workspace/data/DATA-TTS-UNIFIED/datasets/hifitts2/v0.1。
+运行中的进度以 reports/current-conversion/launch.json 和状态脚本为准，启动不代表全量已完成。
