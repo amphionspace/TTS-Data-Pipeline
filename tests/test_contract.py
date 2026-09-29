@@ -21,6 +21,11 @@ def test_release_manifest_pins_contract_and_snapshot(tmp_path):
     assert manifest["schema_sha256"] == digest(schema_description(base_schema()))
     assert manifest["storage_format"] == "lance"
     assert manifest["table_path"] == "samples.lance"
+    assert manifest["rejected_rows"] == 0
+    assert manifest["excluded_source_records"] == []
+    assert manifest["checkpoint_code_versions"] == {}
+    assert manifest["finalization"] is None
+    assert manifest["code_migration"] is None
     assert release_dataset(tmp_path / "v0.1").version == manifest["lance_version"]
 
 

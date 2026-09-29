@@ -49,6 +49,11 @@ def test_parallel_bulk_tar_publication_and_duplicates(tmp_path):
     assert result["validation"]["repeated_source_keys"] == 1
     assert result["validation"]["repeated_keys_within_config"] == 1
     assert result["source_splits"] == {"train": 2}
+    assert result["rejected_rows"] == 0
+    assert result["excluded_source_records"] == []
+    assert result["checkpoint_code_versions"]
+    assert result["finalization"]["phase_seconds"]["total"] > 0
+    assert result["code_migration"] is None
     assert (tmp_path / "out" / "manifest.json").exists()
     assert not (tmp_path / "out.incomplete").exists()
     with pytest.raises(FileExistsError):

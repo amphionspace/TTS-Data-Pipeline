@@ -5,6 +5,10 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import _bootstrap  # noqa: F401
+
+from tts_data_pipeline.manifests import read_base_manifest
+
 
 def conversion_statuses(root):
     results = {}
@@ -46,12 +50,12 @@ def conversion_statuses(root):
         if release.name.endswith(".incomplete"):
             continue
         try:
-            manifest = json.loads(manifest_path.read_text())
+            manifest = read_base_manifest(release)
         except FileNotFoundError:
             continue
         if manifest.get("artifact_kind") != "base" or manifest.get("status") != "complete":
             continue
-        batches = len(manifest["batch_manifests"])
+        batches = len(manifest["batch_manifests"]) if "batch_manifests" in manifest else None
         input_gb = round(sum(item["bytes"] for item in manifest["inputs"]) / 1e9, 2)
         results[(manifest["dataset_id"], release.name)] = {
             "dataset": manifest["dataset_id"],
@@ -60,7 +64,7 @@ def conversion_statuses(root):
             "status": "complete",
             "status_source": "published_manifest",
             "workers": None,
-            "verified_batches": f"{batches}/{batches}",
+            "verified_batches": f"{batches}/{batches}" if batches is not None else None,
             "verified_rows": manifest["rows"],
             "verified_input_GB": input_gb,
             "planned_input_GB": input_gb,

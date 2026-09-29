@@ -1,7 +1,9 @@
-"""Small-corpus conversion with sharding, immutable inputs, and full read-back checks.
+"""Single-job conversion with sharding, immutable inputs, and full read-back checks.
 
 Fail closed: no silent rejection and no successful publication until every row passes.
-Identity sets are in memory; this pilot runner is not yet designed for millions of rows.
+Identity sets are bounded by this job's input, not the whole bulk corpus. Bulk
+workers use this runner per batch; the coordinator audits global identity on disk.
+For large corpora use bulk mode rather than one unbounded direct conversion.
 """
 
 import hashlib
@@ -169,6 +171,9 @@ def convert(
             for p in sorted(Path(__file__).parent.rglob("*.py"))
         },
         "rejected_rows": len(record_exclusions),
+        "checkpoint_code_versions": {},  # Direct jobs do not aggregate checkpoints.
+        "code_migration": None,
+        "finalization": None,  # Bulk identity-audit metrics do not apply to this job.
     }
     (stage / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     try:

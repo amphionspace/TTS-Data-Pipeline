@@ -11,6 +11,7 @@ import soundfile as sf
 from lance.file import LanceFileReader
 from lance.fragment import FragmentMetadata, write_fragments
 
+from .manifests import read_base_manifest
 from .schema import base_schema, validate_record
 
 STORAGE_FORMAT = "lance"
@@ -82,7 +83,7 @@ def file_batches(path, columns=None):
 
 def release_dataset(release):
     release = Path(release)
-    manifest = json.loads((release / "manifest.json").read_text())
+    manifest = read_base_manifest(release)
     if manifest.get("status") != "complete" or manifest.get("storage_format") != STORAGE_FORMAT:
         raise ValueError("Not a published Lance release")
     version = manifest.get("lance_version")

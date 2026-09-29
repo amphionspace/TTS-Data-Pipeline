@@ -1,11 +1,11 @@
 # TTS Data Pipeline
 
 将原始音频转换为统一 **Lance** 数据，后续补标注、生成多个 codec 版本，再按固定配方构建训练输入。
-发布版本 **v0.1**，统一根目录 `/workspace/data/DATA-TTS-UNIFIED`。15 个来源已适配；原 13 个来源的全量转换已启动，Emilia 两个来源加入转换，实时状态见 `python scripts/conversion_status.py`。
+发布版本 **v0.1**，统一根目录 `/workspace/data/DATA-TTS-UNIFIED`。16 个来源已适配。截至 2026-09-29，16 个来源均已发布 v0.1（按各自明确的输入与排除范围）；实时状态见 `python scripts/conversion_status.py`。
 
-已有 15 个 adapter：CSEMOTIONS、LibriTTS-R、LibriHeavy、MLS SIDON、AISHELL-3、LJSpeech、
-VCTK、HiFiTTS、WenetSpeech4TTS、genshin-voice、starrail-voice、Galgame、WutheringWaves-2.2、Emilia、Emilia-YODAS。
-新增九个已完成小样本接入测试，未进行全量音频验收；Emilia2 暂不接入。
+已有 16 个 adapter：CSEMOTIONS、LibriTTS-R、LibriHeavy、MLS SIDON、AISHELL-3、LJSpeech、
+VCTK、HiFiTTS、WenetSpeech4TTS、genshin-voice、starrail-voice、Galgame、WutheringWaves-2.2、Emilia、Emilia-YODAS、HiFiTTS2。
+已发布数据完成源文件哈希、逐条音频头与 Lance 完整回读、全局身份校验；不代表全库逐条完整解码或听检。Emilia2 暂不接入。
 项目直接运行本地模块，无需 pip install -e .。旧 Parquet 输出及 converted 用法已取消，原始 Parquet 读取仍保留。
 
 ## 运行
@@ -35,17 +35,19 @@ Lance 管理物理文件与 snapshot，文件目标约 1 GiB；不再手工按 P
 音频原始 bytes 内嵌，source_split 固定 train，原 split/config 保留于 metadata。
 
 ```python
-import json
 from pathlib import Path
 import lance
+from tts_data_pipeline.manifests import read_base_manifest
 
 release = Path("/workspace/data/DATA-TTS-UNIFIED/datasets/libriheavy/v0.1")
-manifest = json.loads((release / "manifest.json").read_text())
+manifest = read_base_manifest(release)
 assert manifest["status"] == "complete"
 ds = lance.dataset(release / manifest["table_path"], version=manifest["lance_version"])
 for batch in ds.to_batches(columns=["sample_id", "text", "language"], batch_size=8192):
     print(batch.num_rows)
 ```
+
+以上代码在项目环境中运行（`PYTHONPATH=src`；scripts 入口自动设置）。旧 manifest 的缺失审计字段由读取入口返回 `None`，不改写发布文件；判断未知值后再使用，不能假定为零。
 
 转换校验原始文件哈希、每条音频 bytes/头部、完整回读与全局 ID；--deep-verify 额外完整解码。
 标注/codec/训练执行器的实现边界见 [待办](docs/design-review/issues.md)，规范不代表这些执行器均已实现。

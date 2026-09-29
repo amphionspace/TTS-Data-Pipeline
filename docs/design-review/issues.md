@@ -1,6 +1,6 @@
 # 实现状态与待解决问题
 
-当前选择：Lance，contract/release v0.1。旧 Parquet 输出已删除，13 个来源全量转换已启动；Emilia2 暂不接入。
+当前选择：Lance，contract/release v0.1。旧 Parquet 输出已删除；截至 2026-09-29，16 个 adapter 对应的 v0.1 均已发布。Emilia2 暂不接入。
 规范在 [data-contract](../data-contract/README.md)，这里单独记录实施边界。
 
 ## 已处理范围：MLS 上游英文坏包按用户批准排除
@@ -15,10 +15,16 @@
 
 ## 当前已实现
 
-13 个 adapter 已接入；新增九个完成真实前缀预览与配对测试，尚无整库音频验收。
+16 个 adapter 已接入，16 个来源按各自输入/排除清单完成发布。全量校验涵盖源文件哈希、
+逐条音频头与结构、Lance 完整回读和全局身份；完整音频解码、听检与跨来源去重并未全量完成。
 共享 Lance fragment 写入、完整回读、sample_id 索引、单表发布与 checkpoint 恢复。
 自包含来源采用 source-file-v1，Wenet 外部清单/评分采用 source-unit-v1；同一来源不因 worker/batch/输出分片变化而改变 ID。
 Arrow 基础/视图/codec 类型与质量 struct 类型可生成；类型定义不等于完整任务执行器。
+
+历史 manifest 兼容：MLS SIDON/CSEMOTIONS 缺少 rejected_rows、checkpoint_code_versions、finalization 等审计字段，
+HiFiTTS/LJSpeech 也缺 finalization。统一 read_base_manifest 读取入口补出键，未知值为 null；
+原始不可变 manifest 不改写，不能将未知历史拒收数当成 0，或用协调者代码推测批次版本。
+direct/bulk 新发布均写出这些字段；字段含义与历史读取规则见 [manifest 规范](../data-contract/specs/10-manifests.md)。
 
 ## 标注、视图、codec 与训练执行器
 
@@ -29,7 +35,8 @@ Arrow 基础/视图/codec 类型与质量 struct 类型可生成；类型定义�
 
 ## Lance 的性能与版本兼容
 
-固定 pylance 12.0.0 / 文件格式 2.2。全量并发、索引构建、稀疏增列峰值内存、codec 训练吞吐尚无全规模基准。
+固定 pylance 12.0.0 / 文件格式 2.2。全量并发转换与索引构建已有发布实测；
+稀疏增列峰值内存、codec 训练吞吐尚无全规模基准。
 本机 PyArrow 25 + Lance 12 的 pc.Expression 过滤遇到含 large_binary schema 的 Substrait unsupported type；
 等价 SQL filter 走 sample_id BTREE 查询成功，当前示例使用经过验证的 SQL 路径，业务 ID 必须验证后构造。
 当前音频使用内嵌 large_binary，不是 Blob 扩展；长音频 Blob/范围读取作为后续验证项。
@@ -65,8 +72,10 @@ Arrow 基础/视图/codec 类型与质量 struct 类型可生成；类型定义�
 ## P2：来源完整性及资源类别
 
 - Galgame：此前缺的六片已经出现，footer 读取成功，新增 21,079 行。此项结构性缺片问题已解决；
-  未在本次重新做这六片全量音频校验和内容哈希。
-- HiFiTTS2：URL 清单与本地文件仍差 2,454 项；转写和切片覆盖也需要明确，不能直接假设是完整监督 TTS。
+  后续全量发布已覆盖选入文件哈希、音频头与完整回读；不等于完整解码验收。
+- HiFiTTS2：当前输入已改为用户指定的本地 `hifitts2_work/parquet_22khz`，5,284 片、12,809,875 条已发布。
+  上游已排除 2,909 个失败章节 / 283,093 条 utterances，未进入此次输入；旧章节目录与 URL 清单差 2,454 项
+  属于旧来源调查，不是当前 Parquet 转换的缺项。边界见 [恢复与 HiFiTTS2](recovery-and-hifitts2.md)。
 - dns5：改用增强资产 schema；若所有来源都进入同一训练目标表，会把噪声/RIR 与语音目标混淆。
 - Wuthering：四份 7z 成员配对检查通过，各语言 4 条实际音频解码通过；没有整包音频解码验收。
 
@@ -84,8 +93,14 @@ LM-TTS-Training 当前读取接口绑定 [T,16] 与 vocab 2048，多语言 balan
 AISHELL-3 本轮读取基础 content.txt 的文字/拼音，不包含 prosody 标注的结构化导入；原包仍保留该信息，后续应作为标注任务接入。
 VCTK 已知 p315 没有文本，两个 mic 不应被随机拆为互相泄漏的训练/验证样本。
 游戏字幕可能包含非朗读模板/动作音；保留不代表可直接用于监督目标或同 speaker 克隆配对。
-新适配器的音频解码验收仅覆盖实际预览样本；完整包尾、全库音频和跨来源内容重复尚待全量验证。
+完整音频解码验收仍主要覆盖预览样本；后续全量转换已核验选入 archive 包尾、逐条音频头及输出回读。
+全库逐条解码、跨来源内容重复检查仍待完成。
 Wenet 临时磁盘峰值、重复读取共享清单及单包串行瓶颈须纳入全量性能测试。
+
+## 历史运行记录
+
+以下保留各次修复时的检查点、启动状态和测试数量；当前发布结果以上述状态及 manifest 为准，
+不把历史“已恢复/运行中”视为当前仍在运行。LibriHeavy 后续累计拒收 76 条，见恢复记录。
 
 ## 全量运行发现并修复
 

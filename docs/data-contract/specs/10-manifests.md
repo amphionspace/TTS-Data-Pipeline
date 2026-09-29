@@ -43,6 +43,25 @@ shards 列出基础 fragment 数据文件相对路径、行数、文件大小、
 output_bytes 在基础转换 manifest 中表示列出的基础数据文件总 bytes，不包含引擎索引、版本元数据和后续派生列。
 batch_manifests 仅是执行审计摘要，不能成为读取发布的必要依赖。
 
+### 基础发布的审计字段与历史兼容
+
+新写出的基础 manifest（direct 与 bulk）均包含 rejected_rows、excluded_source_records、
+checkpoint_code_versions、code_migration、finalization：
+
+- rejected_rows 为此次转换明确拒收的记录数，零表示确认没有；与 excluded_source_records 长度一致。
+  上游处理时已删除、未进入此次 inputs 的记录不计入此数。
+- checkpoint_code_versions 为实际 checkpoint 代码映射；direct 无聚合 checkpoint 时为 {}。
+  不能把协调者的 code_sha256 推测成所有历史批次的代码版本。
+- code_migration 无迁移时为 null。
+- finalization 为 bulk 收尾的实测统计；direct 不适用或历史未记录时为 null，不伪造零耗时。
+
+早期 v0.1 已发布 manifest 可能缺少以上字段。发布文件保持不可变，不为补字段改变其 SHA256。
+pipeline 的 read_base_manifest(release) 提供统一的内存读取视图：缺失字段返回 null；
+若 excluded_source_records 已有明确列表而 rejected_rows 缺失，则从列表长度补出数量。
+null 表示未知/未记录（finalization 也可能不适用），与 0、[]、{} 各自的已知含义不同。
+直接解析历史 JSON 的外部消费者必须使用同样的缺省规则；引用哈希始终计算原文件 bytes，
+不得对补齐后的内存对象计算哈希冒充原 manifest 哈希。兼容读取不会补造历史审计证据。
+
 ## Run 与 build 额外字段
 
 run 固定 task、run_id、target_kind、profile_id/profile、输入依赖与 schema、覆盖数、各 status 数、未运行数。
