@@ -487,6 +487,53 @@
       }
     ]
   },
+  "codec_selection_text_columns": [
+    {
+      "name": "text",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "language",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text_kind",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text_revision",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "dataset_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "source_key",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "speaker_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "speaker_scope",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text_source",
+      "nullable": false,
+      "type": "uint32"
+    }
+  ],
   "speaker_embedding_example": {
     "example_only": true,
     "note": "D=3 illustrates storage; actual D comes from the selected speaker encoder",

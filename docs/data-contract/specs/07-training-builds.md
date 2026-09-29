@@ -3,28 +3,39 @@
 ## 复用样本分支与特征，不先复制训练全集
 
 首选验证布局为 indexed_references，发布前必须通过端到端训练读取基准。
-固定 [12 selection](12-selections.md) 的全体分支、规则和 manifest 哈希；从各固定分支派生 build 分支，
-批量关联目标特征，在原行上增加 codec_row、speaker_row 和 build_ready。
+固定 [12 selection](12-selections.md) 的全体分支、规则和 manifest 哈希；构建时核验 feature 的入选来源。
+首版训练主表为含最终 text/language 的 codec features.lance（06）。从各固定 codec 版本派生 build 分支，
+批量关联 speaker 特征，在 codec 原行上增加 speaker_row 和 build_ready；codes、text、language 都在本表。
+codec 自身的逻辑行偏移即采样行，无须再复制 codec_row。冻结路径的训练热路径只读取 codec/speaker 特征表；在线 speaker 另读固定的原音频，见 11。
 绑定使用固定 feature snapshot 内的逻辑行偏移；其来源 target_id、audio/profile/区间/摘要逐条验收。
 它不是稳定业务 ID，也不是 Lance _rowid。不能把 _rowid 当作 take 的行偏移，不能使用隐含相同行序。
 一行失败/未生成特征时 locator=null、build_ready=false，保留原因统计；selection 的数据原因不被覆盖。
 首版 self 协议下 speaker_row 指向 target 自身 embedding。
-首版每dataset每kind绑定一张表，表引用在manifest记录一次。后续同profile的subset补算可复用旧成功表，
-确有多个run时才另加nullable codec_run_slot/speaker_run_slot（uint32），按manifest固定字典定位具体表，
-与row共同构成定位；不能用同一个裸row隐式跨表。新build一次解析重叠成功结果的选择顺序，训练不查fallback。
+首版每 dataset 每 kind 绑定一张表，表引用在 manifest 记录一次。
+同 profile 的 subset 补算产生多个 codec run 时，每个选用 codec 表分别派生 build 分支，
+manifest 用 binding_slot 固定其 dataset/release、feature manifest 哈希、table/branch/version。
+采样位置为 (binding_slot, codec逻辑行偏移)；不在 codec 行上再保存 codec_row 或 codec_run_slot。
+同一目标在这些分支中最多有一条 build_ready=true；重叠成功结果的优先级由 build 一次裁决。
+speaker 确需多个 run 时，在分支另加 nullable uint32 speaker_run_slot，结合 speaker_row 指向
+manifest 固定字典中的具体表，不能用裸 row 隐式跨表；训练时不查询 latest 或动态 fallback。
+
+build 验收以 selection 的完整目标集合对账：入选目标 = 就绪目标 + 未就绪目标，二者不相交。
+缺 codec 的目标用计数与可追溯 ID/原因记录在 build 覆盖信息，不靠 codec 主表行数冒充全部入选范围。
 
 build 位于 builds/<build_id>/{manifest.json,data_recipe.json}，不默认有 records.lance，
-manifest bindings 引用各 dataset 的 build branch/version 及选定 codec/speaker run/table/version。
+manifest bindings 引用各 dataset 的 codec build branch/version 及选定 codec/speaker run/table/version。
+特征表允许新增 build 分支，但 main、已固定版本和已发布 manifest 不变；派生分支只增列，不能删行、追加行或 compaction。
+build 分支及其所依赖的 feature 版本受引用保护，清理须检查全部存活 build/plan。
 data_recipe 固定 selection、profile/run、文本/语言规范化、文本 tokenizer、参考协议、特征定位布局。
 build_id 使用 `tts-build-<name>-YYYYMMDDTHHMMSSbjt-NN`，完整规范 data_recipe 的 SHA256 另存；
 可读名字不代替内容摘要。更换特征快照或模型输入协议需新 build，禁止沿用旧 row locator。
-采用05/12的稀疏selected_text覆盖值及固定规范化，不在每个step跨annotation读文本；
-语言优先读取selected_language覆盖，null才回退base；alias规则固定在selection。
-音文指标须匹配实际text_revision。文本 token/长度可另增小列，原 text 不复制；是否缓存由真实 CPU/I/O 吞吐决定并固定版本。
+codec 发布时物化05/12最终选用文本和语言；训练直接读 codec 的 text/language，不回查原始文本或 annotation。
+物化值按 selected_text/selected_language 的非 null 覆盖规则确定，规范化与 alias 由 selection 固定。
+音文指标须匹配实际 text_revision。文本 token/长度可另增小列；tokenizer、special token 协议与缓存版本必须固定。
 
 训练 plan 位于 training_plans/<plan_id>/{manifest.json,recipe.json}，固定 build 哈希、
 采样权重、seed、预算、分布式恢复与评估策略；ID 同样采用可读名称和北京时间，另存 recipe_sha256。
-只改采样权重不更新样本分支、不新算特征、不再复制 codes。plan 不能越过 build_ready 和 selection 的入选范围。
+只改采样权重不更新数据分支、不新算特征、不再复制 codes 或 text。plan 不能越过 build_ready 和 selection 的入选范围。
 扩充入选范围需新 selection；若新增目标已有兼容特征，可重新绑定复用，不因文本/权重变化重算纯音频特征。
 
 训练按批量 locator 读取固定 features snapshot，做局部性调度/有界缓存，保持 draw 顺序及目标身份对应。

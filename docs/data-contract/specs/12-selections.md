@@ -34,7 +34,7 @@ branch_name 使用 selection_id；manifest 引用原 samples.lance 的根路径�
 目录名、manifest.selection_id和output.branch保持一致；消费者仍读取显式绑定，不靠拼路径或latest猜测。
 修改输入或规则创建新selection_id，中断恢复沿用原ID和输入；发布器原子占用该ID，拒绝其他执行混用。
 分支的版本号只在该分支内有意义；禁止只传 version 或使用 branch latest。
-base、selection、feature、build 的引用路径均相对统一根，见 10；不得依赖调用者当前目录。
+外部输入引用的路径相对统一根；产物自身路径按 10 规定的 release/发布目录解释，不依赖当前目录。
 
 每个输入固定 dataset_id、release_id、基础 manifest 路径/原文件 SHA256、base main 整数版本、行数。
 每个输出固定同一 dataset/release 的 branch/version、tag、总行数、selected_rows、原因计数和校验结果。
@@ -186,13 +186,11 @@ merge 可用于按键增列，但大表必须经过峰值内存验收；索引�
 按 06 的 selection_branch 模式记录目标集合，无需再复制全量 targets 或读取一份位置位图。
 特征表仍按 target_id/feature_key 关联；分支没有自动保证特征顺序与原始行顺序一致。
 
-准备训练：一次批量匹配特征，在从 selection 固定版本派生的 build 分支添加
-nullable int64 codec_row、speaker_row（快照内逻辑行偏移），以及 build_ready 布尔状态。
-绑定 manifest 固定所指特征表、profile/run/main version，逐条核对 target、音频区间、指纹、status=ok。
-禁止靠写入顺序推断对应；nullable 只表示该特征未就绪，不用 -1 或 0 冒充缺失。
-两列全库原始数值约 2.16 GB，另加 null bitmap/元数据；按需要生成，不在当前 selection 强制预建。
+准备训练：以含最终 text/language 的 codec features.lance 为主表，从固定 codec 版本建立 build 分支，
+按 key 关联并验证 speaker 特征，只增加 nullable int64 speaker_row 和 build_ready 等绑定列。
+采样位置就是该 codec 分支的逻辑行偏移，不在 samples/selection 上增加 codec_row。
+codec 缺失的目标记录在 build 的覆盖/未就绪统计中；不能因为主表没有该行而漏记 selection 的目标。
+多 run、在线 speaker 与完整引用字段以 07/11 为准，不在此另定义一套训练布局。
 
-build 分支不覆盖 selection_reason；特征失败与数据被排除是不同事情。
-训练使用 reason=0 且 build_ready，按批量 take 读取固定特征快照，断言 locator 对应的 target_id。
-换 feature run/snapshot 必须重新生成绑定；改采样权重无需改分支或复制 codes。
-indexed_references 仍需训练端真实吞吐验收，见 07；当前只确定接口，不表示训练读取器已实现。
+build 不覆盖原 selection_reason；特征失败与数据排除分别记账。
+更换特征快照须重新绑定，改采样权重不改分支或复制 codes。训练读写吞吐须独立验收。

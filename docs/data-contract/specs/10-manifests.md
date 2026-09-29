@@ -27,7 +27,7 @@ base 的 table_path 相对 release 根目录，固定 samples.lance。其他 dat
 所有 inputs/recipe 中的外部引用 table_path 和 manifest_path 相对统一根目录，不依赖调用者当前工作目录。
 引用保存 manifest_sha256；一份 manifest 引用多个内部 snapshot 时，还需指定对应表/列，不能只凭 manifest 哈希猜版本。
 materialized training_build 的 table_path 相对该 build 根目录，固定 records.lance；
-indexed_references build 通过 bindings 引用统一根下的样本 build 分支和特征表，不强制有自身表。
+indexed_references build 通过 bindings 引用统一根下的 codec build 分支和 speaker/在线音频输入，不强制有自身表。
 selection 的文件路径相对自身发布目录，所有外部 samples 引用相对统一根；具体内容见 12。
 新引用显式写 branch（main 用 null）及 lance_version；旧引用缺 branch 按 main 解释，绝不猜测 selection 分支。
 annotation统一manifest位于annotations/<task>/<run_id>/；inputs/outputs内所有表和外部manifest路径相对统一根。
@@ -36,6 +36,9 @@ annotation统一manifest位于annotations/<task>/<run_id>/；inputs/outputs内�
 文件系统绝对根从部署配置映射，不写进内容身份。
 新一对一样本标注使用storage_kind=sample_branch；独立表为result_table；旧sample_column保留兼容读取。
 一个 run 如果没有实际结果表，不创建空 results.lance。
+
+通用字段按产物布局适用：无自身 Lance 表的 selection/build/plan 不伪造顶层 table_path、
+lance_version、rows 或 storage_version；在具体 inputs/outputs/bindings 中记录所引用表的信息。
 
 ## 基础发布额外字段
 

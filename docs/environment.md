@@ -46,7 +46,8 @@ Lance 文件格式固定 2.2；这与数据发布 v0.1 是两个不同版本概�
 codec/GPU 批处理使用单独环境锁定模型、Torch、decoder 和重采样实现。
 
 项目不作为 distribution 安装，无需 pip install -e .。
-入口脚本加载仓库内 src 模块，pyproject.toml 只保存测试和格式检查配置。
+入口脚本加载仓库内 src 模块，pyproject.toml 保存 pytest 与格式检查配置。
+两个环境均保留 pytest 依赖；当前回归命令见仓库 README，历史 lock 保留实际安装快照。
 
 ## Codec / speaker 独立环境
 
@@ -67,13 +68,13 @@ python -m pip check
 
 CUDA wheels 从 PyTorch 官方索引安装，其余 pip 包使用环境内 USTC 配置，不改全局 pip 或旧环境。
 已安装 flash-attn 2.8.3.post1（官方 Torch2.8/cu12/C++11 ABI wheel，requirements 固定 URL 与 SHA256）。
-codec 生产候选要求 FA2，真实模型后端与批处理数值尚待验收；ECAPA speaker 不适用 FA2。
+codec 正式 C 使用 FP16/FA2 + FP32 码本缓存，配置与验收见 [codec 执行说明](codec.md)；ECAPA speaker 不适用 FA2。
 当前主机为 8 × A800 80GB；沙箱内可能无法看到 /dev/nvidia*，GPU 检查与执行需使用设备可见的上下文。
 环境就绪不代表已完成真实权重/profile 验收，步骤见 [提取计划](design-review/feature-extraction-plan.md)。
 
 2026-09-29 北京时间验证：pip check 通过，tokenizer/speaker/frontend 导入成功；8 卡均通过小矩阵运算和
 合成 mel 计算，SoundFile FLAC、scipy/torchaudio 重采样及 Lance 读写通过。新环境的 31 项 contract/feature
-存储与 manifest 回归测试通过。该次检查未加载真实模型权重、未提取数据特征。随后模型已下载并记录 sources.json；真实推理仍待验收。
+存储与 manifest 回归测试通过。该次检查未加载真实模型权重、未提取数据特征。随后模型已下载并记录 sources.json；该段仅记录最初环境检查；当前真实 codec 验收与运行状态见 codec 执行说明。
 
 实际解析结果已锁定于 configs/features-conda-linux64.explicit.txt 与 configs/features-requirements.lock.txt。
 同平台复现时先用 Conda explicit 文件创建环境，再安装上面的 cu126 wheels，最后安装 pip lock：

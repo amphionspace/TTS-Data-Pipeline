@@ -29,7 +29,7 @@ direct/bulk 新发布均写出这些字段；字段含义与历史读取规则�
 ## Selection 与当前数据问题
 
 完整方案已改为同根Lance分支；见 [验证报告](selection-validation.md) 和 [数据问题清单](data-selection-review.md)。
-已在/tmp验证LJSpeech全量及Emilia全部4,026万行元数据的merge/add_columns；不等于全局去重执行器已实现。
+已在/tmp验证LJSpeech全量及Emilia全部4,026万行元数据的merge/add_columns；这是当时的存储实验；后续全局去重与 selection 执行器已实现并发布。
 主原因uint16+多重flags uint32；首次selection执行器已实现完整哈希去重/冲突裁决/并行扫描/分支验证发布，
 见 [执行说明](../selection.md)。后续排除继承、annotation输入与自动保留依赖回收仍待实现，首版入口拒绝隐式重置。
 已清除历史约151GB .tmp与MLS旧SQLite，清理记录见 [维护核验](published-cleanup-review.md)。
@@ -41,13 +41,16 @@ annotation/selection从同一bv建立平级分支；物理平级与逻辑无环�
 
 尚需实现生产标注 worker、结果唯一性/目标存在/输入指纹验证、协调发布与断点恢复。
 列追加、稀疏乱序 merge、多版数组、快照和原音频不重写通过小规模存储测试，不表示生产标注流水线已完成。
-视图父引用/边界/环校验、codec 模型推理、profile 发布、build 构建和分布式 sampler 仍待实现。
+codec 推理、checkpoint 和 profile 发布已通过仓库内真实音频验证，用户抽样重建听检已通过；
+C 全量已启动，实际 backend、批处理问题与吞吐见 [codec 验证](codec-inference-validation.md)。
+当前 codec 文本发布只支持基础文本/规范化；annotation 修订需要绑定规范化前原文，尚未实现，入口明确拒绝。
+视图父引用/边界/环校验、build 构建和分布式 sampler 仍待实现。
 27 个基础字段包含派生关系，但当前 make_record 只供原始接入；派生音频还需要变换身份和完整父子验收。
 
 ## Lance 的性能与版本兼容
 
 固定 pylance 12.0.0 / 文件格式 2.2。全量并发转换与索引构建已有发布实测；
-全行增列内存已有Emilia元数据实测；真实重复/排除关联成本和codec训练吞吐仍待基准。
+全行增列内存已有Emilia元数据实测；正式 selection 已完成全局重复/排除关联；codec 训练读取吞吐仍待基准。
 本机 PyArrow 25 + Lance 12 的 pc.Expression 过滤遇到含 large_binary schema 的 Substrait unsupported type；
 等价 SQL filter 走 sample_id BTREE 查询成功，当前示例使用经过验证的 SQL 路径，业务 ID 必须验证后构造。
 当前音频使用内嵌 large_binary，不是 Blob 扩展；长音频 Blob/范围读取作为后续验证项。
@@ -105,7 +108,7 @@ AISHELL-3 本轮读取基础 content.txt 的文字/拼音，不包含 prosody �
 VCTK 已知 p315 没有文本，两个 mic 不应被随机拆为互相泄漏的训练/验证样本。
 游戏字幕可能包含非朗读模板/动作音；保留不代表可直接用于监督目标或同 speaker 克隆配对。
 完整音频解码验收仍主要覆盖预览样本；后续全量转换已核验选入 archive 包尾、逐条音频头及输出回读。
-全库逐条解码、跨来源内容重复检查仍待完成。
+全库逐条解码仍未独立验收；跨来源字节级重复与文本/语言冲突已在首版 selection 完成，近重复尚未覆盖。
 Wenet 临时磁盘峰值、重复读取共享清单及单包串行瓶颈须纳入全量性能测试。
 
 ## 历史运行记录

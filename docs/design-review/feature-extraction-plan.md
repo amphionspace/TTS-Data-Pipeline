@@ -1,97 +1,71 @@
 # Codec / speaker：当前决定与实施门槛
 
-状态：方案与接口准备，未启动真实特征提取。这轮只验证 `/tmp` 的 Lance selection/绑定机制，
-没有修改生产 samples、建立生产分支或改动 LM-TTS-Training。
-规范源为 [06](../data-contract/specs/06-codecs.md)、[07](../data-contract/specs/07-training-builds.md)、
-[11](../data-contract/specs/11-speaker-embeddings.md)、[12](../data-contract/specs/12-selections.md)。
+截至 2026-09-29，selection 已发布，C codec 已通过八卡数值核验、持久化/恢复验证和用户试听，
+正式全量执行已启动。运行入口见 [codec](../codec.md)，证据与历史比较见
+[数值验证](codec-inference-validation.md)。本轮没有修改 LM-TTS-Training。
 
-## 已确认的选择
+## 当前实施
 
-- 首版从头训练 Qwen3-TTS 结构，使用冻结的官方 tokenizer；speaker 条件采用目标自身音频（self）。
-  每个入选目标需要自己的 embedding，不能用“每个 speaker 几条参考”估算这一协议的存储。
-  Galgame/Wenet 没有 speaker 标签不因此被排除；独立参考克隆评估另定。
-- selection 保留基础行，在分支上记录原因/flags；codec 第一轮只消费 supervised_tts selection 的 reason=0。
-  空音频、空文本和确认坏样本由数据规则排除。不是要求所有未来纯音频特征都必须有文本。
-- codec、speaker 各一张 dataset/profile/run 的 features.lance；不按 GPU/batch 对外发布，不生成逐条 NPZ。
-  不复制原始音频，不保存长期 mel，也不先物化第二份训练 codes。
-- 生产 codec 采用 FA2 + BF16 候选 profile；FP32/eager 用于基线检查，两种 profile 不混存。
-  speaker 先以 FP32 输出建立基线；ECAPA 并非 FA2 attention 模型，不能声称 speaker 已用 FA2 加速。
-- 改模型/前处理/精度需新 profile；改采样权重只改 training_plan；换 feature 快照重建 locator 绑定。
-  原始稳定 ID 保持哈希，profile_name/run/build/selection 名字可读且用北京时间 bjt。
+首版从头训练 Qwen3-TTS 结构，使用冻结的官方 tokenizer；speaker 条件采用目标自身音频（self）。
+每个入选目标需要自身 embedding，不能按“每个 speaker 几条参考”估算。
+Galgame/Wenet 不因缺 speaker 标签被排除；独立参考克隆评估另定。
 
-## 本地模型与代码证据
+codec 消费固定 supervised_tts selection 的 reason=0，共 128,220,178 条、357,506.84 小时。
+范围已经包含 1–120 秒限制、缺失文本/音频检查、精确重复与冲突裁决、首尾空白和语言别名规则。
+未来纯音频特征可以有其他选择范围，不把本轮文本条件写入音频特征身份。
 
-权重已在 cache/feature-models，sources.json 记录真实文件 SHA256；不存在“尚未下载”的前置阻碍。
-codec：Qwen/Qwen3-TTS-Tokenizer-12Hz，revision 7dd38ad4e9bad454aae9cd937d0cd577604fe229。
-speaker 来源：Qwen/Qwen3-TTS-12Hz-0.6B-Base，revision 5d83992436eae1d760afd27aff78a71d676296fc。
-配置确认 codec 输入 24k、downsample=1920、有效16码本、encoder vocab=2048；名义帧率12.5Hz。
-speaker enc_dim=1024。模板仍有 frontend/length/reproducibility 待验参数，不能拿模板直接发生产 profile。
+当前只有 C：FP16 encoder、FA2 全因果注意力、FP32 归一化码本缓存与量化距离。
+有效长度 mask、固定桶和 canonical batch 形状已在仓库实现；不使用上游未经处理的异长补零路径。
+使用 8 卡 × 每卡 2 个进程 × 4 解码线程；batch 最大 64，由目标长度确定，不能因空闲显存或 OOM 改形状。
+A/B 已停止并清理；保留比较结论，不复用其 codes。具体数值参数由生产 profile 固定。
 
-训练仓库 qwen3_train/data.py 的目标数据路径调用 audio_mel(row)，speaker.py 的 frontend 使用
-24k、128 mel、n_fft/win=1024、hop=256、fmin=0/fmax=12000，非24k路径用 torchaudio resample。
-codec 候选 scipy resample 与此不是同一种前处理；可共享原生解码结果，不默认共享重采样波形。
-后续训练改用新读取器，不受旧 NPZ/manifest 行列表的接口限制；本轮未修改训练仓库。
+权重在 cache/feature-models，sources.json 保存文件 SHA256：
 
-安装版 qwen-tts 0.1.1 的 tokenizer_12hz/modeling_qwen3_tts_tokenizer_v2.py：
-encode 调用 encoder.encode 时不传 padding_mask，只在最后按 mask.sum()/1920 裁 codes。
-Transformers 4.57.3 的 Mimi _encode_frame 也有 encoder 支持 padding 的 TODO。
-models/modeling_qwen3_tts.py 的 ECAPA attentive pooling 将每条 lengths 设为1，视整个补齐序列为有效。
-因此异长混批对边界/池化结果的影响必须实测，不能因为输出 T 正确就认为内容等价。
+- codec：Qwen/Qwen3-TTS-Tokenizer-12Hz，revision `7dd38ad4e9bad454aae9cd937d0cd577604fe229`。
+- speaker 来源：Qwen/Qwen3-TTS-12Hz-0.6B-Base，revision `5d83992436eae1d760afd27aff78a71d676296fc`。
 
-## 执行路径
+codec 输入 24 kHz、downsample=1920，有效帧率 12.5 Hz；16 码本，每码本 2048，存 int16 `[T,16]`。
+音频完整解码后核对帧数、采样率和声道，再取均值、按 profile 重采样；metadata 中原录音坐标不重复裁剪。
+首版只处理整条 sample，其他区间需要先实现并验证 view。
 
-1. **固定数据。** 发布完整 selection 后，校验各 base/branch/version/tag、全局重复裁决和规则哈希。
-   打开固定分支，按 reason=0 顺序读取，只投影所需音频和身份列；目标集合摘要在推理前固定。
-   小规模测试可额外固定少量 targets，输出在本仓库 artifacts/features-pilot，不放 unified。
-2. **CPU 前处理。** 一次解码原始 bytes，检查帧数、采样率、有限值；本轮 sample 使用整条 `[0,num_frames)`。
-   不因为 metadata 有旧录音坐标就再次裁剪。真正需要片段时先明确 view，不能截 token 或静默截前N秒。
-   codec/speaker 分别按固定 profile 重采样/提 mel。mel 仅用于当前推理或有界临时缓存，不发布为长期特征。
-3. **GPU 任务。** 后续授权执行时使用8卡，每卡一个持有模型的进程，不使用DDP同步梯度。
-   按音频长度和总帧预算分发；CPU解码池、GPU微批、写入队列各有独立容量，监测吞吐后调并发。
-   128 CPU workers 是可测试配置，不是固定使用128个GPU进程；避免盲目并发压垮共享盘。
-   codec 与 speaker 可在同GPU进程消费同次解码，但采用各自的等长/批处理策略与独立结果检查点。
-4. **FA2与数值。** 检查嵌套 encoder/transformer 的实际 attention backend，而非只看外层 config；
-   保存 profiler 证据，禁止 fallback 后报告 FA2。先单条对照，再测试长短混合、batch重排、batch尺寸和重试。
-   同 profile 的 codec 要整数完全一致；FA2 BF16 与 FP32 跨 profile 差异另报告并听检重建。
-   speaker 按单条或严格等长 mel 推理；简单“接近长度分桶+补零”不能消除池化问题。
-   若要实现有效长度 mask，先证明卷积边界与池化均等价，再作为新 frontend/implementation profile。
-5. **输出与恢复。** 特征按完成顺序流式写；每个 dataset/kind/run 单协调者提交，GPU worker不抢schema。
-   实际数组存 [T,16] int16、[1024] float32；无padding/特殊token。失败保留 target 和原因，不补零。
-   manifest 记录 selection 范围、profile、成功/失败终态和实际软硬件。恢复键为 target+fingerprint，不能用worker号。
-6. **训练绑定。** 在 selection 的派生 build 分支一次批量关联，添加 codec_row/speaker_row/build_ready。
-   features可乱序，必须验 target_id、音频区间、profile 和status；固定 feature snapshot，批量take读取。
-   换run新建绑定；同profile只补缺失目标时新建少量subset特征，build必要时增加run_slot，复用旧成功表；改权重新建plan。真实训练读取器和任意语言/质量 weighted sampler 仍需实现。
+每个 dataset/release/kind/run 发布一张 features.lance，路径没有多余的 profile 哈希目录层。
+不按 batch/GPU 发布，不生成逐条 NPZ，不复制原音频，不持久化 mel。
+worker 写未提交 fragment；检查点固定任务成员和文件 hash，协调器按计划顺序发布并检查完整覆盖。
+未知错误停止，保持 incomplete；不能靠丢目标继续发布。正式输出和恢复方式见 codec 执行说明。
+发布前把最终选用 text/language、文本版本、来源及 speaker 元数据追加到 codec 表，逐行核对 target_id。
+当前执行器只支持基础文本及其规范化；annotation 修订原文的绑定尚未实现，显式拒绝。
 
-## 重复处理与存储预算
+## Speaker 与训练仍需完成
 
-精确音频冗余约610万条/4.53%来自用户已有全量核查，最终仍要核对完整 SHA256。
-选代表、文本冲突、评估隔离属于 selection 数据正确性，不建立全球内容存储服务来追求这4.5%的空间。
-特征按数据集发布，允许跨来源少量重复；同run同feature_key复用已校验的权威数组，身份行仍独立记账。
-不能按 speaker_id 共用 embedding，不能因纯文本改动让兼容音频特征失效。
+已完成 speaker 初探：FP32 ECAPA 输出 1024 维，单条/跨卡、在线同权重对照、Lance 回读与梯度通路已验证。
+严格等长批通过，异长补零批未通过；ECAPA 池化没有有效长度参数，不能套用 codec 的 FA2 优化。
+下一步需验证单条/严格等长的真实吞吐、完整 TTS loss 与音色克隆效果，之后才能发布 speaker profile 并全量提取。
+本轮未启动 speaker 全量；候选模板不表示生产验收通过。
 
-按全部134,832,658条、373,638.02355小时估算，十进制GB，尚未扣selection排除与失败：
+speaker 前处理沿用训练的 audio_mel：torchaudio 重采样与 codec 的 scipy resample_poly 不同。
+可以共享原生解码，不能默认共享重采样后的波形。mel 仅作为推理临时输入；解冻时按当前 frontend 在线计算。
+
+训练以含文本的 codec 表为主，从固定快照建 build 分支，按身份核验后增加 speaker_row/build_ready。
+只改采样权重时新建 training_plan，不再复制特征。多 run、在线路径和缺失覆盖遵循 07/11。
+绑定构建器、新训练读取器、通用多语言质量加权 sampler、训练吞吐与评估隔离仍需实现/验收。
+这些是训练放量门槛，与已经通过的 codec 提取验收分开。
+
+## 存储预算与清理
+
+以下按全部基础 134,832,658 条、373,638.02 小时估算，未扣 selection 排除，单位为十进制 GB：
 
 | 内容 | 原始数值体积 |
 | --- | ---: |
-| codec，12.5帧/秒 ×16码本 ×2bytes | 约538 GB |
-| 每目标1024维FP32 speaker | 约552 GB |
-| 两列int64特征定位 | 约2.16 GB |
-| uint16原因+uint32 flags | 约0.81 GB |
+| codec，12.5 帧/秒 × 16 × 2 bytes | 约 538 GB |
+| 每目标 1024 维 FP32 speaker | 约 552 GB |
+| 单列 int64 speaker_row | 约 1.08 GB |
+| uint16 原因 + uint32 flags | 约 0.81 GB |
 
-表内多个身份/指纹、Lance元数据、索引、临时磁盘另计。每个64字符哈希字段全库约8.6GB未压缩，
-不能把上述数组体积当完整磁盘需求；全量前用pilot测真实每条/每小时bytes并外推峰值。
-FP16 embedding可约276GB，但必须独立profile验证误差和训练表现，暂不直接采纳。
-在线speaker可省缓存但需要训练时音频I/O；保留给解冻路径，不作为当前自动替代。
-不常驻一份带完整text的catalog，不按采样配方反复复制features。短期保留少量有效实验run，其余按依赖回收。
+哈希、文本、Lance 编码/索引、null bitmap 与临时文件另计；数组体积不是最终磁盘需求。
+每个 64 字符哈希字段全库约 8.6 GB 未压缩；文本及其他小列也有数十 GB 量级成本。
+FP16 embedding 可减半，但需新 profile 和误差/训练验收，暂不直接采纳。
 
-## 验收与放量门槛
-
-先用 LJSpeech/CSEMOTIONS 的固定少量样本做正确性测试，再从每个dataset/语言/长度/采样率/声道抽样。
-LJSpeech单语不能替代多语言分布验收。记录输入音频秒数/墙钟秒、条/秒、GPU空闲、解码/重采样/
-编码/speaker/写入各阶段耗时、峰值VRAM/RSS、共享盘读写与最终bytes；预热与正式统计分开。
-总耗时按实测端到端音频秒/秒估算，不能只用GPU kernel时间乘总量。
-
-必须通过真实权重hash、FA2 backend、codec长度/值域/重建听检、speaker在线对照、异长/等长批、
-坏输入记账、Lance回读、8卡覆盖无重无漏、断点换worker、绑定身份/固定快照、实际训练吞吐与采样分布测试。
-数据selection发布与特征pilot可分线准备；全量特征必须等数据范围固定和上述可行性验收。
-这轮不启动pilot/GPU提取；先完成方案、文档和临时存储验证。
+当前 selection 已统一裁决精确重复，首版 codec 拒绝同 run 出现重复 feature_key。
+通用同键权威结果复用协议存在于 contract，当前执行器不宣称支持任意重复目标输入。
+跨数据集不引入全局特征存储服务；纯文本变化不使兼容音频特征失效。
+清理保留当前 runtime、模型、plan/checkpoint、验收 JSON 及引用快照；可重建实验音频/张量已移除。

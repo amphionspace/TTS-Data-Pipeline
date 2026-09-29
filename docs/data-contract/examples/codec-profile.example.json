@@ -94,6 +94,6 @@
       "comparator": "exact_integer"
     }
   },
-  "note": "FP32 baseline template, not the required FA2 BF16 production profile. Resolve all nulls and validate actual backend, lengths, batching and reconstruction before publishing a profile.",
+  "note": "FP32 baseline template; eager, SDPA or FA2 candidates require separate acceptance and profiles. FA2 is optional. Resolve all nulls and validate actual backend classes, lengths, batching and reconstruction before publishing a profile.",
   "profile_name": "qwen3-12hz-24k-k16-fp32-v1"
 }

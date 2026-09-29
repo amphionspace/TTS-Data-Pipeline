@@ -21,3 +21,6 @@ roots.local.json
 *.pt
 *.safetensors
 *.lance/
+
+# Root-level temporary database session residue
+/:memory:.ses

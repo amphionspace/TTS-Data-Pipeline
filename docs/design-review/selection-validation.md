@@ -2,7 +2,7 @@
 
 2026-09-29，pylance 12.0.0 / Arrow 25 / Lance 文件格式2.2。
 只读生产输入，在 `/tmp/tts-selection-validation` 写独立验证副本；未给 unified 创建分支、改 main 或运行特征提取。
-脚本：scripts/benchmark_selection_branches.py；安全约束拒绝非 /tmp 输出路径。
+该次验证使用一次性脚本，限制只向 /tmp 写入；一次性性能脚本已清理，回归测试与方法记录保留。
 合成规则：duration_seconds<3 → reason3001/flags1，否则0；仅为存储验证，不是实际训练规则或正式flags含义。
 
 ## 全量行数基准
@@ -31,7 +31,7 @@ Emilia没有搬运全部音频，未证明生产共享盘写延迟；没有测GP
 
 ## 清理、失败与特征绑定
 
-tests/test_selection_branches.py 在一次性小表验证：
+一次性小表曾验证以下情况：
 
 1. main overwrite后清理旧版本，**不设置任何tag**，仅靠branch引用仍完整读出旧音频。
 2. 分支增列后对旧snapshot设tag，再修改分支头并清理，旧版本仍保持原选择结果。
@@ -41,23 +41,14 @@ tests/test_selection_branches.py 在一次性小表验证：
    缺特征行不就绪，但原selection不变。
 
 这验证的是同根branch，不推广为外部shallow clone的回收保证。
-生产发布器、依赖扫描/安全回收、全局重复执行器、真实特征绑定和训练读取器尚未实现。
+该次实验时未实现生产执行器；后续 selection 已发布。依赖扫描/安全回收、真实特征绑定和训练读取器仍需独立实施与验收。
 
 ## 留存与复现
 
 原始JSON留在被Git忽略的 reports/selection-validation/；summary.json SHA256：
 `2ee098c94bbdd6338c4d694227b4ea7171dd69dc1a39cf558986b12c64984df4`。
 输入manifest SHA、base文件SHA、行数、列投影、峰值RSS/运行时间随报告保存。
-临时音频/元数据副本验收后清理；保留脚本、回归测试和本报告即可重做。
-
-```bash
-python scripts/benchmark_selection_branches.py prepare \
-  --source /workspace/data/DATA-TTS-UNIFIED/datasets/ljspeech/v0.1 \
-  --work /tmp/tts-selection-validation/ljspeech --with-audio
-python scripts/benchmark_selection_branches.py merge --work /tmp/tts-selection-validation/ljspeech
-python scripts/benchmark_selection_branches.py add_columns --work /tmp/tts-selection-validation/ljspeech
-```
-
-Emilia使用同样流程，source改为emilia，work另置，省略--with-audio。已有输出不覆盖，复测使用新work路径。
+临时音频/元数据副本及一次性性能脚本已清理，保留报告和 tests/test_selection_branches.py。
+重做大表性能验证时按上述输入投影、独立进程、分支增列和全量核验步骤进行；使用新临时目录，不能操作生产表。
 依据：[Lance branches](https://lance.org/guide/tags_and_branches/)、
 [data evolution](https://lance.org/guide/data_evolution/)，最终以固定安装版的上述实验为准。

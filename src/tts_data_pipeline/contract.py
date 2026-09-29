@@ -88,6 +88,28 @@ def codec_schema(num_codebooks, dtype="int16"):
     )
 
 
+def codec_text_schema():
+    """Selection materialization, separate from audio feature identity."""
+    return pa.schema(
+        [
+            pa.field(
+                name, pa.string(), nullable=name not in {"text", "text_revision", "dataset_id"}
+            )
+            for name in (
+                "text",
+                "language",
+                "text_kind",
+                "text_revision",
+                "dataset_id",
+                "source_key",
+                "speaker_id",
+                "speaker_scope",
+            )
+        ]
+        + [pa.field("text_source", pa.uint32(), nullable=False)]
+    )
+
+
 def speaker_embedding_schema(dimension):
     if dimension < 1:
         raise ValueError("Speaker embedding requires a positive dimension")
@@ -183,6 +205,7 @@ def contract_types():
             "note": "K=2 is a storage example, not the selected Qwen tokenizer layout",
             "fields": schema_description(codec_schema(2)),
         },
+        "codec_selection_text_columns": schema_description(codec_text_schema()),
         "speaker_embedding_example": {
             "example_only": True,
             "note": "D=3 illustrates storage; actual D comes from the selected speaker encoder",

@@ -45,6 +45,8 @@ manifest 固定 contract/schema、task/run/profile（含完整定义与摘要）
 columns（每列的profile/schema/选择范围/覆盖数）、基础不变/位置一致/输入指纹验证统计。
 result_table output 则列出 tables.results/tables.targets 的路径、版本、schema 与行数。
 
+columns 每列明确保存 profile/profile_id 与 schema/schema_sha256；schema 为包含该 struct 列的 Arrow 类型描述。
+即使只含一个指标，也明确填写，不靠隐式继承顶层配置。
 columns 各自统计，不把两个指标的结果数相加当成样本条数。跨数据集汇总同名列时才对相应coverage求和。
 任意子集在执行前固定目标ID集合/选择表及其hash；all_base_samples 明确指固定bv的全体。
 运行过程中外层null可表示未完成；complete时范围内missing=0，范围外仍为null。
@@ -125,8 +127,12 @@ selected_raw_text为选中的原始或修订字符串（也可null），normaliz
 来源谱系独立记录；相同文本及规范化可以保持相同revision，不因只换run名使音文结果无意义失效。
 旧任务声明其他fingerprint/text_revision算法时不能混用，须显式重新核验或计算。
 音文指标必须对应这一实际revision；换文本后旧分数不自动沿用。
+当文本来自修订且随后被规范化时，不能用最终 selected_text 冒充 selected_raw_text。
+发布 selection 或物化 codec 文本时，需从固定 annotation 输入读取规范化前的修订原文，
+按同一 normalization_definition 计算并核验 revision；不要求训练每步回读 annotation。
+仅实现基础文本来源的执行器，不得宣称支持任意 annotation 文本修订。
 重复组比较采用最终选用文本/语言，修订可能改变冲突和代表，必须重新全局裁决再发布selection。
-训练直接读selection的覆盖值，不逐step查询多个annotation；这些小列的空间需实测，不假设null完全免费。
+codec 发布物化时读 selection 的覆盖值；训练直接读固定 codec/build 的选用文本，不逐 step 查询 annotation；这些小列的空间需实测，不假设null完全免费。
 
 ## 上游质量导入与采样
 

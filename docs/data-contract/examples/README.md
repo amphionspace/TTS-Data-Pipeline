@@ -9,9 +9,10 @@
 | annotation-manifest.example.json | 平级annotation分支、固定bv、子集覆盖与对齐验证 |
 | text-revision.example.json | 未处理/keep/replace/failed与selection稀疏覆盖，不以null清空文本 |
 | view.example.json | 原生帧区间、父音频与 speaker 范围 |
-| codec-profile.example.json | Qwen FP32基线模板，生产FA2/BF16须另行验收；只对 profile 对象生成 ID |
+| codec-profile.example.json | 未验收的 FP32 格式模板，不代表当前生产 C；只对 profile 对象生成 ID |
+| codec-text.example.json | selection 选用文本/语言物化到 codec 表，文本身份与音频身份分开 |
 | codec-row.example.json | [time,codebook] 整数数组；K=2 仅用于说明 |
-| speaker-profile.example.json | 冻结 ECAPA 候选；配置维度1024已核实；权重推理和 frontend 待验收 |
+| speaker-profile.example.json | 冻结 ECAPA 格式模板；此文件的占位权重/前处理不能用于生产 |
 | speaker-row.example.json | D=3 的合成向量存储示例 |
 | feature-manifest.example.json | codec run 的固定输入/快照/完整终态记账示例 |
 | feature-subset-manifest.example.json | 一个父 sample、100 个 views 中选择两个的 run；绑定 targets 表 |

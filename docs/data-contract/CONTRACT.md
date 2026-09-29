@@ -22,7 +22,14 @@ Qwen 风格 TTS 训练（模型从头初始化）
 冻结 speaker encoder 可直接读取缓存 embedding；未来解冻则读取原音频/view，按当前 frontend 在线提取，
 不把某一种 mel 规定为统一层必备产物。参见 [Speaker 两条路径](specs/11-speaker-embeddings.md)。
 
-## 2. 固定决定
+## 2. 规范边界
+
+本契约保存长期可互操作的字段、身份、引用、缺失/失败状态、覆盖和发布/保留约束。
+具体模型/精度/数值路径属于已验证 profile；一次任务的来源范围、硬件并发和性能属于 run manifest。
+实验过程、部署路径的当前运行 ID、代码修复历史与实现进度只记录在 pipeline 文档。
+规范更新不改变已有 manifest/profile 哈希，不重写已发布数据；涉及字段/身份语义演进时按第 10 章处理。
+
+## 3. 固定决定
 
 1. 统一存储使用本地 Lance 表，不要求启动数据库服务。HF Parquet 可以作为输入或将来的交换导出格式。
 2. 根目录为 `/workspace/data/DATA-TTS-UNIFIED`。按 dataset 管理发布，每个 release 的主表是 `samples.lance`。
@@ -32,10 +39,10 @@ Qwen 风格 TTS 训练（模型从头初始化）
 6. 全部基础记录 `source_split=train`；上游 split/config/tier 保留在 metadata。存储的 train 不替代评估隔离。
 7. selection 在 samples 的独立分支记录入选状态；稀疏重复关系和排除证据归该 selection。一对一 annotation 使用从相同 base 建立的平级分支，大特征独立存表。
 8. 为 `sample_id` 建标量索引。不能把 Lance 内部行号或物理文件位置当永久 ID。
-9. 已发布 manifest、main 与固定逻辑快照不可变；允许在同一 samples.lance 内新增分支文件。引用必须固定 table/branch/version，不跟随 latest。
+9. 已发布 manifest、main 与固定逻辑快照不可变；允许在 samples.lance 新增 annotation/selection 分支、在特征表新增 build 分支文件。引用必须固定 table/branch/version，不跟随 latest。
 10. 发布前校验，失败不静默丢数据。原始全量转换、标注任务和训练构建都要明确处理与验证覆盖范围。
 
-## 3. 为什么用这种组织
+## 4. 为什么用这种组织
 
 Lance 分支继承基础数据文件，新增选择列独立写入；读取时按列投影，不需加载全部音频。
 选择状态、重复裁决、特征计算和训练采样分别版本化；不引入第二份带完整文本/音频的目录。
@@ -45,7 +52,7 @@ Lance 分支继承基础数据文件，新增选择列独立写入；读取时�
 依据：[Lance branches](https://lance.org/guide/tags_and_branches/)、
 [data evolution](https://lance.org/guide/data_evolution/)。具体版本与性能验证保存在 pipeline 仓库。
 
-## 4. 长期不变量
+## 5. 长期不变量
 
 - 调整 worker、批大小、输出分片、运行路径不会改变样本身份。
 - 文本纠错不改变原音频；纯音频 codec 不因文本修订而失效。

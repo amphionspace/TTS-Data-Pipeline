@@ -70,8 +70,9 @@ bytes 和 config。来源 checkpoint/revision 记为证据；特征身份不应�
 ## 训练如何绑定参考
 
 训练 recipe 固定 reference_policy 和 speaker_conditioning_mode，两种模式使用相同的参考身份和区间。
-每条训练记录保留 target、ordered_reference_ids、对应父 sample，以及实际使用的参考特征 profile/feature_key/摘要，
-以及所有被引用表的 snapshot（表级统一字典即可，不必逐行重复完整 manifest）。
+每条训练记录保留 target、ordered_reference_ids、对应父 sample 与所引用表的固定 snapshot。
+仅启用离线特征时记录相应 profile/feature_key/摘要；在线音频路径不要求离线特征身份。
+表级引用可用统一字典，不必逐行重复完整 manifest。
 
 - speaker-only 条件：目标 codec + 冻结参考 embedding 或在线参考音频；不要求参考 codec 或参考文本。
 - ICL/prompt 条件：目标 codec + 所需参考 codec/文本，按模型协议决定是否还需要 embedding。
@@ -82,7 +83,7 @@ bytes 和 config。来源 checkpoint/revision 记为证据；特征身份不应�
 未确认 speaker 不能靠同 dataset/group 伪造跨片段配对。训练与评估各自声明协议，详见 07。
 多个参考是否聚合、如何聚合、是否用文本由模型协议固定，不强行在基础 embedding 表求平均。
 
-frozen_embedding 首选验证 indexed_references：build 分支保存 speaker_row，绑定固定 embedding 表快照，
+frozen_embedding 首选验证 indexed_references：codec 特征表的 build 分支保存 speaker_row，绑定固定 embedding 表快照，
 训练批量定位读取；不先复制所有 embedding。materialized_codes 仅作已验收且有明确预算的备选，见 07。
 online_speaker_encoder 下 build 记录固定 base snapshot + sample_id + view/区间；
 按批量解析并使用有界本地缓存，缓存键至少覆盖音频哈希/时间轴/区间/前处理 profile。

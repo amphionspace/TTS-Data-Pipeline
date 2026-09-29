@@ -10,7 +10,14 @@ import _bootstrap  # noqa: F401
 import pyarrow as pa
 import yaml
 
-from tts_data_pipeline.contract import contract_types, feature_targets_schema, schema_description
+from tts_data_pipeline.codec_text import selected_metadata
+from tts_data_pipeline.contract import (
+    annotation_type,
+    codec_text_schema,
+    contract_types,
+    feature_targets_schema,
+    schema_description,
+)
 from tts_data_pipeline.feature_contract import (
     target_set_sha256,
     validate_feature_coverage,
@@ -71,6 +78,14 @@ def check_annotation_examples(root):
     assert output["lance_version"] == quality["lance_version"]
     assert example["profile_id"] == digest(example["profile"])
     column = output["columns"][quality["column"]]
+    assert column["profile_id"] == digest(column["profile"])
+    quality_schema = pa.schema(
+        [pa.field(quality["column"], annotation_type(pa.struct([pa.field("score", pa.float64())])))]
+    )
+    assert column["schema"] == schema_description(quality_schema)
+    assert column["schema_sha256"] == digest(column["schema"])
+    values = [{quality["column"]: row["value"]} for row in quality["rows"]]
+    assert pa.Table.from_pylist(values, schema=quality_schema).to_pylist() == values
     selected = column["selection"]["target_ids"]
     assert selected == sorted(set(selected))
     assert (
@@ -136,10 +151,24 @@ def check(target=None):
     assert json.loads((root / "schemas/arrow-schemas.json").read_text()) == contract_types()
     check_selection_example(root)
     check_annotation_examples(root)
+    text_example = json.loads((root / "examples/codec-text.example.json").read_text())
+    selected = selected_metadata(text_example["selection_projection"], text_example["text_sources"])
+    assert selected == text_example["codec_metadata"]
+    assert pa.Table.from_pylist([selected], schema=codec_text_schema()).to_pylist() == [selected]
     feature = json.loads((root / "examples/feature-manifest.example.json").read_text())
     subset = json.loads((root / "examples/feature-subset-manifest.example.json").read_text())
     for manifest in (feature, subset):
         validate_feature_coverage(manifest)
+        assert manifest["table_path"] == (
+            f"features/{manifest['kind']}/{manifest['run_id']}/features.lance"
+        )
+        for source in manifest["inputs"]:
+            assert "branch" in source, "New external references must declare branch"
+            assert source["branch"] is None or isinstance(source["branch"], str)
+            assert type(source["lance_version"]) is int and source["lance_version"] > 0
+            assert not Path(source["table_path"]).is_absolute()
+        if manifest["selection"]["mode"] == "subset":
+            assert manifest["selection"]["table"]["branch"] is None
         assert (
             sum(manifest["error_counts"].values()) == manifest["rows"] - manifest["coverage"]["ok"]
         )

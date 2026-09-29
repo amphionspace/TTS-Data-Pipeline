@@ -6,7 +6,7 @@ storage_layout: indexed_references
 selection:
   manifest_path: null
   manifest_sha256: null
-bindings: [] # Per dataset: pinned samples branch/version and codec/speaker tables/versions.
+bindings: [] # Per binding: pinned codec build branch/version and speaker or online-audio references.
 text_normalization: unicode-strip-v1
 language_aliases: {en-US: en, zh-CN: zh}
 codec_profile_id: null

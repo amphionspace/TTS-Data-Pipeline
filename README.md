@@ -15,7 +15,7 @@ conda activate tts-data
 cd /workspace/workspace/yanglin/tts-data-pipeline
 python scripts/tts_data.py --help
 python scripts/conversion_status.py
-pytest -q
+python scripts/check_contract.py --target /workspace/data/DATA-TTS-UNIFIED
 ruff check .
 ruff format --check .
 ```
@@ -65,7 +65,20 @@ for batch in ds.to_batches(columns=["sample_id", "text", "language"], batch_size
 | [环境](docs/environment.md) | Conda、中科大源与依赖 |
 
 selection存储验证与性能见 [验证报告](docs/design-review/selection-validation.md)，codec决定见 [提取计划](docs/design-review/feature-extraction-plan.md)。
-正式selection入口与规则见 [selection执行说明](docs/selection.md)；GPU提取尚未启动。
+正式selection入口与规则见 [selection执行说明](docs/selection.md)；codec 已通过 8 卡实测和用户抽样试听，
+正式执行入口与状态见 [codec 执行说明](docs/codec.md)，结果与边界见 [codec 验证](docs/design-review/codec-inference-validation.md)。
 
-src 保存转换逻辑；scripts 保存入口与探查工具；tests 保存回归检查。
+src 保存生产逻辑；scripts 保存运行入口与数据/contract 检查器。
+已清理退役的 A/B 路径和一次性试验脚本；tests 保留转换、selection、contract 与当前 codec 的回归检查。
 reports、artifacts 和缓存被 Git 忽略。原始数据只读。
+
+基础环境运行转换/存储检查，特征环境包含 codec 的 CPU 回归；真实 GPU 数值验收另见验证记录。
+
+```bash
+# tts-data 环境
+python -m pytest -q --ignore-glob='tests/test_codec*.py'
+ruff check src scripts tests
+python scripts/check_contract.py
+# tts-features 环境：包含 codec 波形、批形状、恢复、发布及文本对齐
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m pytest -q
+```

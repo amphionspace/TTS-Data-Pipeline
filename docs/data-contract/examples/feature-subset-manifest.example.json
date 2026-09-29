@@ -108,7 +108,7 @@
   "storage_version": "2.2",
   "schema_version": "v0.1",
   "schema_sha256": "<codec_schema(16,int16) descriptor SHA256>",
-  "table_path": "features/codec/<profile_id>/example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-02/features.lance",
+  "table_path": "features/codec/example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-02/features.lance",
   "lance_version": 2,
   "rows": 2,
   "selection": {
@@ -118,10 +118,11 @@
     "target_count": 2,
     "target_set_sha256": "90b7f9bf342dcd5b07b972b4f1a8828c505b7f25ec5427bf8fd7c6ce13f0f885",
     "table": {
-      "table_path": "features/codec/<profile_id>/example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-02/targets.lance",
+      "table_path": "features/codec/example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-02/targets.lance",
       "lance_version": 2,
       "schema_sha256": "be6b6b7ee55f8084b2b33c9a155e67fe63d9202b71e1d1c23ec334f143aba8de",
-      "rows": 2
+      "rows": 2,
+      "branch": null
     }
   },
   "inputs": [
@@ -131,7 +132,8 @@
       "manifest_path": "datasets/example_synthetic/v0.1/manifest.json",
       "manifest_sha256": "<base manifest SHA256>",
       "table_path": "datasets/example_synthetic/v0.1/samples.lance",
-      "lance_version": 2
+      "lance_version": 2,
+      "branch": null
     },
     {
       "alias": "views",
@@ -139,7 +141,8 @@
       "manifest_path": "datasets/example_synthetic/v0.1/views/synthetic_views/manifest.json",
       "manifest_sha256": "<view manifest SHA256>",
       "table_path": "datasets/example_synthetic/v0.1/views/synthetic_views/views.lance",
-      "lance_version": 3
+      "lance_version": 3,
+      "branch": null
     }
   ],
   "coverage": {

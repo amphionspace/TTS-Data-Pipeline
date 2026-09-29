@@ -63,7 +63,57 @@
             "unsupported": 0,
             "skipped": 0,
             "missing": 0
-          }
+          },
+          "profile": {
+            "kind": "synthetic_quality",
+            "score_range": [
+              0,
+              5
+            ],
+            "input_dependencies": [
+              "audio_sha256",
+              "timeline",
+              "interval"
+            ]
+          },
+          "profile_id": "1cc9ee405727c47119c099d273d8983fef5a7b8e9318a523400d64c9b6c36e1f",
+          "schema": [
+            {
+              "name": "audio_quality",
+              "nullable": true,
+              "type": "struct",
+              "fields": [
+                {
+                  "name": "status",
+                  "nullable": true,
+                  "type": "string"
+                },
+                {
+                  "name": "input_fingerprint",
+                  "nullable": true,
+                  "type": "string"
+                },
+                {
+                  "name": "error_code",
+                  "nullable": true,
+                  "type": "string"
+                },
+                {
+                  "name": "result",
+                  "nullable": true,
+                  "type": "struct",
+                  "fields": [
+                    {
+                      "name": "score",
+                      "nullable": true,
+                      "type": "double"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "schema_sha256": "cb77769aa1ac69f36d26de8caa8de35888f80db31868d560fa0a48edeef1ab2e"
         }
       },
       "validation": {

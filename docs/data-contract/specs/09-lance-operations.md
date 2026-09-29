@@ -26,15 +26,24 @@ samples 必有 sample_id BTREE；views 有 view_id 索引；独立结果表有 t
 
 ```python
 # entry 来自校验过的 complete selection manifest；不得省略分支版本。
+import pyarrow as pa
+import pyarrow.compute as pc
 base = lance.dataset(root / entry["table_path"], version=entry["base_version"])
 selected = base.checkout_version((entry["branch"], entry["lance_version"]))
 for batch in selected.to_batches(
-    columns=["sample_id", "text", "language"],
+    columns=["sample_id", "text", "selected_text", "language", "selected_language"],
     filter="selection_reason = 0",
     batch_size=8192,
 ):
-    process(batch)
+    process(pa.record_batch([
+        batch["sample_id"],
+        pc.coalesce(batch["selected_text"], batch["text"]),
+        pc.coalesce(batch["selected_language"], batch["language"]),
+    ], names=["sample_id", "text", "language"]))
 ```
+
+此例用于有文本/语言覆盖列的 selection；缺少这些可选列的旧分支应显式使用基础值。
+coalesce 只对 null 回退，不能把合法空字符串按 truthiness 回退。正式训练读取 06/07 的 codec 选用文本列。
 
 同根分支继承文件，不采用外部 shallow clone。新增列不默认建索引：低基数 reason 的顺序筛选
 先测过滤开销，必要时再建相应索引。分支完整发布约束见 [12](12-selections.md)。
