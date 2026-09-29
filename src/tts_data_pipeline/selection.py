@@ -321,13 +321,14 @@ def scan_part(args):
     raw_counts, raw_seconds = Counter(), Counter()
     ids = hashlib.sha256()
     position = whitespace = 0
-    for batch in ds.to_batches(
+    # Lance 12 to_batches accepts **kwargs but drops `fragments`; use scanner directly.
+    for batch in ds.scanner(
         columns=COLUMNS,
         fragments=fragments,
         scan_in_order=True,
         batch_size=8192,
         fragment_readahead=1,
-    ):
+    ).to_batches():
         for row in batch.to_pylist():
             reason, flags, lang, text = classify(row, task["dataset"], rules, audio, samples)
             sid, sha = row["sample_id"], row["audio_sha256"]
@@ -867,6 +868,7 @@ def publish(work, workers=16):
         "selection_id": p["selection_id"],
         "purpose": "supervised_tts",
         "finished_at": now(),
+        "code_migration": p.get("code_migration"),
         "inputs": p["inputs"],
         "outputs": sorted(outputs, key=lambda o: o["dataset_id"]),
         "annotation_inputs": [],

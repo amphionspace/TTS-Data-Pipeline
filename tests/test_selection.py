@@ -180,3 +180,36 @@ def test_language_aliases_are_explicit(language, expected):
     )
     assert actual == expected
     assert reason == (2002 if language == "zh-Hant" else 0)
+
+
+def test_fragment_worker_reads_only_planned_noninitial_fragments(tmp_path):
+    from tts_data_pipeline.selection import scan_part
+
+    records = [row(f"id-{i}", f"audio-{i}") for i in range(8)]
+    root, rp = fixture_root(tmp_path, {"alpha": records})
+    work = tmp_path / "scratch"
+    p = plan(root, work, rp, selection_id="test-fragments")
+    source = p["inputs"][0]
+    ds = lance.dataset(root / source["table_path"], version=source["lance_version"])
+    fragments = ds.get_fragments()
+    assert len(fragments) >= 3
+    start = fragments[0].count_rows()
+    chosen = fragments[1:3]
+    count = sum(f.count_rows() for f in chosen)
+    result = scan_part(
+        (
+            p,
+            {
+                "dataset": "alpha",
+                "offset": start,
+                "rows": count,
+                "fragments": [f.fragment_id for f in chosen],
+            },
+        )
+    )
+    import numpy as np
+
+    actual = np.load(result["file"])
+    expected = [r["sample_id"].encode() for r in records[start : start + count]]
+    assert actual["sample_id"].tolist() == expected
+    assert len(actual) == count
