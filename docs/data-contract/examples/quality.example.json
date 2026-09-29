@@ -3,17 +3,18 @@
   "runnable": false,
   "contract_version": "v0.1",
   "task": "audio_quality",
-  "run_id": "run_001",
-  "storage_kind": "sample_column",
-  "table_path": "samples.lance",
+  "run_id": "tts-ann-audio_quality-20260929T160000bjt-01",
+  "storage_kind": "sample_branch",
+  "table_path": "datasets/example_synthetic/v0.1/samples.lance",
+  "branch": "ann/audio_quality/tts-ann-audio_quality-20260929T160000bjt-01",
   "lance_version": 3,
-  "column": "ann__audio_quality__run_001",
+  "column": "audio_quality",
   "rows": [
     {
-      "sample_id": "<sample-A>",
+      "sample_id": "ef0d455fb43b401df36e78487c33c3010d2902474618c51fa127cf857e80b2c0",
       "value": {
         "status": "ok",
-        "input_fingerprint": "<fingerprint-A>",
+        "input_fingerprint": "798640599597df7a8daa32b1132f07850a68b5e71bd295650399a38074f52804",
         "error_code": null,
         "result": {
           "score": 4.1
@@ -21,23 +22,23 @@
       }
     },
     {
-      "sample_id": "<sample-B>",
+      "sample_id": "11b1d3218fea6ab1643f543d199736e783d7c0069e25191fc556c982b0b5ec21",
       "value": null
     },
     {
-      "sample_id": "<sample-C>",
+      "sample_id": "6b8a1f85c73099eabf2045afcc39b0cb957dad4410e89dc072c9cba1d04ac8c0",
       "value": {
         "status": "failed",
-        "input_fingerprint": "<fingerprint-C>",
+        "input_fingerprint": "c2e8c0cc2e73b9bd1ba9ef1979e73169b471e25b0e9909efe98fde462c0bf55f",
         "error_code": "decode_failed",
         "result": null
       }
     },
     {
-      "sample_id": "<sample-D>",
+      "sample_id": "f783666506b920e61955b2a4ff5cf4627fac8f512e13aaf88b4ad72450a40e54",
       "value": {
         "status": "ok",
-        "input_fingerprint": "<fingerprint-D>",
+        "input_fingerprint": "8f097023401b3d58704c1f3abea8ec2eba57c387f09d10125cd66076afd13b1e",
         "error_code": null,
         "result": {
           "score": 0.0
@@ -45,5 +46,5 @@
       }
     }
   ],
-  "note": "Synthetic illustration only. B is missing; C failed; D is a real zero within this example."
+  "note": "Synthetic only. B is outside this run target subset; C failed; D is a valid zero."
 }

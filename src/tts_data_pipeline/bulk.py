@@ -22,7 +22,14 @@ from .contract import schema_description
 from .convert import convert, file_hash
 from .schema import VERSION, base_schema, digest
 from .source_exclusions import record_exclusion_key, validate_record_exclusions
-from .writer import STORAGE_FORMAT, STORAGE_VERSION, TABLE_PATH, commit_fragments, file_batches
+from .writer import (
+    STORAGE_FORMAT,
+    STORAGE_VERSION,
+    TABLE_PATH,
+    commit_fragments,
+    file_batches,
+    remove_uncommitted_data_files,
+)
 from .writer import dependencies as storage_dependencies
 
 
@@ -314,9 +321,17 @@ def finalize(stage, plan):
         raise ValueError("Repeated fragment file in checkpoints")
     # Only unreachable, uncommitted base files from interrupted attempts are removed.
     # This directory is unpublished and all worker processes have exited.
-    for path in (stage / TABLE_PATH / "data").glob("*.lance"):
-        if str(path.relative_to(stage)) not in expected_paths:
-            path.unlink()
+    cleanup_audit = state_directory(stage) / "cleanup.jsonl"
+    removed = remove_uncommitted_data_files(
+        stage / TABLE_PATH / "data", expected_paths, audit_path=cleanup_audit
+    )
+    print(f"{plan['dataset']}: removed {len(removed)} uncommitted data files", flush=True)
+    # Include previous attempts: commit/index failures can follow a successful cleanup.
+    cleanup_events = (
+        [json.loads(line) for line in cleanup_audit.read_text().splitlines()]
+        if cleanup_audit.exists()
+        else []
+    )
     ds = commit_fragments(stage / TABLE_PATH, fragments)
     if ds.count_rows() != rows:
         raise ValueError("Committed Lance row count mismatch")
@@ -372,6 +387,14 @@ def finalize(stage, plan):
             "config_overlap_by_source_key": overlap,
         },
         "finalization": {
+            "cleanup": {
+                "directory": f"{TABLE_PATH}/data",
+                "events": cleanup_events,
+                "removed_files": sum(e["action"] == "removed" for e in cleanup_events),
+                "removed_bytes": sum(
+                    e["bytes"] for e in cleanup_events if e["action"] == "removed"
+                ),
+            },
             "scratch_storage": "temporary_directory",
             "identity_database_bytes": database_bytes,
             "phase_seconds": {

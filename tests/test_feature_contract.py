@@ -13,16 +13,58 @@ import pytest
 from tts_data_pipeline.contract import feature_targets_schema
 from tts_data_pipeline.feature_contract import (
     equivalent_payloads,
+    make_feature_run_id,
     target_set_sha256,
     validate_feature_coverage,
     validate_speaker_mode,
 )
+from tts_data_pipeline.timestamps import parse_timestamp
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "docs/data-contract/examples"
 
 
 def example(name):
     return json.loads((EXAMPLES / f"{name}.example.json").read_text())
+
+
+@pytest.mark.parametrize("value", [None, "", "   ", "name/escape", "name+unsafe"])
+def test_profile_name_is_required(value):
+    manifest = example("feature-manifest")
+    if value is None:
+        del manifest["profile_name"]
+    else:
+        manifest["profile_name"] = value
+    with pytest.raises(ValueError, match="profile_name"):
+        validate_feature_coverage(manifest)
+
+
+def test_run_name_preserves_identity_and_uses_beijing_time():
+    manifest = example("feature-manifest")
+    run = make_feature_run_id(
+        "example_synthetic", "codec", manifest["profile_name"], "2026-09-29T00:00:00Z"
+    )
+    assert run == manifest["run_id"]
+    assert run.endswith("20260929T080000bjt-01") and "+" not in run
+    manifest["run_id"] = run.replace("example_synthetic", "example-synthetic")
+    with pytest.raises(ValueError, match="preserve"):
+        validate_feature_coverage(manifest)
+
+
+def test_timestamp_order_is_absolute_not_lexicographic():
+    earlier, later = "2026-09-29T08:00:00+08:00", "2026-09-29T01:00:00Z"
+    assert earlier > later
+    assert parse_timestamp(earlier) < parse_timestamp(later)
+    assert parse_timestamp(earlier) == parse_timestamp("2026-09-29T00:00:00+00:00")
+    with pytest.raises(ValueError, match="timezone"):
+        parse_timestamp("2026-09-29T08:00:00")
+
+
+@pytest.mark.parametrize("value", ["2026-09-29T08:00:00", "2026-09-29T00:00:00Z"])
+def test_new_feature_requires_explicit_beijing_timestamp(value):
+    manifest = example("feature-manifest")
+    manifest["finished_at"] = value
+    with pytest.raises(ValueError):
+        validate_feature_coverage(manifest)
 
 
 def test_float_equivalence_does_not_imply_same_artifact():
@@ -148,3 +190,25 @@ def test_invalid_conditioning_modes(mutation):
         del case["record"]["ordered_reference_ids"]
     with pytest.raises(ValueError):
         validate_speaker_mode(case["recipe"], case["record"])
+
+
+def test_selection_branch_requires_pinned_manifest_and_exact_filter():
+    manifest = example("feature-manifest")
+    manifest["selection"].update(
+        mode="selection_branch",
+        filter="selection_reason = 0",
+        manifest_path="selections/example/manifest.json",
+        manifest_sha256="a" * 64,
+    )
+    manifest["inputs"][0]["branch"] = "example"
+    validate_feature_coverage(manifest)
+    for field, value in [("branch", None), ("lance_version", None), ("lance_version", True)]:
+        invalid = copy.deepcopy(manifest)
+        invalid["inputs"][0][field] = value
+        with pytest.raises(ValueError, match="must pin"):
+            validate_feature_coverage(invalid)
+    for field, value in [("filter", "selection_reason < 2"), ("manifest_sha256", "")]:
+        invalid = copy.deepcopy(manifest)
+        invalid["selection"][field] = value
+        with pytest.raises(ValueError, match="must pin"):
+            validate_feature_coverage(invalid)

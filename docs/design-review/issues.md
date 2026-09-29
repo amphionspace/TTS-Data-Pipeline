@@ -26,7 +26,17 @@ HiFiTTS/LJSpeech 也缺 finalization。统一 read_base_manifest 读取入口补
 原始不可变 manifest 不改写，不能将未知历史拒收数当成 0，或用协调者代码推测批次版本。
 direct/bulk 新发布均写出这些字段；字段含义与历史读取规则见 [manifest 规范](../data-contract/specs/10-manifests.md)。
 
+## Selection 与当前数据问题
+
+完整方案已改为同根Lance分支；见 [验证报告](selection-validation.md) 和 [数据问题清单](data-selection-review.md)。
+已在/tmp验证LJSpeech全量及Emilia全部4,026万行元数据的merge/add_columns；不等于全局去重执行器已实现。
+主原因uint16+多重flags uint32，生产发布/完整排除继承/重复冲突裁决与保留依赖检查仍待实现。
+已清除历史约151GB .tmp与MLS旧SQLite，清理记录见 [维护核验](published-cleanup-review.md)。
+
 ## 标注、视图、codec 与训练执行器
+
+annotation/selection从同一bv建立平级分支；物理平级与逻辑无环依赖分别表达。05已规定文本修订、
+上游质量导入、逐列覆盖和位置校验；本轮仅规范/示例验证，不表示生产annotation已运行。
 
 尚需实现生产标注 worker、结果唯一性/目标存在/输入指纹验证、协调发布与断点恢复。
 列追加、稀疏乱序 merge、多版数组、快照和原音频不重写通过小规模存储测试，不表示生产标注流水线已完成。
@@ -36,7 +46,7 @@ direct/bulk 新发布均写出这些字段；字段含义与历史读取规则�
 ## Lance 的性能与版本兼容
 
 固定 pylance 12.0.0 / 文件格式 2.2。全量并发转换与索引构建已有发布实测；
-稀疏增列峰值内存、codec 训练吞吐尚无全规模基准。
+全行增列内存已有Emilia元数据实测；真实重复/排除关联成本和codec训练吞吐仍待基准。
 本机 PyArrow 25 + Lance 12 的 pc.Expression 过滤遇到含 large_binary schema 的 Substrait unsupported type；
 等价 SQL filter 走 sample_id BTREE 查询成功，当前示例使用经过验证的 SQL 路径，业务 ID 必须验证后构造。
 当前音频使用内嵌 large_binary，不是 Blob 扩展；长音频 Blob/范围读取作为后续验证项。

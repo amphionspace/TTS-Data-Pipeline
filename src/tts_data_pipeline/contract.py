@@ -127,6 +127,15 @@ def feature_targets_schema():
     )
 
 
+def selection_columns_schema():
+    return pa.schema(
+        [
+            pa.field("selection_reason", pa.uint16(), nullable=False),
+            pa.field("selection_flags", pa.uint32(), nullable=False),
+        ]
+    )
+
+
 def type_description(dtype):
     if pa.types.is_struct(dtype):
         return {"type": "struct", "fields": [field_description(f) for f in dtype]}
@@ -154,6 +163,7 @@ def contract_types():
         "view": schema_description(view_schema()),
         "annotation_targets": schema_description(annotation_targets_schema()),
         "feature_targets": schema_description(feature_targets_schema()),
+        "selection_columns": schema_description(selection_columns_schema()),
         "quality_example": type_description(
             annotation_type(pa.struct([pa.field("score", pa.float64())]))
         ),

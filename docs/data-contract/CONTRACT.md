@@ -6,11 +6,13 @@
 原始数据（只读）
     ↓ 每个来源一个 adapter
 samples.lance：原音频 + 基础文字/语言/speaker/来源
-    ├─ 一条 sample 对一个结果 → 追加版本化标注列
-    ├─ 切片/对齐/关系等一对多结果 → 独立 Lance 表
+    ├─ selection 分支 → 原行 + 入选主原因/多重原因，不复制音频
+    ├─ annotation 平级分支 → 固定任务结果；一对多结果另存表
+    ├─ views → 明确音频区间
     └─ 多 codec / embedding profile → 独立 Lance 特征表
-              ↓ 固定快照、检查指纹、质量筛选、参考配对
-builds/<build_id>：训练记录 + 固定配方 + 采样信息
+              ↓ 固定 selection、特征快照与定位绑定
+builds/<build_id>：可复用训练输入绑定
+              ↓ training_plans：独立采样配方，不因改权重复制特征
               ↓ 按 token 长度组 batch
 Qwen 风格 TTS 训练（模型从头初始化）
 ```
@@ -28,21 +30,20 @@ Qwen 风格 TTS 训练（模型从头初始化）
 4. 音频保留原始编码 bytes、采样率和声道；不在基础接入时重采样、归一化、重编码。
 5. 基础列按 27 列 schema 写入；缺失文本、语言、speaker 使用 null。后续标注不覆盖基础列。
 6. 全部基础记录 `source_split=train`；上游 split/config/tier 保留在 metadata。存储的 train 不替代评估隔离。
-7. 同一 sample 的质量结果用版本化 struct 列关联；一对多结果与大特征各建表。所有关联使用业务 ID 和输入指纹。
+7. selection 在 samples 的独立分支记录入选状态；稀疏重复关系和排除证据归该 selection。一对一 annotation 使用从相同 base 建立的平级分支，大特征独立存表。
 8. 为 `sample_id` 建标量索引。不能把 Lance 内部行号或物理文件位置当永久 ID。
-9. 已发布的逻辑快照不可变。追加列产生新 Lance snapshot；旧发布 manifest 固定旧 snapshot，不自动跟随 latest。
+9. 已发布 manifest、main 与固定逻辑快照不可变；允许在同一 samples.lance 内新增分支文件。引用必须固定 table/branch/version，不跟随 latest。
 10. 发布前校验，失败不静默丢数据。原始全量转换、标注任务和训练构建都要明确处理与验证覆盖范围。
 
 ## 3. 为什么用这种组织
 
-Lance 提供列选择、索引查询、快照以及补充列的存储机制，适合长期补充 quality/ASR 等结果。
-将分数写成同一表的新列后，读取 sample 与分数不再需要运行时查找多个手工 sidecar。
-标注计算仍需读输入，合并也需要键匹配；这些操作不承诺零扫描或零内存。
-大型 codec 单独存表，允许独立生成、版本选择和回收；训练 build 提前选择结果并准备读取布局。
+Lance 分支继承基础数据文件，新增选择列独立写入；读取时按列投影，不需加载全部音频。
+选择状态、重复裁决、特征计算和训练采样分别版本化；不引入第二份带完整文本/音频的目录。
+首版采用 self speaker 参考。codec 与 speaker 各自发布，训练优先验证按索引引用的布局；
+未经端到端吞吐验收不宣称训练读取就绪。具体见 [12 Selection](specs/12-selections.md) 和 [07 训练](specs/07-training-builds.md)。
 
-依据：[Lance data evolution](https://lance.org/guide/data_evolution/)、
-[distributed write](https://lance.org/guide/distributed_write/)、
-[read/write](https://lance.org/guide/read_and_write/)。具体性能以本机真实数据验证为准。
+依据：[Lance branches](https://lance.org/guide/tags_and_branches/)、
+[data evolution](https://lance.org/guide/data_evolution/)。具体版本与性能验证保存在 pipeline 仓库。
 
 ## 4. 长期不变量
 

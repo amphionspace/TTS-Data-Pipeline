@@ -7,7 +7,7 @@
   "status": "complete",
   "dataset_id": "example_synthetic",
   "release_id": "v0.1",
-  "run_id": "synthetic_view_subset_001",
+  "run_id": "example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-02",
   "target_kind": "view",
   "profile_id": "<verified complete profile SHA256>",
   "profile": {
@@ -108,7 +108,7 @@
   "storage_version": "2.2",
   "schema_version": "v0.1",
   "schema_sha256": "<codec_schema(16,int16) descriptor SHA256>",
-  "table_path": "features/codec/<profile_id>/synthetic_view_subset_001/features.lance",
+  "table_path": "features/codec/<profile_id>/example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-02/features.lance",
   "lance_version": 2,
   "rows": 2,
   "selection": {
@@ -118,7 +118,7 @@
     "target_count": 2,
     "target_set_sha256": "90b7f9bf342dcd5b07b972b4f1a8828c505b7f25ec5427bf8fd7c6ce13f0f885",
     "table": {
-      "table_path": "features/codec/<profile_id>/synthetic_view_subset_001/targets.lance",
+      "table_path": "features/codec/<profile_id>/example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-02/targets.lance",
       "lance_version": 2,
       "schema_sha256": "be6b6b7ee55f8084b2b33c9a155e67fe63d9202b71e1d1c23ec334f143aba8de",
       "rows": 2
@@ -185,7 +185,8 @@
     "batch_equivalence_report_sha256": "<validation report SHA256>",
     "canonical_result_policy": "first_validated_durable_commit_per_feature_key"
   },
-  "finished_at": "2026-09-29T00:00:00+00:00",
+  "finished_at": "2026-09-29T08:00:00+08:00",
   "note": "Non-runnable synthetic view subset. Selection rows are in feature-targets.example.json; targets and features publish together.",
-  "parent_sample_rows": 1
+  "parent_sample_rows": 1,
+  "profile_name": "qwen3-12hz-24k-k16-fp32-v1"
 }

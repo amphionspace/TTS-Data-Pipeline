@@ -316,6 +316,18 @@
       "type": "string"
     }
   ],
+  "selection_columns": [
+    {
+      "name": "selection_reason",
+      "nullable": false,
+      "type": "uint16"
+    },
+    {
+      "name": "selection_flags",
+      "nullable": false,
+      "type": "uint32"
+    }
+  ],
   "quality_example": {
     "type": "struct",
     "fields": [

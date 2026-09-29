@@ -78,7 +78,7 @@
     },
     "output": {
       "layer": "speaker_encoder_output_before_talker_injection",
-      "embedding_dim": null,
+      "embedding_dim": 1024,
       "storage_dtype": "float32",
       "pooling": null,
       "normalization": "none",
@@ -92,5 +92,6 @@
       "comparison_dtype": "float64"
     }
   },
-  "note": "Frozen encoder candidate; actual dimension, weights, frontend defaults and batching remain to verify. Unfreezing uses waveform references, not this cached embedding."
+  "note": "Frozen FP32 encoder candidate; downloaded config confirms D=1024. Weights, frontend defaults, batching and tolerances still require inference validation. The scipy resampler is a candidate, not equivalent by assumption to the training torchaudio path. Unfreezing uses waveform references.",
+  "profile_name": "qwen3-ecapa-0p6b-24k-fp32-v1"
 }

@@ -11,21 +11,24 @@ DATA-TTS-UNIFIED/
 │   │       ├── manifest.json
 │   │       ├── samples.lance/           # Lance 自己管理 data、versions、indices 等
 │   │       ├── annotations/
-│   │       │   ├── audio_quality/<run_id>/manifest.json
-│   │       │   └── alignment/<run_id>/{manifest.json,results.lance/,targets.lance/}
+│   │       │   └── alignment/<run_id>/{results.lance/,targets.lance/}
 │   │       ├── views/<run_id>/{manifest.json,views.lance/}
 │   │       └── features/
 │   │           ├── codec/<profile_id>/<run_id>/{manifest.json,features.lance/}
 │   │           └── speaker_embedding/<profile_id>/<run_id>/{manifest.json,features.lance/}
 │   └── mls_sidon/v0.1/...
-├── builds/<build_id>/{manifest.json,recipe.json,records.lance/}
+├── annotations/<task>/<run_id>/manifest.json  # 统一发布一个或多个dataset的任务输出
+├── selections/<selection_id>/{manifest.json,rules.json,exclusions.jsonl,exclusion_changes.jsonl,duplicates.lance/}
+├── builds/<build_id>/{manifest.json,data_recipe.json}
+├── training_plans/<plan_id>/{manifest.json,recipe.json}
 └── assets/<dataset_id>/<release_id>/{manifest.json,assets.lance/}
 ```
 
-示意中的 annotations/views/features 只在实际产生结果时创建。标量标注 run 可仅有 manifest，
-其结果列在 samples.lance 中；有 `results.lance` 的 run 则引用该独立表。manifest 明确 storage_kind。
+示意中的 annotations/views/features 只在实际产生结果时创建。一对一标注在各samples.lance的
+ann/<task>/<run_id>分支，分支与选择分支都从固定基础版本建立；全局任务manifest列出全部输出，见05。
+一对多结果仍归所属dataset/release；历史sample_column只兼容读取。
 原始来源名称与 canonical dataset_id 的映射固定在 adapter 中，例如 LibriTTS-R → libritts_r。
-同一个 dataset 的基础、标注、视图和特征都归属相同 release，跨数据集组合在 builds 中表达。
+同一个 dataset 的基础、标注、视图和特征都归属相同 release，跨数据集的annotation/selection分别由其全局manifest协调，训练组合在builds中表达。
 
 ## 物理分片
 
@@ -40,7 +43,8 @@ DATA-TTS-UNIFIED/
 
 基础接入先写 `datasets/<dataset_id>/v0.1.incomplete/`，所有验证和索引完成后原子改名为 `v0.1/`。
 一个 release 的 manifest 初次只固定基础 snapshot，后续标注/特征各有自己的不可变 manifest。
-追加标注列可使主表产生新 snapshot，但不能覆盖基础 manifest 指定的旧版本。
+annotation/selection/build 在同一个 samples.lance 的独立分支增列，允许新增 _refs/tree 文件；main 和基础 manifest 不变。
+已发布的不可变边界是固定逻辑快照，不是整个目录的字节集合。分支内部文件交给引擎管理，不能手工搬动。
 来源集合增加或基础映射修正需要另一个显式批准的 release；派生任务更新只增加 run。
 
 恢复控制文件位于 `datasets/<dataset_id>/.state/v0.1/`，只包含计划、检查点与状态；身份审计临时 SQLite 放本地 TMPDIR。
@@ -51,5 +55,7 @@ DATA-TTS-UNIFIED/
 清理之前按 manifest 依赖判断可达性；整个 `.lance` 目录不是可随意清理的缓存。
 
 codec 和 speaker embedding 独立 profile/run，具体发布和工作目录见 [06](06-codecs.md)。
-子集 feature run 在 features.lance 同目录另有 targets.lance，由该 run manifest 的 selection.table 固定；全体选择无此表。
+feature 的 selection_branch 模式直接固定已发布 selection 的分支，不重复写 targets；任意额外子集仍固定 targets.lance，见 06。
+indexed_references build 通过 manifest 引用样本的 build 分支和特征快照；不强制创建 records.lance。
+只有已验收且确需物化的 build 才写 records.lance。分支、重复证据和保留规则见 12。
 mel 不是统一层必备产物；冻结/在线 speaker encoder 的两条路径见 [11](11-speaker-embeddings.md)。

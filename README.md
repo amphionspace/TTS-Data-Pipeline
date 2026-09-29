@@ -30,7 +30,8 @@ DATA-TTS-UNIFIED/datasets/<dataset_id>/v0.1/
 └── samples.lance/
 ```
 
-后续 annotations/views/features 位于同一 release 中。全量布局和全部契约见 [v0.1 contract](docs/data-contract/README.md)。
+selection在samples.lance的独立分支保存原因/flags，全局manifest与稀疏证据位于selections/；
+不复制音频。后续 views/features 位于同一 release 中，annotation采用平级分支，执行器尚待实现。全量布局和全部契约见 [v0.1 contract](docs/data-contract/README.md)。
 Lance 管理物理文件与 snapshot，文件目标约 1 GiB；不再手工按 Parquet glob 读取。
 音频原始 bytes 内嵌，source_split 固定 train，原 split/config 保留于 metadata。
 
@@ -62,6 +63,9 @@ for batch in ds.to_batches(columns=["sample_id", "text", "language"], batch_size
 | [LibriHeavy / MLS 复核](docs/design-review/libriheavy-mls-check.md) | 上游与本地核查 |
 | [数据适配器](docs/datasets.md) | 已有和计划来源的映射规则 |
 | [环境](docs/environment.md) | Conda、中科大源与依赖 |
+
+selection存储验证与性能见 [验证报告](docs/design-review/selection-validation.md)，codec决定见 [提取计划](docs/design-review/feature-extraction-plan.md)。
+本轮未生成生产selection或启动GPU提取。
 
 src 保存转换逻辑；scripts 保存入口与探查工具；tests 保存回归检查。
 reports、artifacts 和缓存被 Git 忽略。原始数据只读。

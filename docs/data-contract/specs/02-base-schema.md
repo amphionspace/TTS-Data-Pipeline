@@ -2,7 +2,7 @@
 
 基础主表 samples.lance 的 27 列使用 Arrow schema；schema_version=v0.1。
 audio 为 struct<bytes:large_binary,path:string>，只选择标量列时无需读取音频。
-类型描述见 schemas/arrow-schemas.json，基础字段校验独立于后续 ann__ 标注列。
+类型描述见 schemas/arrow-schemas.json，基础字段校验独立于 selection 分支的派生列。
 
 | 字段 | 类型 | 语义与空值规则 |
 | --- | --- | --- |
@@ -67,7 +67,7 @@ v0.1 基础 num_frames 取 SoundFile/libsndfile 报告值，具体依赖记录�
 
 ## 追加列与基础验证
 
-基础 ingest 必须恰好具有这 27 列；扩展 snapshot 可增加 ann__ 列。
+基础 ingest 必须恰好具有这 27 列；selection 分支可增加 selection_reason/selection_flags，不能修改这些基础字段。
 验证基础记录时显式投影这 27 列，计算 record_revision 不包含后加列。
 生成新音频（裁剪/重编码/去噪）需要新的派生对象及变换身份，不能直接修改原 sample 的 audio。
 v0.1 原始接入中 parent_sample_id、segment_start_frame、segment_end_frame 通常为空；

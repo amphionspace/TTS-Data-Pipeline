@@ -5,18 +5,22 @@
 | 文件 | 内容 |
 | --- | --- |
 | base-row.example.json | 从 0.1 秒合成静音 WAV 生成的真实基础字段投影；只省略 binary |
-| quality.example.json | 同一主表的 missing / failed / ok / 0 分区分 |
-| annotation-manifest.example.json | 列内质量 run 的 manifest、snapshot 与覆盖统计 |
+| quality.example.json | 任务分支的未选/failed/ok/真实0分区分 |
+| annotation-manifest.example.json | 平级annotation分支、固定bv、子集覆盖与对齐验证 |
+| text-revision.example.json | 未处理/keep/replace/failed与selection稀疏覆盖，不以null清空文本 |
 | view.example.json | 原生帧区间、父音频与 speaker 范围 |
-| codec-profile.example.json | Qwen 12Hz 候选模板，必须填全并验证；只对 profile 对象生成 ID |
+| codec-profile.example.json | Qwen FP32基线模板，生产FA2/BF16须另行验收；只对 profile 对象生成 ID |
 | codec-row.example.json | [time,codebook] 整数数组；K=2 仅用于说明 |
-| speaker-profile.example.json | 冻结 ECAPA 候选；实际维度、权重和 frontend 待核验 |
+| speaker-profile.example.json | 冻结 ECAPA 候选；配置维度1024已核实；权重推理和 frontend 待验收 |
 | speaker-row.example.json | D=3 的合成向量存储示例 |
 | feature-manifest.example.json | codec run 的固定输入/快照/完整终态记账示例 |
 | feature-subset-manifest.example.json | 一个父 sample、100 个 views 中选择两个的 run；绑定 targets 表 |
 | feature-targets.example.json | 上述子集的真实合成 ID 和目标集合摘要输入 |
 | training-modes.example.json | 冻结/在线、speaker-only/ICL 和 self 的条件字段投影 |
-| training-recipe.example.yaml | 固定所有来源 snapshot、质量策略、codec 和采样的模板 |
+| selection-rules.example.json | 合成训练规则、原因优先级、语言alias；时长阈值仅为例子 |
+| selection-manifest.example.json | 两个合成数据集组成的完整 selection 元数据，不对应生产分支 |
+| training-plan.example.yaml | 独立于 build 的采样、评估与恢复模板 |
+| training-recipe.example.yaml | 固定 selection、特征绑定及 self 协议的数据 recipe；不含采样权重 |
 
 manifest 的整数 snapshot 只是例子，不表示生产已提交。质量分数与 codes 是示意值，不能作为真实模型输出。
 机器可读 Arrow 类型由 `scripts/export_contract.py` 生成，业务约束仍需验证器执行。

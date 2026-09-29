@@ -2,7 +2,9 @@
 
 import importlib.metadata
 import json
+import os
 import platform
+from datetime import datetime, timezone
 from pathlib import Path
 
 import lance
@@ -17,6 +19,41 @@ from .schema import base_schema, validate_record
 STORAGE_FORMAT = "lance"
 STORAGE_VERSION = "2.2"
 TABLE_PATH = "samples.lance"
+
+
+def remove_uncommitted_data_files(directory, referenced, *, audit_path=None):
+    """Remove known writer leftovers after all writers stop and references are audited.
+
+    The caller owns the exclusive conversion lock. Published-table maintenance
+    must include every retained snapshot, not just the current manifest.
+    """
+    referenced = {Path(path).name for path in referenced}
+    removed = []
+
+    def record(entry, action):
+        event = dict(entry, action=action, at=datetime.now(timezone.utc).isoformat())
+        if audit_path is not None:
+            Path(audit_path).parent.mkdir(parents=True, exist_ok=True)
+            with Path(audit_path).open("a") as stream:
+                stream.write(json.dumps(event) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        print(f"Cleanup: {json.dumps(event)}", flush=True)
+
+    for path in sorted(Path(directory).iterdir()):
+        if (
+            not path.is_symlink()
+            and path.is_file()
+            and path.name not in referenced
+            and (path.suffix == ".lance" or path.name.startswith(".tmp"))
+        ):
+            entry = {"name": path.name, "bytes": path.stat().st_size}
+            # Persist intent before unlink; a crash cannot erase the deletion's evidence.
+            record(entry, "planned")
+            path.unlink()
+            record(entry, "removed")
+            removed.append(entry)
+    return removed
 
 
 def dependencies():

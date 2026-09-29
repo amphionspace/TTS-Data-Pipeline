@@ -7,7 +7,7 @@
   "status": "complete",
   "dataset_id": "example_synthetic",
   "release_id": "v0.1",
-  "run_id": "synthetic_run_001",
+  "run_id": "example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-01",
   "target_kind": "sample",
   "profile_id": "<verified complete profile SHA256>",
   "profile": {
@@ -108,7 +108,7 @@
   "storage_version": "2.2",
   "schema_version": "v0.1",
   "schema_sha256": "<codec_schema(16,int16) descriptor SHA256>",
-  "table_path": "features/codec/<profile_id>/synthetic_run_001/features.lance",
+  "table_path": "features/codec/<profile_id>/example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-01/features.lance",
   "lance_version": 2,
   "rows": 100,
   "selection": {
@@ -173,6 +173,7 @@
     "batch_equivalence_report_sha256": "<validation report SHA256>",
     "canonical_result_policy": "first_validated_durable_commit_per_feature_key"
   },
-  "finished_at": "2026-09-29T00:00:00+00:00",
-  "note": "All placeholders and null profile values make this non-runnable. Published complete means full target accounting, not 100% successful inference. Target-set digest uses synthetic IDs SHA256(canonical_json([\"sample\", i])) for i=0..99."
+  "finished_at": "2026-09-29T08:00:00+08:00",
+  "note": "All placeholders and null profile values make this non-runnable. Published complete means full target accounting, not 100% successful inference. Target-set digest uses synthetic IDs SHA256(canonical_json([\"sample\", i])) for i=0..99.",
+  "profile_name": "qwen3-12hz-24k-k16-fp32-v1"
 }

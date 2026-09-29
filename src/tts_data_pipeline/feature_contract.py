@@ -3,8 +3,54 @@
 import hashlib
 import json
 import math
+import re
+from datetime import datetime
 
 import numpy as np
+
+from .timestamps import BEIJING, parse_timestamp
+
+
+def validate_profile_name(value):
+    if not isinstance(value, str) or re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,127}", value) is None:
+        raise ValueError("profile_name must be a nonempty lowercase name using a-z, 0-9, _ or -")
+
+
+def make_feature_run_id(dataset_id, kind, profile_name, created_at, sequence=1):
+    """Format a name; the publisher must reserve it atomically and persist it on retry."""
+    validate_profile_name(profile_name)
+    if not isinstance(dataset_id, str) or re.fullmatch(r"[a-z][a-z0-9_]*", dataset_id) is None:
+        raise ValueError("Invalid dataset_id")
+    if kind not in {"codec", "speaker_embedding"}:
+        raise ValueError("Invalid feature kind")
+    if type(sequence) is not int or sequence < 1:
+        raise ValueError("Run sequence must be a positive integer")
+    stamp = parse_timestamp(created_at).astimezone(BEIJING).strftime("%Y%m%dT%H%M%Sbjt")
+    return f"{dataset_id}-{kind}-{profile_name}-{stamp}-{sequence:02d}"
+
+
+def validate_feature_metadata(manifest):
+    """Validate new feature publication names and timezone-aware completion times."""
+    validate_profile_name(manifest.get("profile_name"))
+    run_id = manifest.get("run_id")
+    match = re.search(r"-(\d{8}T\d{6})bjt-(\d{2,})$", run_id or "")
+    if match is None:
+        raise ValueError("run_id must end in YYYYMMDDTHHMMSSbjt-NN")
+    created = datetime.strptime(match[1], "%Y%m%dT%H%M%S").replace(tzinfo=BEIJING)
+    expected = make_feature_run_id(
+        manifest["dataset_id"],
+        manifest["kind"],
+        manifest["profile_name"],
+        created.isoformat(),
+        int(match[2]),
+    )
+    if run_id != expected:
+        raise ValueError("run_id must preserve dataset_id, kind and profile_name exactly")
+    finished = parse_timestamp(manifest["finished_at"])
+    if finished < created:
+        raise ValueError("finished_at precedes run creation")
+    if datetime.fromisoformat(manifest["finished_at"]).utcoffset() != BEIJING.utcoffset(None):
+        raise ValueError("New feature finished_at must use Beijing time (+08:00)")
 
 
 def target_set_sha256(sorted_rows):
@@ -70,6 +116,7 @@ def equivalent_payloads(kind, canonical, candidate, *, atol=0.0, rtol=0.0):
 
 def validate_feature_coverage(manifest):
     """Check feature count/selection metadata; table contents need a separate audit."""
+    validate_feature_metadata(manifest)
     if manifest["target_kind"] not in {"sample", "view"}:
         raise ValueError("Unknown feature target kind")
     coverage, selection = manifest["coverage"], manifest["selection"]
@@ -103,6 +150,22 @@ def validate_feature_coverage(manifest):
             or table["lance_version"] < 1
         ):
             raise ValueError("Subset table must pin a snapshot with the selected row count")
+    elif mode == "selection_branch":
+        matches = [i for i in manifest["inputs"] if i["alias"] == selection["input_alias"]]
+        if manifest["target_kind"] != "sample" or len(matches) != 1 or "table" in selection:
+            raise ValueError("Selection branch requires one samples input and no targets table")
+        source = matches[0]
+        if (
+            not source.get("branch")
+            or type(source.get("lance_version")) is not int
+            or source["lance_version"] < 1
+            or selection.get("filter") != "selection_reason = 0"
+            or not selection.get("manifest_path")
+            or re.fullmatch(r"[0-9a-f]{64}", selection.get("manifest_sha256", "")) is None
+        ):
+            raise ValueError("Selection branch must pin its manifest, branch, version and filter")
+        # The publisher must additionally open the referenced selection manifest,
+        # verify this exact output, and audit IDs/fingerprints against both tables.
     else:
         raise ValueError("Unknown selection mode")
     # parent_sample_rows is only an audit statistic, never the view target bound.

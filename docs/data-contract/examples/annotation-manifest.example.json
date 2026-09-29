@@ -3,52 +3,84 @@
   "runnable": false,
   "contract_version": "v0.1",
   "artifact_kind": "annotation",
-  "dataset_id": "libriheavy",
-  "release_id": "v0.1",
   "status": "complete",
-  "storage_format": "lance",
-  "storage_version": "2.2",
-  "storage_kind": "sample_column",
-  "table_path": "samples.lance",
-  "lance_version": 3,
-  "column": "ann__audio_quality__run_001",
-  "schema_version": "audio_quality_v1",
-  "schema_sha256": "<schema hash>",
   "task": "audio_quality",
-  "run_id": "run_001",
+  "run_id": "tts-ann-audio_quality-20260929T160000bjt-01",
   "target_kind": "sample",
-  "profile_id": "<metric profile hash>",
+  "profile": {
+    "kind": "synthetic_quality",
+    "score_range": [
+      0,
+      5
+    ],
+    "input_dependencies": [
+      "audio_sha256",
+      "timeline",
+      "interval"
+    ]
+  },
   "inputs": [
     {
-      "table_path": "datasets/libriheavy/v0.1/samples.lance",
+      "alias": "base",
+      "role": "base",
+      "dataset_id": "example_synthetic",
+      "release_id": "v0.1",
+      "manifest_path": "datasets/example_synthetic/v0.1/manifest.json",
+      "manifest_sha256": "00d74c90fde917932eab23b4cb9bc0d2405a5bb132dfb42ddbbc566fdfc995c5",
+      "table_path": "datasets/example_synthetic/v0.1/samples.lance",
+      "branch": null,
       "lance_version": 2,
-      "manifest_sha256": "<base manifest hash>",
-      "manifest_path": "datasets/libriheavy/v0.1/manifest.json"
+      "rows": 4
     }
   ],
-  "rows": 3,
-  "coverage": {
-    "total_targets": 4,
-    "ok": 2,
-    "failed": 1,
-    "unsupported": 0,
-    "skipped": 0,
-    "missing": 1
-  },
-  "validation": {
-    "unique_targets": true,
-    "input_fingerprints_verified": true,
-    "base_unchanged": true
-  },
+  "outputs": [
+    {
+      "dataset_id": "example_synthetic",
+      "release_id": "v0.1",
+      "base_input_alias": "base",
+      "storage_kind": "sample_branch",
+      "table_path": "datasets/example_synthetic/v0.1/samples.lance",
+      "branch": "ann/audio_quality/tts-ann-audio_quality-20260929T160000bjt-01",
+      "lance_version": 3,
+      "tag": "tts-ann-audio_quality-20260929T160000bjt-01",
+      "table_rows": 4,
+      "columns": {
+        "audio_quality": {
+          "schema_version": "synthetic-quality-v1",
+          "selection": {
+            "mode": "explicit_ids",
+            "target_ids": [
+              "6b8a1f85c73099eabf2045afcc39b0cb957dad4410e89dc072c9cba1d04ac8c0",
+              "ef0d455fb43b401df36e78487c33c3010d2902474618c51fa127cf857e80b2c0",
+              "f783666506b920e61955b2a4ff5cf4627fac8f512e13aaf88b4ad72450a40e54"
+            ],
+            "target_set_sha256": "d77518f3172aa0c8eda9329b0029cb65195b195103456b5c97797da9883ffe0d"
+          },
+          "coverage": {
+            "total_targets": 3,
+            "ok": 2,
+            "failed": 1,
+            "unsupported": 0,
+            "skipped": 0,
+            "missing": 0
+          }
+        }
+      },
+      "validation": {
+        "base_unchanged": true,
+        "ordered_sample_ids_sha256": "6adcd82fdb45c4c66b0319a83176307f4f52ba4693813efefef67cefbd5a0335",
+        "alignment_rows_checked": 4,
+        "input_fingerprints_checked": 3
+      }
+    }
+  ],
   "dependencies": {
     "pylance": "12.0.0"
   },
   "code_sha256": {
-    "scorer.py": "<code hash>"
+    "scorer.py": "8c4558261b01e2fba3e7e7cad7822269da46990573c800ba8b6eaa3385d10b3e"
   },
-  "finished_at": "2026-09-28T00:00:00+00:00",
-  "table_rows": 4,
-  "selection": {
-    "kind": "all_base_samples"
-  }
+  "finished_at": "2026-09-29T16:00:01+08:00",
+  "note": "Synthetic metadata only; branches and reported checks are illustrative, not a real publication.",
+  "profile_id": "1cc9ee405727c47119c099d273d8983fef5a7b8e9318a523400d64c9b6c36e1f"
 }

@@ -9,7 +9,7 @@
 | run_id / profile_id | 一次派生发布 / 完整计算配置 | 质量任务 run、codec profile 摘要 |
 | Lance snapshot version | 一张物理表的提交版本 | 整数 2、3；独立于 release_id |
 
-外部输入引用（inputs、recipe）必须包含相对于统一根目录的路径、整数 snapshot version 和输入 manifest 的哈希。
+外部输入引用（inputs、recipe）必须包含相对于统一根目录的路径、显式 branch（main 用 null）、整数 snapshot version 和输入 manifest 的哈希。
 产物 manifest 自身的 table_path 则相对于所属 release 根目录；build 自身相对于该 build 根目录，详见 10。
 同一个 v0.1 可以有多个派生 snapshot；训练固定具体版本，不依赖 latest。
 

@@ -13,6 +13,32 @@ def test_checked_in_types_match_code():
     assert VERSION == "v0.1"
 
 
+def test_contract_checker_rejects_missing_profile_name(tmp_path, monkeypatch):
+    import importlib.util
+    import shutil
+
+    import pytest
+
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.syspath_prepend(str(root / "scripts"))
+    spec = importlib.util.spec_from_file_location(
+        "check_contract", root / "scripts/check_contract.py"
+    )
+    checker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checker)
+    shutil.copytree(root / "docs/data-contract", tmp_path / "docs/data-contract")
+    monkeypatch.setattr(checker, "__file__", str(tmp_path / "scripts/check_contract.py"))
+    for name in ["feature-manifest", "codec-profile", "speaker-profile"]:
+        path = tmp_path / f"docs/data-contract/examples/{name}.example.json"
+        original = path.read_text()
+        value = json.loads(original)
+        del value["profile_name"]
+        path.write_text(json.dumps(value))
+        with pytest.raises(ValueError, match="profile_name"):
+            checker.check()
+        path.write_text(original)
+
+
 def test_release_manifest_pins_contract_and_snapshot(tmp_path):
     from test_convert import corpus
 

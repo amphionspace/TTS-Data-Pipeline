@@ -18,11 +18,26 @@ datasets/<dataset_id>/v0.1/
 每个 run 发布一张自包含 Lance 特征表，内部可有多个 fragment；不按 GPU/batch 建公开目录，
 不为每条音频建立 NPZ，不复制原音频。一个 dataset 可拥有多个 codec 和 speaker profiles。
 相同 profile 可以用于多个 dataset，分别发布；跨 dataset 合并和选择放在训练 build。
-子集 run 另含同目录的 `targets.lance/`，由同一个 manifest 的 selection.table 绑定；不是独立发布类型。
+selection_branch 模式直接引用已发布的选择分支，不复制目标表；额外任意 subset 才在本 run 保存 targets.lance。
 
 - profile_id：完整处理定义的 canonical JSON SHA256，决定结果含义。
 - run_id：一次固定输入、固定选择范围的执行；重试不改变 run_id，发布后不可改写。
 - Lance version：实际表的整数快照，manifest 明确固定；run_id 不代表 latest。
+
+新的 feature run 使用可读 ID：`<dataset_id>-<kind>-<profile_name>-<北京时间>bjt-<序号>`，
+例如 `libritts_r-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T200000bjt-01`。
+dataset_id 原样保留（包括下划线），不替换为连字符；kind 为 codec 或 speaker_embedding。
+profile_name 为 1–128 字符，匹配 `[a-z0-9][a-z0-9_-]{0,127}`，在命名中原样使用。
+北京时间（UTC+08:00）格式为 YYYYMMDDTHHMMSS，路径追加小写 bjt，不使用 `+`、空格或冒号。
+manifest 时间仍使用 ISO8601 `+08:00`；路径时间仅用于可读命名，不能替代 manifest 的时间字段。
+序号为正整数，至少两位十进制，不多余补零；同一命名空间发生同秒重名时原子分配递增序号。
+时间表示首次创建；同一次执行的重试沿用原 ID，不覆盖已有目录。
+命名生成器只格式化名称，不分配目录；发布器仍须原子占用名称。
+时间不决定数据有效性或输入版本；历史已发布 ID 保持原值，当前没有需要迁移的已发布 feature run。
+manifest 增加必填的可读 profile_name，例如 `qwen3-12hz-24k-k16-fp32-v1`，与完整 profile_id 一起展示。
+profile_name 是说明性标签，放在 profile 对象之外，不参与 profile hash，不能用于唯一性、兼容性判断或替代完整引用。
+同名不同 hash 必须显示为不同 profile；状态输出展示 dataset、profile_name、run_id、状态与精确路径。
+sample_id、feature_key、profile_id 的哈希算法不变；原来源名称仍从 source_key/locator 查看，不给稳定内容身份加入时间戳。
 
 profile.kind 区分 audio_codec 与 speaker_embedding。换权重、影响输出的实现、前处理或精度均产生新 profile。
 同权重而不同重采样/切片策略仍是不同 profile；仅码本数相同不代表训练兼容。
@@ -58,7 +73,8 @@ profile_id 只对完整 profile 对象计算，不包含示例包装中的 examp
 ## 3. 输入、时间轴和关联
 
 生成时只读取 complete manifest 指定的 base/view snapshot，不接受转换中的目录。
-基础表负责保留音频，特征表只保存结果和指纹。run inputs 固定 manifest SHA256、table_path 和整数 snapshot。
+基础表负责保留音频，特征表只保存结果和指纹。run inputs 固定 manifest SHA256、table_path、branch（main=null）和整数 snapshot。
+selection_branch 输入另外绑定 selection manifest SHA256；相同整数版本在不同分支不代表相同数据。
 
 | 公共字段 | 语义 |
 | --- | --- |
@@ -152,14 +168,18 @@ hash 不包含 NPZ 文件包装、Lance 编码或输出路径；这些物理文�
 | codec | Qwen3-TTS-Tokenizer-12Hz；使用冻结 tokenizer，Talker 重新初始化与 codec profile 无关 |
 | 波形 | 24,000 Hz 单声道 float32；原生坐标先切片，显式重采样 |
 | 输出 | [T,16]，16 个码本逐个值域 [0,2048)，存 int16 |
-| 推理 | eval + inference_mode；先 float32 基线，其他精度另行验收/profile |
+| 推理 | 生产候选使用 FA2 + BF16、eval + inference_mode；FP32/eager 仅作验收基线，两者 profile 分开 |
 | 幅度/静音 | 不额外归一化、去静音、裁短或增强 |
 | 重采样候选 | scipy.signal.resample_poly，gcd 约分，Kaiser beta=5，constant/cval=0；固定版本与输出长度规则 |
 
 候选采纳上述重采样策略时 N=ceil((end-start)*24000/native_sample_rate)，24k 输入直接保留；
 需用实际前处理实现验证此规则。不能在 profile 写 scipy，而实际走 codec.load_audio 的另一重采样器。
-Qwen 名称中的 12Hz 不作为通用时间换算常数。模板中的模型 revision 来自已检查的训练仓库，
-生产仍核对实际权重/config，不因仓库声明了下载版本就宣称本机已经验证。
+已下载 config 的 encode_downsample_rate=1920、采样率=24000，名义帧率实际为 12.5 Hz；
+单条 T 仍取 encoder 的实际有效长度，不用时长乘帧率取整。模型已下载不等于完成数值/批处理验收。
+生产加载明确设置 flash_attention_2，检查实际模块后端与 profiler；不允许静默回退后仍报告 FA2。
+FA2 对不同长度混批是否安全必须核对 encoder 的 mask/长度实现；不安全时按等长分组或逐条推理。
+BF16/FA2 和 FP32 不保证量化 token 相同：差异必须报告和听检；不能用基线结果冒充 FA2 profile 缓存。
+同一生产 profile 的 batch 重排/重试则要求 codec 整数精确一致；不能做到时固定分块/长度处理语义或退回逐条路径。
 
 ## 6. 索引和高吞吐读取
 
@@ -169,14 +189,15 @@ parent_sample_id 在固定 base snapshot 的 sample_id 索引上查找；view �
 投影所需列；构建训练数据时批量关联，可用本地盘外部排序/SQLite，禁止逐行远程随机查询。
 索引不保证唯一性和外键，发布时必须显式验证。
 
-默认训练 build materialize 选定 codec/embedding，使每步训练不跨特征表 join。
-业务引用仍保留，读取不依赖执行 batch 或临时状态。在线 speaker 路径的音频读取见 11。
+训练优先验收 indexed_references，在 build 分支一次生成特征 row locator，按批量 take 读取；
+不要为改采样权重再复制 codes。结果乱序写入可以接受，但必须按 key 验证后建立定位，不靠相同行序。
+吞吐尚未验收，不把物化作为无存储成本的默认退路。详见 07/12；在线 speaker 路径见 11。
 
 ## 7. 生成、失败、续跑和验收
 
-1. 固定 inputs/profile/target_kind；all_samples 对快照全体 sample，all_views 对固定 view 表。
-   任意子集在推理前将选择写入本 run 的 targets.lance 并冻结 snapshot、schema 与集合摘要；不能只写易变查询字符串。
-   选择表与结果表一起原子发布，由 run manifest 绑定，不需要另一份 selection manifest。
+1. 固定 inputs/profile/target_kind；首轮使用 selection_branch，消费完整发布的 supervised_tts selection。
+   all_samples/all_views 只适用真正全体目标。任意额外 subset 固定 targets.lance；
+   所有模式都在推理前校验目标集合摘要，不接受只有易变查询字符串的范围。
 2. 按目标 ID 与 input_fingerprint 建有界任务；CPU 解码、GPU 推理、Lance 写入分工。
    每个 GPU 一条受控推理队列，CPU workers 与 GPU batch 是不同参数；不把 128 workers 当 128 个 GPU 进程。
 3. GPU worker 只返回已校验结果；单一协调者提交同一张表。并行 worker 写未提交 fragment，
@@ -193,9 +214,10 @@ complete 表示任务范围完整记账和存储验收完成，不等于全部�
 未尝试/进程中断仍留 incomplete，不伪造 skipped；skipped 必须由固定的显式策略决定。
 记录每种 error_code 数量、成功输入时长、失败覆盖与校验范围；不能以“表能打开”作为全部验收。
 
-同一未发布 run 可对失败目标重试，最终只保留一个结果。已发布 run 的补算产生新的自包含 run，
-可复用已验证成功值；也可让 build 明确选择 fallback run，并核对相同 profile/指纹。
-绝不查询 latest 来补洞，不覆盖旧 snapshot。
+同一未发布 run 可对失败目标重试，最终只保留一个结果。已发布 run 不覆盖；同 profile 补算
+优先仅对缺失/失败/新入选目标发布 subset run，不复制已有成功数组。新 run 对自身目标集合完整记账。
+build 可以显式绑定多个兼容 run，固定每个目标选中的 run 和行位置（见 07），不得查询 latest 补洞。
+不同 profile 不作为兼容补算；全量重新物化已有成功结果需明确空间预算，不能默认每次补洞复制全库。
 
 首个生产 profile 的验收必须包括：多采样率/声道/长度/语言、空或损坏音频、batch padding/重排、
 长音频边界、编码再解码抽检、真实长度与值域、失败记账、断点/换 worker、Lance 按 ID 查询、训练吞吐。
@@ -222,3 +244,19 @@ target_set_sha256 对按 (target_kind,target_id) 字符串升序排列的唯一�
 all 模式也计算同一摘要；它与固定输入 snapshot 共同定义范围，不受扫描顺序影响。
 选择表在推理前验证并写入执行计划；恢复必须匹配原摘要和 snapshot。发布后两个表都不可改写，均为保留根。
 示例见 [view 子集 manifest](../examples/feature-subset-manifest.example.json)。
+
+
+## 9. 直接消费 selection 分支
+
+`selection.mode=selection_branch` 限 target_kind=sample；固定 input_alias 指向的 samples branch/version，
+另有 manifest_path/manifest_sha256 指向 complete selection，dataset_id/release_id 与目标 run 一致。
+filter 固定为 `selection_reason = 0`，不能在此隐式追加另一套文本/质量/语言策略。
+available_target_rows 是该分支全部基础行数，target_count 是 reason=0 条数；不创建 targets.lance。
+target_set_sha256 沿用第 8 节按 ID 排序的摘要，执行前与发布时均核验；外部排序可用本地临时盘，不保存第二份常驻全量目录。
+引用者须核对该分支正是 selection 输出，规则/基础 manifest/快照完整一致，不能只相信 filter 和行数。
+新 feature run 对未选入样本不记 failed/skipped；它们在 selection 有自己的原因。只有目标集合内需要完整终态记账。
+生产训练用 selection 的文本条件只决定本轮要算哪些样本，不进入纯音频 feature_key。
+
+小规模 pilot 若从 selection 再抽样，mode=subset，保存少量 targets，同时在 inputs 固定父 selection 分支与 manifest。
+抽样规则/seed/数量记 execution；这种任意子集不能伪称消费了整个 reason=0 集合。
+本文新增模式有元数据验证规则；全量 selection 发布、GPU 调度和训练定位仍需实现及实际验收。

@@ -1,0 +1,49 @@
+{
+  "purpose": "supervised_tts",
+  "reference_policy": "self",
+  "text_normalization": "unicode-strip-v1",
+  "language_aliases": {
+    "en-US": "en",
+    "zh-CN": "zh"
+  },
+  "supported_languages": [
+    "en",
+    "zh"
+  ],
+  "duration_seconds": {
+    "min_inclusive": 1.0,
+    "max_inclusive": 120.0
+  },
+  "duplicate_comparison": {
+    "text": "unicode-strip-v1",
+    "language": "language_aliases"
+  },
+  "duplicate_conflict": "exclude_unresolved_group",
+  "representative_order": [
+    "source_priority",
+    "sample_id"
+  ],
+  "source_priority": [
+    "example_a",
+    "example_b"
+  ],
+  "reason_priority": [
+    103,
+    102,
+    104,
+    1002,
+    101,
+    1001,
+    2001,
+    2002,
+    3001,
+    3002,
+    5001,
+    4002,
+    7001,
+    4001
+  ],
+  "evaluation": {
+    "status": "not_assigned"
+  }
+}

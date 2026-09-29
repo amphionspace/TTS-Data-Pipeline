@@ -192,6 +192,34 @@ def test_bulk_resume_after_interrupted_finalization(tmp_path, monkeypatch):
     assert all((output / p).stat().st_mtime_ns == mtime for p, mtime in stats.items())
 
 
+def test_cleanup_audit_survives_failed_commit_and_finalization_retry(tmp_path, monkeypatch):
+    import tts_data_pipeline.bulk as module
+
+    root = mls_corpus(tmp_path)
+    batch = source_plan("mls_sidon", root, 1)[0]
+    stage = tmp_path / "v0.1.incomplete"
+    stage.mkdir()
+    run_batch(("mls_sidon", str(root), str(stage), batch, 1024, False))
+    orphan = stage / "samples.lance/data/.tmp-interrupted"
+    orphan.write_bytes(b"orphan")
+    plan = {"batches": [batch], "dataset": "mls_sidon", "deep_verify": False}
+    commit = module.commit_fragments
+
+    def fail(*args):
+        raise RuntimeError("commit failed after cleanup")
+
+    monkeypatch.setattr(module, "commit_fragments", fail)
+    with pytest.raises(RuntimeError, match="commit failed"):
+        finalize(stage, plan)
+    assert not orphan.exists()
+    monkeypatch.setattr(module, "commit_fragments", commit)
+    result = finalize(stage, plan)
+    cleanup = result["finalization"]["cleanup"]
+    assert cleanup["removed_files"] == 1 and cleanup["removed_bytes"] == 6
+    assert [e["action"] for e in cleanup["events"]] == ["planned", "removed"]
+    assert all(e["name"] == orphan.name for e in cleanup["events"])
+
+
 def test_single_lance_table_and_external_control_directories(tmp_path):
     from tts_data_pipeline.bulk import state_directory
     from tts_data_pipeline.writer import release_dataset

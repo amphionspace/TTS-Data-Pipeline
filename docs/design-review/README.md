@@ -9,6 +9,11 @@
 | [LibriHeavy / MLS 核查](libriheavy-mls-check.md) | 配置交集、来源清单、MLS 坏包与明确排除 |
 | [Emilia / YODAS 本地核查](emilia-local-check.md) | 4,343 包首条检查、采样解码、字段映射与训练注意事项 |
 | [Codec / speaker 约定核查](codec-speaker-contract-review.md) | 冻结/解冻两条路径、前处理版本、与训练仓库的接口差距 |
+| [Codec / speaker 提取计划](feature-extraction-plan.md) | 独立环境、空音频/文本过滤、可读命名、8 卡调度与验收阶段 |
+| [特征输入核查](feature-input-review.md) | 全量语言条数/时长占比、缺失标签与逐数据集裁剪初查 |
+| [已发布数据清理核验](published-cleanup-review.md) | 已清理临时文件、MLS SQLite 的数量、核验和证据摘要 |
+| [Selection 分支验证](selection-validation.md) | LJSpeech完整音频、Emilia全部行数增列性能、清理与定位回归 |
+| [数据问题与处置](data-selection-review.md) | 重复/冲突、坏音频、缺失标签、首尾空白证据与后续实施边界 |
 | [当前问题](issues.md) | 待实现的标注、视图、codec、训练构建及其他来源问题 |
 
 reports 仅保留来源核查、验收和排除依据，已忽略 Git。

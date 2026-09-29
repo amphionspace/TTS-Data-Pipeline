@@ -8,6 +8,7 @@ from pathlib import Path
 import _bootstrap  # noqa: F401
 
 from tts_data_pipeline.manifests import read_base_manifest
+from tts_data_pipeline.timestamps import parse_timestamp
 
 
 def conversion_statuses(root):
@@ -21,9 +22,7 @@ def conversion_statuses(root):
             # Completed work state may be removed while the published manifest remains.
             continue
         elapsed = max(
-            (
-                datetime.now(timezone.utc) - datetime.fromisoformat(plan["started_at"])
-            ).total_seconds(),
+            (datetime.now(timezone.utc) - parse_timestamp(plan["started_at"])).total_seconds(),
             0.001,
         )
         if status["status"] in {"complete", "failed", "paused"}:

@@ -1,0 +1,177 @@
+{
+  "example_only": true,
+  "runnable": false,
+  "note": "Synthetic complete metadata; no corresponding production branches. Duration bounds reflect the approved first selection (inclusive 1–120 seconds); all counts, datasets and remaining hashes are illustrative.",
+  "contract_version": "v0.1",
+  "artifact_kind": "selection",
+  "selection_id": "tts-selection-supervised-tts-20260929T160000bjt-01",
+  "purpose": "supervised_tts",
+  "status": "complete",
+  "finished_at": "2026-09-29T16:00:01+08:00",
+  "inputs": [
+    {
+      "dataset_id": "example_a",
+      "release_id": "v0.1",
+      "manifest_path": "datasets/example_a/v0.1/manifest.json",
+      "manifest_sha256": "cb88a4e36afce377b9c56e5b6886bc70031ea111ac0eca69dea582b90c8e4175",
+      "table_path": "datasets/example_a/v0.1/samples.lance",
+      "branch": null,
+      "lance_version": 2,
+      "rows": 3
+    },
+    {
+      "dataset_id": "example_b",
+      "release_id": "v0.1",
+      "manifest_path": "datasets/example_b/v0.1/manifest.json",
+      "manifest_sha256": "bc5d1c945564093e791f5175a4dac44d68146d63284df16126f6b9ca341be991",
+      "table_path": "datasets/example_b/v0.1/samples.lance",
+      "branch": null,
+      "lance_version": 2,
+      "rows": 2
+    }
+  ],
+  "outputs": [
+    {
+      "dataset_id": "example_a",
+      "release_id": "v0.1",
+      "table_path": "datasets/example_a/v0.1/samples.lance",
+      "base_version": 2,
+      "branch": "tts-selection-supervised-tts-20260929T160000bjt-01",
+      "lance_version": 3,
+      "tag": "tts-selection-supervised-tts-20260929T160000bjt-01",
+      "rows": 3,
+      "selected_rows": 2,
+      "reason_counts": {
+        "0": 2,
+        "1001": 1
+      },
+      "validation": {
+        "rows_checked": 3,
+        "null_reason": 0,
+        "null_flags": 0,
+        "unknown_reason": 0,
+        "unknown_flag_bits": 0,
+        "pending": 0,
+        "base_unchanged": true
+      }
+    },
+    {
+      "dataset_id": "example_b",
+      "release_id": "v0.1",
+      "table_path": "datasets/example_b/v0.1/samples.lance",
+      "base_version": 2,
+      "branch": "tts-selection-supervised-tts-20260929T160000bjt-01",
+      "lance_version": 3,
+      "tag": "tts-selection-supervised-tts-20260929T160000bjt-01",
+      "rows": 2,
+      "selected_rows": 1,
+      "reason_counts": {
+        "0": 1,
+        "4001": 1
+      },
+      "validation": {
+        "rows_checked": 2,
+        "null_reason": 0,
+        "null_flags": 0,
+        "unknown_reason": 0,
+        "unknown_flag_bits": 0,
+        "pending": 0,
+        "base_unchanged": true
+      }
+    }
+  ],
+  "rules": {
+    "path": "rules.json",
+    "sha256": "5abce37a9fb7c1555a24ff5f698860b6598a289c682886514d5d9b3e3360daaa",
+    "implementation_sha256": "4e2f26fa4b1220abd69a3eb63111c21daf9551c2fe0ae158a504c6e5bb9dce26"
+  },
+  "reason_dictionary": {
+    "version": 1,
+    "codes": {
+      "0": "selected",
+      "101": "missing_audio",
+      "102": "decode_failed",
+      "103": "invalid_audio",
+      "104": "invalid_timeline",
+      "1001": "missing_text",
+      "1002": "confirmed_mismatch",
+      "2001": "missing_language",
+      "2002": "unsupported_language",
+      "3001": "below_duration_policy",
+      "3002": "above_duration_policy",
+      "4001": "duplicate_not_selected",
+      "4002": "conflicting_duplicate",
+      "5001": "reference_identity_unavailable",
+      "7001": "held_out",
+      "65535": "pending"
+    },
+    "priority": [
+      103,
+      102,
+      104,
+      1002,
+      101,
+      1001,
+      2001,
+      2002,
+      3001,
+      3002,
+      5001,
+      4002,
+      7001,
+      4001
+    ]
+  },
+  "flag_dictionary": {
+    "version": 1,
+    "bits": {
+      "0": "audio_issue",
+      "1": "missing_text",
+      "2": "pairing_issue",
+      "3": "language_policy",
+      "4": "duration_policy",
+      "5": "duplicate_member",
+      "6": "duplicate_conflict",
+      "7": "reference_policy",
+      "8": "held_out",
+      "9": "confirmed_exclusion"
+    }
+  },
+  "exclusions": {
+    "parent": null,
+    "initial_evidence_sources": [],
+    "effective_path": "exclusions.jsonl",
+    "effective_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "changes_path": "exclusion_changes.jsonl",
+    "changes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "added": 0,
+    "retracted": 0,
+    "effective_count": 0
+  },
+  "duplicates": {
+    "table_path": "duplicates.lance",
+    "branch": null,
+    "lance_version": 2,
+    "schema_sha256": "73dafc9cd7669c757e2d0f6438cef56cfd4d79c39de13ba3e00b028cf2eacdb1",
+    "rows": 2,
+    "groups": 1,
+    "redundant_rows": 1,
+    "comparison": "full_audio_sha256",
+    "index_columns": [
+      "sample_id",
+      "audio_sha256"
+    ]
+  },
+  "coverage": {
+    "row_rules": 5,
+    "exact_duplicate_hashes": 5,
+    "full_audio_decode": 0,
+    "near_duplicates": "not_checked",
+    "quality_scores": "not_checked"
+  },
+  "evaluation": {
+    "status": "not_assigned"
+  },
+  "annotation_inputs": [],
+  "text_sources": {}
+}

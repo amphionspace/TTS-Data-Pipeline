@@ -41,7 +41,8 @@ codec 和 embedding 分别生成与发布，不要求同时完成。一轮任务
 - embedding_dim=D、storage_dtype=float32、normalization=none 或明确的算法/epsilon。
 - 输出层：encoder 最终输出、进入 Talker 条件注入之前；不包含 text_pad、训练 projection 或拼接结果。
 
-当前候选为训练仓库使用的冻结 Qwen ECAPA-TDNN 输出。D 从实际 speaker_encoder_config.enc_dim 核实，
+当前候选为训练仓库使用的冻结 Qwen ECAPA-TDNN 输出。它不使用 FA2 attention；
+安装版池化没有有效长度入参，不允许未经验证的异长补零混批。先逐条或严格等长 mel 推理。D 从实际 speaker_encoder_config.enc_dim 核实，
 不写死成 codec K、codebook size 或某一 Talker 的 hidden size。若训练有额外投影，属于模型协议。
 默认保存 encoder 原始输出，不擅自 L2 normalize；模型原本输出是否归一化亦需核对实现。
 
@@ -76,13 +77,13 @@ bytes 和 config。来源 checkpoint/revision 记为证据；特征身份不应�
 - ICL/prompt 条件：目标 codec + 所需参考 codec/文本，按模型协议决定是否还需要 embedding。
 - 在线 encoder：目标 codec + 参考音频引用；embedding 在 forward 中产生，不读取旧 embedding 代替。
 
-默认选有证据属于同一 speaker 的另一条不重叠片段，排除重复编码和评估泄漏。
-如果实验要用目标自身作 speaker 条件，必须显式 reference_policy=self；不能伪称为独立参考训练。
-未确认 speaker 的样本不能靠同 dataset/group 配对；按 recipe 排除或进入明确支持的无 speaker 任务。
+首版训练固定 reference_policy=self，以目标自身音频作为 speaker 条件，允许无 speaker 标签；
+它不代表独立参考克隆评估。其他实验采用 other_same_speaker 时才要求确认身份、另一条非重复不重叠参考。
+未确认 speaker 不能靠同 dataset/group 伪造跨片段配对。训练与评估各自声明协议，详见 07。
 多个参考是否聚合、如何聚合、是否用文本由模型协议固定，不强行在基础 embedding 表求平均。
 
-frozen_embedding 下默认 materialized_codes 布局同时内嵌选定 reference_embeddings 和实际维度，
-仍保存 reference IDs 和特征摘要，训练每步不再查独立 embedding 表。
+frozen_embedding 首选验证 indexed_references：build 分支保存 speaker_row，绑定固定 embedding 表快照，
+训练批量定位读取；不先复制所有 embedding。materialized_codes 仅作已验收且有明确预算的备选，见 07。
 online_speaker_encoder 下 build 记录固定 base snapshot + sample_id + view/区间；
 按批量解析并使用有界本地缓存，缓存键至少覆盖音频哈希/时间轴/区间/前处理 profile。
 可保存 snapshot 内 row locator 加速，但它不是永久 ID，换快照必须重建；不做每条音频的全表扫描。

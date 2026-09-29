@@ -2,15 +2,18 @@
 
 ## 通用字段
 
-每个发布都有不可变 manifest.json；JSON 使用 UTF-8、禁止 NaN/Infinity，时间使用 UTC ISO8601。
+每个发布都有不可变 manifest.json；JSON 使用 UTF-8、禁止 NaN/Infinity，时间使用带明确时区偏移的 ISO8601。新的 annotation/selection/feature run 使用北京时间（+08:00）；历史 UTC 记录保持原值。
+比较、排序和时间差必须先解析为带时区的 datetime，再归一到 UTC；禁止按时间字符串或 run_id 排序推断先后。
+无时区时间拒收，不默认推断本地时区。代码统一使用 `parse_timestamp`；新 feature 的 finished_at 必须为 +08:00。
+run_id 使用不含加号的 YYYYMMDDTHHMMSSbjt，dataset_id 的下划线原样保留，完整规则见 06。
 manifest 文件哈希由引用者计算，不将自己的哈希写进自身导致递归。
 
 | 字段 | 用途 |
 | --- | --- |
 | contract_version | v0.1 |
-| artifact_kind | base / annotation / view / feature / training_build / asset |
+| artifact_kind | base / selection / annotation / view / feature / training_build / training_plan / asset |
 | status | 公开发布只接受 complete |
-| dataset_id / release_id | dataset 产物的归属；build 可跨数据集，列出 inputs |
+| dataset_id / release_id | dataset产物归属；跨数据集annotation/selection/build按inputs/outputs逐项列出 |
 | storage_format | lance |
 | storage_version | 实际 Lance 文件格式版本；与 contract version 分开 |
 | table_path / lance_version | 表路径与固定整数 snapshot；列内标注还需要 column |
@@ -23,10 +26,15 @@ manifest 文件哈希由引用者计算，不将自己的哈希写进自身导�
 base 的 table_path 相对 release 根目录，固定 samples.lance。其他 dataset 产物的 table_path 也相对该 release 根目录。
 所有 inputs/recipe 中的外部引用 table_path 和 manifest_path 相对统一根目录，不依赖调用者当前工作目录。
 引用保存 manifest_sha256；一份 manifest 引用多个内部 snapshot 时，还需指定对应表/列，不能只凭 manifest 哈希猜版本。
-training_build 自身的 table_path 相对该 build 根目录，固定 records.lance。
-一对多标注使用 tables.targets/tables.results 两组 table_path/lance_version，schema 描述覆盖两张表。
+materialized training_build 的 table_path 相对该 build 根目录，固定 records.lance；
+indexed_references build 通过 bindings 引用统一根下的样本 build 分支和特征表，不强制有自身表。
+selection 的文件路径相对自身发布目录，所有外部 samples 引用相对统一根；具体内容见 12。
+新引用显式写 branch（main 用 null）及 lance_version；旧引用缺 branch 按 main 解释，绝不猜测 selection 分支。
+annotation统一manifest位于annotations/<task>/<run_id>/；inputs/outputs内所有表和外部manifest路径相对统一根。
+每个输出绑定base_input_alias、dataset/release、布局；sample_branch另需branch/version/tag及columns逐列覆盖。
+一对多标注的每个output使用tables.targets/tables.results两组引用，schema描述覆盖两张表。
 文件系统绝对根从部署配置映射，不写进内容身份。
-表内标注 manifest 声明 storage_kind=sample_column，其他结果表为 storage_kind=result_table。
+新一对一样本标注使用storage_kind=sample_branch；独立表为result_table；旧sample_column保留兼容读取。
 一个 run 如果没有实际结果表，不创建空 results.lance。
 
 ## 基础发布额外字段
@@ -65,12 +73,17 @@ null 表示未知/未记录（finalization 也可能不适用），与 0、[]、
 ## Run 与 build 额外字段
 
 run 固定 task、run_id、target_kind、profile_id/profile、输入依赖与 schema、覆盖数、各 status 数、未运行数。
+sample_branch按output.columns逐列记录selected_targets/coverage，table_rows固定bv全行数；
+complete要求范围内missing=0，范围外struct=null，不把不同列的结果数相加当样本数。
+新annotation须记录有序ID摘要与对齐/基础列/指纹核查覆盖；依赖须无环并传递保留，详见05。
 仅对 storage_kind=sample_column：rows 表示非 null 结果数，table_rows 表示所引用 samples snapshot 的总行数。
 这类 run 的 coverage.total_targets 表示声明的任务范围大小，必须 ≤ table_rows；范围外行和范围内未运行行均不写结果，
 两者通过 manifest 固定的 selection 或选择表区分。coverage 的各状态加 missing 等于 total_targets。
 独立一对一结果表 rows 是物理结果行数；一对多 rows 是事件数，并另记 target_rows 和目标状态统计。
 每个任务定义 result 类型/指标范围。manifest 的 snapshot/column 是结果位置，run_id 不是查询 latest 的别名。
 feature 固定 kind、完整 profile、target_kind、输出形状/dtype/轴/数组哈希序列化以及全部终态数量。
+新的 feature manifest 同时保存可读 run_id 和 profile_name；运行日志/状态中的时间也按北京时间展示。
+命名与 hash 分工见 06；不改写历史已发布 ID。
 codec 的 codes 与 speaker 的 embedding 分别按 06/11 定义；profile hash 只覆盖完整 profile 对象。
 feature 不继承 sample_column 的 table_rows 上限。输入别名和 selection 固定生成范围，具体字段见 06 第 8 节。
 selection.available_target_rows 是目标 samples 或 views 快照的行数；可选 parent_sample_rows 仅为审计统计。
@@ -79,7 +92,10 @@ feature 发布必须 rows = selection.target_count = coverage.total_targets = ok
 完整终态记账仍可包含失败，训练只用所需特征均为 ok 的记录。
 execution 记录实际软硬件、CPU/GPU 并发和 batch 参数，validation 记录逐项覆盖数与边界；
 示例见 [feature manifest](../examples/feature-manifest.example.json)。
-build 固定 recipe 哈希、全部 inputs、storage_layout、模型输入协议、候选/排除/配对计数、时长/token 统计。
+selection 固定输入/输出全体成员、规则、原因/flags 字典、排除继承与自包含证据、重复表、检查覆盖与统计，见 12。
+feature 的 selection_branch 模式固定 selection manifest 哈希、输入分支和 reason=0，不创建重复的目标清单，见 06。
+build 固定 data_recipe 哈希、selection、全部特征快照及定位绑定、模型输入协议、就绪/失败计数。
+training_plan 独立固定 build、采样、预算、评估策略和恢复规则；不把采样权重计入 build 身份。
 
 ## Schema 演进
 
@@ -95,3 +111,11 @@ schemas/arrow-schemas.json 是结构化 Arrow 类型描述，不是 HF Features�
 自包含来源使用 source-file-v1；外部语义依赖使用 source-unit-v1，算法见 03。
 每个 inputs 项的 semantic_dependencies 固定依赖文件的相对路径、大小和完整 SHA256；
 它们不计入待转换音频文件数，但必须参与身份、输入清单摘要及恢复校验。
+
+## 收尾清理审计
+
+新 bulk 发布的 finalization.cleanup 保存相对 directory、完整 events、确认删除的 removed_files/removed_bytes。
+事件记录文件名、bytes、带时区 at 和 action（planned/removed）；unlink 前先持久化 planned，成功后记录 removed。
+工作状态中的 cleanup.jsonl 跨收尾重试累计，最终 manifest 包含全部尝试，stdout 同时输出事件。
+只有 planned 的事件表示操作结果未确认，不计入确认删除数量；不能假定它一定删除成功。
+旧 release 不补写此字段；已发布产物的维护清理另存清单和核验报告，不改原 manifest 哈希。

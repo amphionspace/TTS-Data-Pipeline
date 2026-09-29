@@ -1,5 +1,9 @@
 # Codec / speaker 特征约定与训练仓库对照
 
+历史阶段记录：以下保留当次审阅证据与决策演进，不表示当前任务仍在运行。
+当前采用selection分支、self参考和优先验证indexed_references，见 [当前提取计划](feature-extraction-plan.md)。
+模型目前已下载，FA2已安装；真实推理仍待验收。
+
 日期：2026-09-29。用户要求先定 codec 与 speaker 特征，不展开 annotation。
 用户已确认：当前 speaker encoder 冻结，未来可能解冻；不将某一种 mel 固定为统一格式。
 本次更新规范、Arrow 类型描述、合成示例和存储可行性测试，不运行 GPU 提取、不修改训练代码。
