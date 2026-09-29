@@ -100,6 +100,42 @@ Wenet 临时磁盘峰值、重复读取共享清单及单包串行瓶颈须纳�
 修复验收：73 项测试通过，含跨线程缓存、多批真实 Lance 写入、精确拒收和显式检查点迁移。
 旧/新 Galgame 适配器的 64 条真实有效记录 ID、revision 与音频哈希一致；修复任务已恢复。
 
+
+## Galgame 第二次拒收修复
+
+batch-00001 的 10 片共 77,414 行音频头扫描发现两条 libsndfile malformed 错误：
+ALcot_Clover_Day_s/train-00000-of-00003.parquet 行 3860（0050504.opus），
+以及 train-00001-of-00003.parquet 行 7277（0041491.opus）。行号均从 0 起算。
+独立 libopus 逐包解码分别得到 40,320 和 43,200 帧，全部包可解码；
+OGG EOS granule 却分别为 40,321 和 43,201，libsndfile 1.2.2 在打开容器时报告错误码 3。
+这是容器时间轴不一致；不应将其描述为音频包全部不可恢复。
+当前原始接入精确拒收这两行，保留原文件；以后可在明确修复时间轴的派生流程中重新接入。
+新策略复核源文件和音频 SHA256、原行号与 audio_ID，并再次核验指定错误码。
+其他未知错误依然失败，不做宽泛跳过。全库其他未完成部分仍需完整转换验收。
+
+为保持在跑任务的代码哈希固定，本次修复位于独立 Git worktree/分支
+fix/galgame-malformed-audio；Galgame 恢复使用此版本，其他任务保持原运行代码。
+
+## Galgame / LibriHeavy 精确拒收修复（2026-09-28）
+
+已完整扫描四个失败批次的 37 个 Parquet 文件：Galgame 76,384 行、LibriHeavy 102,917 行。
+Galgame 的 Windmill_Hatsukoi_Sankaime 两片混入 1,338 条 `.tag` 数据（24–96 bytes），
+不具备可识别音频头；LibriHeavy large 三片有 27 条只有 OpusHead/OpusTags、没有音频包的记录。
+这些记录按源文件 SHA256、原行号、上游 ID 和音频 SHA256 固定在各 dataset 的排除清单。
+Galgame 累计排除 1,341 条（包含先前 3 条），LibriHeavy 排除 27 条。
+
+五个受影响源文件逐条通过 adapter/schema 验证：29,523 条保留、1,365 条拒收；
+所有保留行的原始位置均与源文件一致。79 项测试与 Ruff 检查通过。
+未知错误仍失败；不修改原始 bytes，不自动扩大排除范围。contract/schema/release 保持 v0.1。
+运行任务通过显式代码迁移复用原 checkpoint，实际旧代码哈希保留，恢复时逐片复核哈希。
+
+本次恢复已启动，两个任务均为 64 workers。Galgame 保留 118 个完成检查点（7,026,443 行），
+LibriHeavy 保留 283 个（9,331,886 行）；重启后进度先统计逐片重新核验通过的检查点，
+因此计数会暂时低于保留数，不表示删除了已完成数据。
+修复运行于 `reports/runtime/source-audio-fix` 的独立 Git 工作树。
+旧 `galgame-malformed-fix`、`local-finalization` 工作树已删除；
+`before-cache-fix` 和主工作树源码仍有其他任务使用，在这些任务结束前保持冻结。
+
 ## WenetSpeech4TTS Basic_6 缺失一条转写（2026-09-28）
 
 完整扫描 `Basic/WenetSpeech4TTS_Basic_6.tar.gz`，132,677 个普通成员：66,339 个 WAV、

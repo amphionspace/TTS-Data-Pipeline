@@ -10,8 +10,16 @@ worker 通过官方 write_fragments 写同一表的数据文件，验证完成�
 协调者做全局身份对账、统一 commit、sample_id BTREE 索引与 snapshot 计数验证，最后原子发布。
 最终数据没有 batch 目录；内部恢复仍可按批记录。
 
-工作状态在 `datasets/<dataset_id>/.state/v0.1/`，包括 plan/status/checkpoints/identity.sqlite。
+工作状态在 `datasets/<dataset_id>/.state/v0.1/`，包括 plan/status/checkpoints。
+全局身份审计的 identity.sqlite 是可重建临时文件，放在 `TMPDIR/tts-finalize-*/`，不写共享数据目录。
+启动前把 TMPDIR 指向有足够空间的本地磁盘；Python 默认临时目录通常为 /tmp。
+每个审计连接的 SQLite 页缓存上限为 64 MiB；成功或 Python 异常退出后关闭并清理临时库。
+强制杀进程或断电可能留下临时目录，确认所属进程已退出后才可清理。
+旧版本运行可能仍在 .state 下保留 identity.sqlite，不要在旧进程运行时删除或替换它。
 日志放 pipeline reports。未发布数据位于 v0.1.incomplete，恢复不能直接当成训练数据。
+已发布数据由正式 manifest 显示 complete 状态；完成复核且协调进程退出后可清理该 release 的 .state。
+进度脚本优先读取正式 manifest，完成任务不会因清理工作目录而从状态列表消失。
+运行中或失败任务的 .state 继续保留；正式 manifest 未保存的历史 worker/总耗时字段显示 null，不推算伪造值。
 
 ## 命令
 
@@ -49,6 +57,11 @@ standard：来源完整哈希、逐记录验证、原 bytes 哈希/音频头、�
 deep：额外全音频解码、有限值/帧数验证，以及来源内容再次哈希。
 小规模 fixture、真实来源抽样、全量数据验收是不同证据；性能基准需注明数据范围和冷热缓存。
 
+收尾日志按批报告身份扫描行数，随后报告索引提交阶段。可选诊断字段
+`manifest.finalization` 记录临时库大小与 identity_scan / identity_queries /
+table_commit_and_index / total 秒数，不参与样本 ID 或 record_revision。
+三份真实数据的本地对照结果与运行边界见 [本地收尾验证](design-review/local-finalization.md)。
+
 新标注任务的 schema 变更由单一协调者提交，转换器的并行 fragment 写法不等于可以任意并发增列。
 
 ## MLS v0.1 已批准的来源排除
@@ -82,7 +95,7 @@ CLI 也支持 aishell3、ljspeech、vctk、hifitts、wenetspeech4tts、genshin_v
 
 ## 本次修复后的恢复
 
-Galgame 启动/恢复必须带 `--exclusions configs/source-exclusions/galgame-v0.1.json`，仅排除已核实的单条零帧音频。
+Galgame 启动/恢复必须带 `--exclusions configs/source-exclusions/galgame-v0.1.json`，仅排除已逐条核实并固定源文件、行号与音频哈希的零帧或容器格式错误音频。
 各任务实际启动命令和代码快照位置以 reports/current-conversion/launch.json 为准；
 仍使用旧代码快照的任务不能直接从修改后的工作源码恢复。
 常规 resume 继续严格核对代码；单次已审核的兼容迁移在计划与发布 manifest 中保留完整旧/新版本证据。
@@ -93,3 +106,9 @@ Galgame 启动/恢复必须带 `--exclusions configs/source-exclusions/galgame-v
 并传入该工作树的 `configs/source-exclusions/wenetspeech4tts-v0.1.json`。
 仅排除已完整核实的一条缺失转写，保留其他记录；主工作树源码仍有旧任务使用，保持冻结。
 实际命令以 reports/current-conversion/launch.json 为准。
+## Emilia / Emilia-YODAS
+
+新增 emilia 与 emilia_yodas，原始目录分别为 Emilia 与 Emilia-YODAS，各使用 64 workers。
+两个来源仍按 v0.1 的 27 列写入，原 DNSMOS 等字段保存在 metadata.upstream，annotation 延后。
+完整成员配对和 tar 结束校验，不把每包首条核查当作全量验收。来源映射与验证边界见
+[本地核查](design-review/emilia-local-check.md)。

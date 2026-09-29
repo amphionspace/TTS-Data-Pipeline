@@ -1,11 +1,10 @@
 # 数据集接入表
 
 所有 21 个目录均已盘点。这里区分“有转换规则”与“已实现转换器”。
-目前实现 13 个适配器（下表 ✓），新增九个的真实小样本已验证，尚未整库转换。
+目前实现 15 个适配器（下表 ✓），新增九个的真实小样本已验证，尚未整库转换。
 写入后端为 Lance，release 固定 v0.1；旧产物已清理，全量转换已启动，进度以状态脚本为准。
 最新来源复核见 [LibriHeavy / MLS 核查](design-review/libriheavy-mls-check.md)。
-Emilia / Emilia-YODAS 的 adapter 已在 `feat/emilia-conversion` 工作树实现，入口为
-`reports/runtime/emilia-conversion/scripts/tts_data.py`；主工作树源码仍供原有任务使用，保持冻结。见 [本地核查](design-review/emilia-local-check.md)。
+Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [本地核查](design-review/emilia-local-check.md)。
 其他适配器按接入优先级逐一补齐，
 不创建看起来可运行的空实现。转换不能依赖源数据中旧机器的绝对路径。
 
@@ -13,8 +12,8 @@ Emilia / Emilia-YODAS 的 adapter 已在 `feat/emilia-conversion` 工作树实�
 | --- | --- | --- |
 | AISHELL-3 / aishell3.py ✓ | tgz；content.txt 的字词与拼音分别保留；speaker 来自源 ID | 完整清单与音频对应关系、文本解析验证 |
 | CSEMOTIONS / csemotions.py ✓ | Parquet；保留 emotion；speaker 加数据集命名空间 | 缺上游 ID，以源文件哈希固定快照；完整转换结果见首批报告 |
-| Emilia / emilia.py | 分语言 tar；JSON+MP3；保留 dnsmos、源 speaker | 原 JSON wav 路径与实际 member 配对；说话人 ID 范围 |
-| Emilia-YODAS / emilia_yodas.py | 分语言 tar；JSON+MP3；支持 _id、phone_count | speaker 通常受视频范围约束；不能仅凭末尾编号跨视频合并 |
+| Emilia / emilia.py ✓ | 分语言 tar；JSON+MP3；保留 dnsmos、源 speaker | 原 JSON wav 路径与实际 member 配对；说话人 ID 范围 |
+| Emilia-YODAS / emilia_yodas.py ✓ | 分语言 tar；JSON+MP3；支持 _id、phone_count | speaker 通常受视频范围约束；不能仅凭末尾编号跨视频合并 |
 | Galgame / galgame.py ✓ | 各游戏配置的 Parquet；audio_ID、text | 此前缺的 6 个 shard 已补齐；无 speaker 列；源配置音频采样率声明需实测 |
 | HiFiTTS / hifitts.py ✓ | tar.gz 内多个 JSONL manifest；保留原文/规范化文本与 clean/other | manifest 全量读取与音频成员对应关系 |
 | HiFiTTS2 / hifitts2.py | 章节 MP3、少量章节/切分元数据 | 当前 URL 清单缺 2,454 个文件；缺完整训练文本/切分标注 |

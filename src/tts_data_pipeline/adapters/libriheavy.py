@@ -24,8 +24,12 @@ def input_files(root: Path, config: str | None = None) -> list[Path]:
     return sorted((root / "default" / config).rglob("*.parquet"))
 
 
-def iter_records(root: Path, snapshot: str, *, files: list[Path] | None = None):
-    for shard, index, row in source_rows(root, files if files is not None else input_files(root)):
+def iter_records(
+    root: Path, snapshot: str, *, files: list[Path] | None = None, excluded_records=()
+):
+    for shard, index, row in source_rows(
+        root, files if files is not None else input_files(root), excluded_records
+    ):
         config = Path(shard).parts[1]
         text = row.get("text_original") or None
         asr = row.get("text_transcription") or None

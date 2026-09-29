@@ -1,6 +1,6 @@
 # 核查与待办
 
-当前方案为 Lance v0.1，共 13 个 adapter；全量转换已启动，Emilia2 暂不接入。
+当前方案为 Lance v0.1，共 15 个 adapter；全量转换已启动，Emilia2 暂不接入。
 规范见 [data-contract](../data-contract/README.md)，21 个来源的接入映射见 [datasets](../datasets.md)。
 
 | 文档 | 用途 |

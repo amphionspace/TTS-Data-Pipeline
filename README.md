@@ -1,10 +1,10 @@
 # TTS Data Pipeline
 
 将原始音频转换为统一 **Lance** 数据，后续补标注、生成多个 codec 版本，再按固定配方构建训练输入。
-发布版本 **v0.1**，统一根目录 `/workspace/data/DATA-TTS-UNIFIED`。13 个已适配来源的全量转换已启动，实时状态见 `python scripts/conversion_status.py`。
+发布版本 **v0.1**，统一根目录 `/workspace/data/DATA-TTS-UNIFIED`。15 个来源已适配；原 13 个来源的全量转换已启动，Emilia 两个来源加入转换，实时状态见 `python scripts/conversion_status.py`。
 
-已有 13 个 adapter：CSEMOTIONS、LibriTTS-R、LibriHeavy、MLS SIDON、AISHELL-3、LJSpeech、
-VCTK、HiFiTTS、WenetSpeech4TTS、genshin-voice、starrail-voice、Galgame、WutheringWaves-2.2。
+已有 15 个 adapter：CSEMOTIONS、LibriTTS-R、LibriHeavy、MLS SIDON、AISHELL-3、LJSpeech、
+VCTK、HiFiTTS、WenetSpeech4TTS、genshin-voice、starrail-voice、Galgame、WutheringWaves-2.2、Emilia、Emilia-YODAS。
 新增九个已完成小样本接入测试，未进行全量音频验收；Emilia2 暂不接入。
 项目直接运行本地模块，无需 pip install -e .。旧 Parquet 输出及 converted 用法已取消，原始 Parquet 读取仍保留。
 

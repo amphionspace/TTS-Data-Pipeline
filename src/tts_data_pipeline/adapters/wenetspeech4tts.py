@@ -6,6 +6,7 @@ import tarfile
 from pathlib import PurePosixPath
 
 from ..schema import make_record
+from ..source_exclusions import validate_record_exclusions, verify_excluded_audio
 from ._archives import pairs, safe_member
 
 IDENTITY_SCHEME = "source-unit-v1"
@@ -59,21 +60,39 @@ def archive_metadata(root, path):
     return tier, rows
 
 
-def iter_records(root, snapshot, *, files=None):
+def iter_records(root, snapshot, *, files=None, excluded_records=()):
+    validate_record_exclusions("wenetspeech4tts", excluded_records)
+    found_exclusions = set()
     for path in files if files is not None else input_files(root):
         tier, metadata = archive_metadata(root, path)
+        excluded = {
+            r["source_key"]: r for r in excluded_records if r["path"] == str(path.relative_to(root))
+        }
+        if excluded.keys() - metadata.keys():
+            raise ValueError("Excluded Wenet record missing from declared filelist")
         with pairs() as store, tarfile.open(path, "r|*") as archive:
-            emitted = set()
+            emitted, rejected = set(), set()
+            missing_members = {r["missing_member"] for r in excluded.values()}
             for member in archive:
+                name = safe_member(member.name)
+                if name in missing_members:
+                    raise ValueError("Excluded Wenet transcript is now present; review policy")
                 if not member.isfile():
                     continue
-                name = safe_member(member.name)
                 if not name.endswith((".wav", ".txt")):
                     raise ValueError(f"Unexpected Wenet member: {name}")
                 key = PurePosixPath(name).stem
                 if key not in metadata:
                     raise ValueError(f"Wenet member missing from filelist: {name}")
                 meta = metadata[key]
+                if key in excluded:
+                    item = excluded[key]
+                    if name != item["audio_member"] or key in rejected:
+                        raise ValueError("Unexpected or duplicate excluded Wenet member")
+                    verify_excluded_audio(archive.extractfile(member).read(), item)
+                    rejected.add(key)
+                    found_exclusions.add((item["path"], key))
+                    continue
                 if name == meta["audio"]:
                     result = store.put(key, data=archive.extractfile(member).read())
                 elif name == meta["text"]:
@@ -120,5 +139,9 @@ def iter_records(root, snapshot, *, files=None):
                     },
                 )
             store.finish()
-            if emitted != metadata.keys():
+            if rejected != excluded.keys():
+                raise ValueError("Excluded Wenet audio was not found")
+            if emitted | rejected != metadata.keys():
                 raise ValueError("Wenet archive does not cover declared filelist")
+    if found_exclusions != {(r["path"], r["source_key"]) for r in excluded_records}:
+        raise ValueError("Excluded Wenet record not found in selected input")

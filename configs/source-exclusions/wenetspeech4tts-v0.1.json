@@ -1,0 +1,19 @@
+{
+  "dataset_id": "wenetspeech4tts",
+  "release_id": "v0.1",
+  "files": [],
+  "records": [
+    {
+      "path": "Basic/WenetSpeech4TTS_Basic_6.tar.gz",
+      "bytes": 9066144587,
+      "sha256": "839320506976c980c8fdb115ceeec602232bfccb5365ae5c2ba3ca96b805f49e",
+      "source_key": "X0000004983_6617014_S00105-S00111",
+      "audio_member": "WenetSpeech4TTS_Basic_6/wavs/X0000004983_6617014_S00105-S00111.wav",
+      "missing_member": "WenetSpeech4TTS_Basic_6/txts/X0000004983_6617014_S00105-S00111.txt",
+      "audio_bytes": 741420,
+      "audio_sha256": "9eb45f4df5806bd288546dbbf63af89a7fc7e5f28ca70aa6aecc3eea4c84af71",
+      "condition": "missing_transcript",
+      "reason": "Full local archive scan and Basic filelist comparison confirm exactly this transcript is absent; WAV is present. User authorised excluding the unpaired record."
+    }
+  ]
+}
