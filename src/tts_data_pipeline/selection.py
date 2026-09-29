@@ -201,6 +201,8 @@ def plan(root, work, rules_path, *, selection_id=None):
             "rows": m["rows"],
         }
         ds = open_base(root, source)
+        if selection_id in ds.branches.list():
+            raise ValueError("Selection ID already names a branch; use its existing plan to resume")
         if lance.dataset(root / source["table_path"]).version != source["lance_version"]:
             raise ValueError("Unexpected newer base main; review before publishing selection")
         inputs.append(source)
@@ -623,6 +625,7 @@ def publish_branch(args):
                     ("selection_flags", pa.uint32()),
                     ("selected_text", pa.string()),
                     ("selected_text_source", pa.uint32()),
+                    ("selected_language", pa.string()),
                 ]
             )
 
@@ -640,6 +643,12 @@ def publish_branch(args):
                     raise ValueError("Base row address / sample identity mismatch")
                 texts = batch.column("text").to_pylist()
                 overrides = [t.strip() if t is not None and t != t.strip() else None for t in texts]
+                aliases = p["rules"]["language_aliases"]
+                languages = batch.column("language").to_pylist()
+                language_overrides = [
+                    aliases[lang] if lang in aliases and aliases[lang] != lang else None
+                    for lang in languages
+                ]
                 return pa.record_batch(
                     [
                         pa.array(expected["reason"]),
@@ -648,12 +657,15 @@ def publish_branch(args):
                         pa.array(
                             [0 if t is not None else None for t in overrides], type=pa.uint32()
                         ),
+                        pa.array(language_overrides, type=pa.string()),
                     ],
                     schema=schema,
                 )
 
             branch.add_columns(
-                selection_columns, read_columns=["sample_id", "text", "_rowaddr"], batch_size=65536
+                selection_columns,
+                read_columns=["sample_id", "text", "language", "_rowaddr"],
+                batch_size=65536,
             )
     if branch.count_rows() != source["rows"] or not branch_files(ds) <= branch_files(branch):
         raise ValueError("Branch changed base rows or file references")
@@ -669,6 +681,8 @@ def publish_branch(args):
             "selection_flags",
             "selected_text",
             "selected_text_source",
+            "language",
+            "selected_language",
         ],
         batch_size=65536,
         scan_in_order=True,
@@ -690,6 +704,14 @@ def publish_branch(args):
             != [0 if t is not None else None for t in overrides]
         ):
             raise ValueError("Selected text does not match normalization rule")
+        aliases = p["rules"]["language_aliases"]
+        languages = batch.column("language").to_pylist()
+        expected_languages = [
+            aliases[lang] if lang in aliases and aliases[lang] != lang else None
+            for lang in languages
+        ]
+        if batch.column("selected_language").to_pylist() != expected_languages:
+            raise ValueError("Selected language does not match alias rule")
         ordered.update(b"".join(s + b"\n" for s in actual_ids))
         codes, counts = np.unique(actual_reasons, return_counts=True)
         reasons.update({str(int(c)): int(n) for c, n in zip(codes, counts, strict=True)})
@@ -745,6 +767,24 @@ def publish_branch(args):
     return output
 
 
+def validate_output_bindings(plan, outputs):
+    expected = {(s["dataset_id"], s["release_id"]): s for s in plan["inputs"]}
+    actual = {(o["dataset_id"], o["release_id"]): o for o in outputs}
+    if len(actual) != len(outputs) or actual.keys() != expected.keys():
+        raise ValueError("Selection must bind exactly one branch for each input dataset")
+    for key, output in actual.items():
+        source = expected[key]
+        if (
+            output["table_path"] != source["table_path"]
+            or output["base_version"] != source["lance_version"]
+            or output["rows"] != source["rows"]
+            or output["branch"] != plan["selection_id"]
+            or type(output["lance_version"]) is not int
+            or output["lance_version"] < 1
+        ):
+            raise ValueError("Selection branch binding disagrees with its fixed plan")
+
+
 def publish(work, workers=16):
     import shutil
 
@@ -757,7 +797,16 @@ def publish(work, workers=16):
     incomplete = parent / (p["selection_id"] + ".incomplete")
     if final.exists():
         raise ValueError("Selection already published; never overwrite")
-    incomplete.mkdir(exist_ok=True)
+    owner = incomplete / "execution.json"
+    try:
+        incomplete.mkdir()
+    except FileExistsError:
+        if not owner.exists() or json.loads(owner.read_text())["plan_sha256"] != digest(p):
+            raise ValueError(
+                "Selection ID is reserved by another or unidentified execution"
+            ) from None
+    else:
+        write_json(owner, {"plan_sha256": digest(p)})
     event(work, "publishing_branches", datasets=len(p["inputs"]))
     outputs = []
     with ProcessPoolExecutor(
@@ -776,8 +825,7 @@ def publish(work, workers=16):
                 datasets_done=len(outputs),
                 selected_rows=outputs[-1]["selected_rows"],
             )
-    if len(outputs) != len(p["inputs"]):
-        raise ValueError("Partial selection cannot publish")
+    validate_output_bindings(p, outputs)
     # Copy a self-contained scratch result table, never a shallow clone of base.
     destination = incomplete / "duplicates.lance"
     if destination.exists():

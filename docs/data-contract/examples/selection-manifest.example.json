@@ -82,7 +82,7 @@
   ],
   "rules": {
     "path": "rules.json",
-    "sha256": "5abce37a9fb7c1555a24ff5f698860b6598a289c682886514d5d9b3e3360daaa",
+    "sha256": "1a86fe896184327028ba6b61a33206ef48c2dd4ab9d00891b64b5909596aff9d",
     "implementation_sha256": "4e2f26fa4b1220abd69a3eb63111c21daf9551c2fe0ae158a504c6e5bb9dce26"
   },
   "reason_dictionary": {

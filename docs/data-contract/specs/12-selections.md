@@ -29,6 +29,10 @@ datasets/<dataset_id>/v0.1/samples.lance/
 selection_id 格式 `tts-selection-<purpose>-YYYYMMDDTHHMMSSbjt-NN`，北京时间、正整数序号；
 purpose 首版 supervised-tts。规则身份用 rules.json 原始文件 SHA256，不能以时间或名字替代。
 branch_name 使用 selection_id；manifest 引用原 samples.lance 的根路径、分支名、整数版本三元组。
+一个selection_id对应每个输入dataset/release的一条分支，并非全库共用一张分支表。
+每条输出通过(table_path,branch,lance_version)唯一定位；同名branch及相同版本号不代表同一张表。
+目录名、manifest.selection_id和output.branch保持一致；消费者仍读取显式绑定，不靠拼路径或latest猜测。
+修改输入或规则创建新selection_id，中断恢复沿用原ID和输入；发布器原子占用该ID，拒绝其他执行混用。
 分支的版本号只在该分支内有意义；禁止只传 version 或使用 branch latest。
 base、selection、feature、build 的引用路径均相对统一根，见 10；不得依赖调用者当前目录。
 
@@ -84,6 +88,10 @@ flags=0 只说明此次已执行检查未命中，不代表检查过所有质量
 遇到未知字典版本、未知码或未知 bit 的消费者须拒绝解释，而非默认入选。
 
 可选文本覆盖列为selected_text:string与selected_text_source:uint32，均nullable且同时有值或同时null。
+另有可选nullable string selected_language：仅在显式alias转换改变值时写入，null回退基础language。
+规则支持en-US/en-us→en、zh-CN/zh-cn→zh；不泛化裁掉所有地区/脚本子标签。speaker_id不变。
+筛选、去重比较和语言统计均使用同一个选用值；训练读取selected_language优先，不再漏掉地区别名。
+
 只写实际变化的选用文本；null回退基础text。来源码0保留给base_normalization，1及以上固定修订来源。
 本次strip后的变化值会实际存入selected_text；空串表示去空白后没有文本，reason必须为非零。
 有修订时重复比较、缺文本判断和音文分数都使用最终选用文本/revision；详见05。

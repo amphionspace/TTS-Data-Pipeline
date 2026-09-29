@@ -15,6 +15,7 @@ from tts_data_pipeline.selection import (
     publish,
     resolve_duplicates,
     scan,
+    validate_output_bindings,
     write_json,
 )
 
@@ -96,7 +97,7 @@ def test_global_duplicates_text_overrides_and_restartable_publication(tmp_path):
         row("a0", "same", text=" \thello\n", language="en-US"),
         row("a1", "conflict", text="yes"),
         row("a2", "minimum", duration=1),
-        row("a3", "maximum", duration=120),
+        row("a3", "maximum", language="zh-CN", duration=120),
         row("a4", "blank", text=" \t "),
         row("a5", "too-short", duration=0.5),
     ]
@@ -117,6 +118,14 @@ def test_global_duplicates_text_overrides_and_restartable_publication(tmp_path):
     assert resolve_duplicates(work)["members"] == 6
     manifest = publish(work, workers=2)
     assert manifest["status"] == "complete"
+    validate_output_bindings(p, manifest["outputs"])
+    for field, value in [("branch", "wrong"), ("table_path", "wrong"), ("lance_version", None)]:
+        import copy
+
+        bad = copy.deepcopy(manifest["outputs"])
+        bad[0][field] = value
+        with pytest.raises(ValueError, match="binding"):
+            validate_output_bindings(p, bad)
     assert sum(o["selected_rows"] for o in manifest["outputs"]) == 3
     assert manifest["text_sources"]["0"]["kind"] == "base_normalization"
     outcomes = {}
@@ -129,6 +138,10 @@ def test_global_duplicates_text_overrides_and_restartable_publication(tmp_path):
     assert outcomes[digest("a0")]["selection_reason"] == 0
     assert outcomes[digest("a0")]["selected_text"] == "hello"
     assert outcomes[digest("a0")]["selected_text_source"] == 0
+    assert outcomes[digest("a0")]["selected_language"] == "en"
+    assert outcomes[digest("a0")]["language"] == "en-US"
+    assert outcomes[digest("a3")]["selected_language"] == "zh"
+    assert outcomes[digest("b0")]["selected_language"] is None
     assert outcomes[digest("b0")]["selection_reason"] == 4001
     assert (
         outcomes[digest("a1")]["selection_reason"]
@@ -155,3 +168,15 @@ def test_distinct_full_hashes_with_identical_prefix_do_not_deduplicate(tmp_path)
     assert resolve_duplicates(work)["members"] == 0
     manifest = publish(work, workers=1)
     assert manifest["outputs"][0]["selected_rows"] == 2
+
+
+@pytest.mark.parametrize(
+    "language,expected",
+    [("en-US", "en"), ("en-us", "en"), ("zh-CN", "zh"), ("zh-cn", "zh"), ("zh-Hant", "zh-Hant")],
+)
+def test_language_aliases_are_explicit(language, expected):
+    reason, _, actual, _ = classify(
+        row("id", "audio", language=language), "alpha", rules(), set(), {}
+    )
+    assert actual == expected
+    assert reason == (2002 if language == "zh-Hant" else 0)

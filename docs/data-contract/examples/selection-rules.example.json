@@ -4,7 +4,9 @@
   "text_normalization": "unicode-strip-v1",
   "language_aliases": {
     "en-US": "en",
-    "zh-CN": "zh"
+    "zh-CN": "zh",
+    "en-us": "en",
+    "zh-cn": "zh"
   },
   "supported_languages": [
     "en",

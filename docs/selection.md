@@ -6,6 +6,8 @@
 - 保留1–120秒（包含边界），文本有效、语言可识别，当前11种语言全部允许。
 - text用Python str.strip去首尾空白；有变化才在分支写selected_text覆盖，source=0表示基础规范化。
   读取用`selected_text if selected_text is not None else text`，不能用`selected_text or text`。
+- en-US/en-us→en、zh-CN/zh-cn→zh写入selected_language稀疏覆盖；未变化值为null并沿用base。
+  不改变speaker_id，不自动裁掉其他地区/脚本子标签；筛选、比较、统计与训练使用相同选用语言。
 - 完整64位十六进制audio_sha256全局分组，不使用旧64-bit前缀做最终判定。
   候选先通过基础规则，文本/语言仍冲突的组排除；无冲突按固定来源优先级、sample_id选唯一代表。
   来源优先级不表示质量评分，Emilia先于YODAS；未入选记录仍完整保留。

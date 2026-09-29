@@ -19,6 +19,7 @@ data_recipe 固定 selection、profile/run、文本/语言规范化、文本 tok
 build_id 使用 `tts-build-<name>-YYYYMMDDTHHMMSSbjt-NN`，完整规范 data_recipe 的 SHA256 另存；
 可读名字不代替内容摘要。更换特征快照或模型输入协议需新 build，禁止沿用旧 row locator。
 采用05/12的稀疏selected_text覆盖值及固定规范化，不在每个step跨annotation读文本；
+语言优先读取selected_language覆盖，null才回退base；alias规则固定在selection。
 音文指标须匹配实际text_revision。文本 token/长度可另增小列，原 text 不复制；是否缓存由真实 CPU/I/O 吞吐决定并固定版本。
 
 训练 plan 位于 training_plans/<plan_id>/{manifest.json,recipe.json}，固定 build 哈希、

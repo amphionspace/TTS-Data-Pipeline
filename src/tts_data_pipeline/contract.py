@@ -172,6 +172,9 @@ def contract_types():
                 ]
             )
         ),
+        "selection_language_columns": schema_description(
+            pa.schema([pa.field("selected_language", pa.string())])
+        ),
         "quality_example": type_description(
             annotation_type(pa.struct([pa.field("score", pa.float64())]))
         ),
