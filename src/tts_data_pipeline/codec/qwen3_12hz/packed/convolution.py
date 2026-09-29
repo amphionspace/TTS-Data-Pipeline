@@ -1,4 +1,4 @@
-"""Packed causal CNN: sample boundaries, BF16 rounding and fixed split reductions."""
+"""Packed causal CNN: sample boundaries, dtype-preserving rounding and fixed split reductions."""
 
 import numpy as np
 import torch
@@ -77,12 +77,16 @@ def conv_kernel(
             & (frame < stop[:, None])
         )
         a = tl.load(X + frame * CIN + c[None, :], good, 0)
+        if X.dtype.element_ty == tl.float32:
+            weight_offset = k[:, None] * COUT + cols[None, :]
+        else:
+            weight_offset = cols[None, :] * (CIN * KERNEL) + (c * KERNEL + kt)[:, None]
         w = tl.load(
-            W + cols[None, :] * (CIN * KERNEL) + (c * KERNEL + kt)[:, None],
+            W + weight_offset,
             (cols[None, :] < COUT) & (k[:, None] < CIN * KERNEL),
             0,
         )
-        acc = tl.dot(a, w, acc, input_precision="ieee")
+        acc = tl.dot(a, w, acc, input_precision=("tf32x3" if a.dtype == tl.float32 else "ieee"))
     if HAS_BIAS:
         # Match native cuDNN convolution output cast before separate bias add.
         acc = acc.to(Y.dtype.element_ty).to(tl.float32)
@@ -229,7 +233,7 @@ def partial_kernel(
             (cols[None, :] < COUT) & (k[:, None] < CIN * KERNEL),
             0,
         )
-        acc = tl.dot(a, w, acc, input_precision="ieee")
+        acc = tl.dot(a, w, acc, input_precision=("tf32x3" if a.dtype == tl.float32 else "ieee"))
     if DIRECT and HAS_BIAS:
         acc = (
             acc.to(OUT.dtype.element_ty).to(tl.float32)
@@ -262,6 +266,7 @@ class Convolution:
 
     def __init__(self, model):
         self.boundary_cache = {}
+        self.packed_weights = {}
         self.rows, self.block_k, self.warps, self.stages = 64, 32, 4, 2
         self.spatial_first = True
         self.channel_group = 0
@@ -309,9 +314,20 @@ class Convolution:
         left = (k - 1) * d + 1 - s
         if c.groups == 1:
             assert layer.pad_mode in ["constant", "replicate"]
+            weight = c.weight
+            if x.dtype == torch.float32:
+                # Cache the same reduction order in contiguous [K, COUT] layout.
+                # Only weights are rearranged; no waveform or batch padding.
+                if id(layer) not in self.packed_weights:
+                    group = min(c.in_channels, self.channel_group)
+                    order = torch.arange(c.in_channels * k, device=x.device)
+                    channels = (order // (k * group)) * group + order % group
+                    taps = (order // group) % k
+                    self.packed_weights[id(layer)] = c.weight[:, channels, taps].t().contiguous()
+                weight = self.packed_weights[id(layer)]
             conv_kernel[(triton.cdiv(m, self.rows), triton.cdiv(n, 64))](
                 x,
-                c.weight,
+                weight,
                 c.bias,
                 y,
                 ci,

@@ -136,6 +136,7 @@ def prepare(
     model_root,
     acceptance,
     *,
+    precision="fp32",
     task_size=4096,
     output_root=None,
     datasets=None,
@@ -147,22 +148,23 @@ def prepare(
     if selected["status"] != "complete":
         raise ValueError("Selection not published")
     accepted = json.loads(Path(acceptance).read_text())
-    if not accepted.get("official_bf16_accepted"):
+    if not accepted.get(f"official_{precision}_accepted"):
         raise ValueError("Real cross-GPU acceptance must pass before planning production")
-    definition = profile(model_root)
+    definition = profile(model_root, precision)
     if output_root is None or Path(output_root).resolve() == root:
         if accepted.get("profile_id") != digest(definition):
             raise ValueError("Production planning requires evidence for this exact profile")
         for item in accepted["evidence"]:
             if file_hash(item["path"]) != item["sha256"]:
                 raise ValueError("Acceptance evidence changed")
-    name = "qwen3-12hz-24k-k16-bf16-packed-v1"
+    name = f"qwen3-12hz-24k-k16-{precision}-packed-v1"
     created = datetime.now(BEIJING).isoformat()
     p = {
         "root": str(root),
         "output_root": str(Path(output_root).resolve() if output_root else root),
         "work": str(work),
         "model_root": str(Path(model_root).resolve()),
+        "precision": precision,
         "selection_path": str(selection_path),
         "selection_sha256": file_hash(selection_path),
         "profile": definition,
@@ -224,7 +226,7 @@ def validate_plan(p):
         or file_hash(p["acceptance_path"]) != p["acceptance_sha256"]
         or file_hash(__file__) != p["execution_code_sha256"]
         or file_hash(Path(__file__).with_name("text.py")) != p["text_code_sha256"]
-        or profile(p["model_root"]) != p["profile"]
+        or profile(p["model_root"], p["precision"]) != p["profile"]
     ):
         raise ValueError("Pinned input, implementation, or numerical profile changed")
     for i in p["inputs"]:
@@ -254,7 +256,7 @@ def init_worker(gpus, plan_path, decode_threads):
     _PLAN = json.loads(Path(plan_path).read_text())
     _SOURCES = {d["source"]["dataset_id"]: d for d in _PLAN["datasets"]}
     gpu = gpus.get()
-    _ENCODER = Encoder(_PLAN["model_root"], gpu)
+    _ENCODER = Encoder(_PLAN["model_root"], gpu, precision=_PLAN["precision"])
     import torch
 
     device = torch.cuda.get_device_properties(gpu)

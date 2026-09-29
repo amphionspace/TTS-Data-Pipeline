@@ -1,4 +1,4 @@
-"""Fixed-reduction matrix multiplication and fused BF16 scale/residual epilogues."""
+"""Fixed-reduction matrix multiplication and fused dtype-preserving scale/residual epilogues."""
 
 import torch
 import triton
@@ -30,7 +30,7 @@ def mm_kernel(
         b = tl.load(
             B + k[:, None] * BK + cols[None, :] * BN, (k[:, None] < K) & (cols[None, :] < N), 0
         )
-        acc = tl.dot(a, b, acc, input_precision="ieee")
+        acc = tl.dot(a, b, acc, input_precision=("tf32x3" if a.dtype == tl.float32 else "ieee"))
     tl.store(C + rows[:, None] * N + cols[None, :], acc, (rows[:, None] < M) & (cols[None, :] < N))
 
 
@@ -63,10 +63,10 @@ def linear_kernel(
         w = tl.load(
             W + k[:, None] * WK + cols[None, :] * WN, (k[:, None] < K) & (cols[None, :] < N), 0
         )
-        acc = tl.dot(a, w, acc, input_precision="ieee")
+        acc = tl.dot(a, w, acc, input_precision=("tf32x3" if a.dtype == tl.float32 else "ieee"))
     if FUSED:
         scale = tl.load(SCALE + cols, cols < N, 0).to(tl.float32)
-        # Preserve the model's BF16 cast after GEMM and after layer scaling.
+        # Preserve the model's dtype cast after GEMM and after layer scaling.
         scaled = acc.to(Y.dtype.element_ty).to(tl.float32) * scale[None, :]
         scaled = scaled.to(Y.dtype.element_ty).to(tl.float32)
         residual = tl.load(

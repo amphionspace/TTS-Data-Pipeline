@@ -1,4 +1,4 @@
-"""BF16 packed profile, pinned model sources, and feature-row identity."""
+"""BF16/FP32 packed profile, pinned model sources, and feature-row identity."""
 
 import hashlib
 import importlib.metadata
@@ -21,8 +21,11 @@ def verified_model_sources(model_root):
     return source
 
 
-def profile(model_root):
-    """Materialize the BF16 implementation; acceptance is separate."""
+def profile(model_root, precision="fp32"):
+    """Record the selected precision and complete numerical implementation."""
+    if precision not in {"bf16", "fp32"}:
+        raise ValueError("precision must be bf16 or fp32")
+    dtype = "bfloat16" if precision == "bf16" else "float32"
     import inspect
 
     import qwen_tts.core.tokenizer_12hz.modeling_qwen3_tts_tokenizer_v2 as model
@@ -68,9 +71,9 @@ def profile(model_root):
         files[name] = hashlib.sha256(
             Path(__file__).with_name(f"{name}.py").read_bytes()
         ).hexdigest()
-    for path in sorted(Path(__file__).with_name("bf16").glob("*")):
+    for path in sorted(Path(__file__).with_name("packed").glob("*")):
         if path.suffix in {".py", ".json"}:
-            files[f"bf16/{path.name}"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            files[f"packed/{path.name}"] = hashlib.sha256(path.read_bytes()).hexdigest()
     return {
         "kind": "audio_codec",
         "architecture": "Qwen3-TTS-Tokenizer-12Hz",
@@ -101,16 +104,23 @@ def profile(model_root):
         },
         "inference": {
             "eval": True,
-            "precision": "bfloat16",
-            "weight_loading": "official_from_pretrained_dtype_bfloat16",
+            "precision": dtype,
+            "weight_loading": f"official_from_pretrained_dtype_{dtype}",
             "distance_math": "float32_native_norm_and_euclidean_distance_order",
-            "codebook_cache": "official_bfloat16_embed_then_cast_float32",
-            "residual_math": "bfloat16_each_stage",
+            "codebook_cache": f"official_{dtype}_embed_then_cast_float32",
+            "residual_math": f"{dtype}_each_stage",
             "attention_backend": "aten_efficient_attention_forward_cutlass",
             "attention_window": "full_causal_per_sample",
             "autocast": False,
-            "tf32": False,
-            "cudnn_allow_tf32": True,
+            "torch_allow_tf32": False,
+            "matrix_multiply": "tf32x3_compensated_float32"
+            if precision == "fp32"
+            else "bf16_tensor_core_float32_accumulator",
+            "strict_ieee_float32": False,
+            "convolution_weight_layout": "cached_reduction_order"
+            if precision == "fp32"
+            else "native",
+            "cudnn_allow_tf32": precision == "bf16",
             "cudnn_benchmark": False,
             "cudnn_deterministic": False,
             "batch_semantics": "packed_actual_lengths_fixed_operator_reductions",

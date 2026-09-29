@@ -1,4 +1,4 @@
-"""Production packed BF16 encoder, validated against official unpadded BF16."""
+"""Production BF16/FP32 packed encoder with no external padding."""
 
 from pathlib import Path
 
@@ -20,17 +20,19 @@ __all__ = [
 class Encoder:
     """No external padding; fixed operator reductions and RVQ rechecks."""
 
-    def __init__(self, model_root, gpu=0):
+    def __init__(self, model_root, gpu=0, *, precision="fp32"):
+        if precision not in {"bf16", "fp32"}:
+            raise ValueError("precision must be bf16 or fp32")
         import torch
         from qwen_tts import Qwen3TTSTokenizer
 
-        from .bf16.model import PackedModel
+        from .packed.model import PackedModel
 
         torch.set_num_threads(1)
         torch.cuda.set_device(gpu)
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
-        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = precision == "bf16"
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = False
         self.sources = verified_model_sources(model_root)
@@ -38,7 +40,7 @@ class Encoder:
         self.tokenizer = Qwen3TTSTokenizer.from_pretrained(
             str(Path(model_root) / "codec"),
             device_map=self.device,
-            dtype=torch.bfloat16,
+            dtype=torch.bfloat16 if precision == "bf16" else torch.float32,
             local_files_only=True,
         )
         self.tokenizer.model.eval()

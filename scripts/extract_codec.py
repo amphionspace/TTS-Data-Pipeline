@@ -32,6 +32,7 @@ def main():
     plan.add_argument("--acceptance", type=Path, required=True)
     plan.add_argument("--output-root", type=Path)
     plan.add_argument("--datasets", nargs="+")
+    plan.add_argument("--precision", choices=["bf16", "fp32"], default="fp32")
     plan.add_argument("--task-size", type=int, default=4096)
     execute = sub.add_parser("run")
     execute.add_argument("--work", type=Path, required=True)
@@ -48,6 +49,7 @@ def main():
             args.work,
             args.models,
             args.acceptance,
+            precision=args.precision,
             task_size=args.task_size,
             output_root=args.output_root,
             datasets=args.datasets,

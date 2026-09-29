@@ -32,10 +32,33 @@ def test_packed_batch_limit_precedes_gpu_execution():
         encoder.encode_many([None] * 65)
 
 
-def test_bf16_planning_rejects_legacy_fp16_acceptance(tmp_path):
+@pytest.mark.parametrize("precision", ["bf16", "fp32"])
+def test_planning_rejects_legacy_fp16_acceptance(tmp_path, precision):
     selection = tmp_path / "selection.json"
     acceptance = tmp_path / "acceptance.json"
     write_json(selection, {"status": "complete"})
     write_json(acceptance, {"canonical_fp16_fa2_accepted": True})
+    with pytest.raises(ValueError, match="acceptance"):
+        prepare(
+            tmp_path,
+            selection,
+            tmp_path / "work",
+            tmp_path / "models",
+            acceptance,
+            precision=precision,
+        )
+
+
+@pytest.mark.parametrize("precision", ["fp16", "float", ""])
+def test_invalid_precision_is_rejected_before_loading_model(precision):
+    with pytest.raises(ValueError, match="precision must be"):
+        Encoder("unused", precision=precision)
+
+
+def test_fp32_plan_rejects_bf16_only_evidence(tmp_path):
+    selection = tmp_path / "selection.json"
+    acceptance = tmp_path / "acceptance.json"
+    write_json(selection, {"status": "complete"})
+    write_json(acceptance, {"official_bf16_accepted": True})
     with pytest.raises(ValueError, match="acceptance"):
         prepare(tmp_path, selection, tmp_path / "work", tmp_path / "models", acceptance)

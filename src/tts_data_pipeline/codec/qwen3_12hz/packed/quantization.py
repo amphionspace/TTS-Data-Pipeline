@@ -1,4 +1,4 @@
-"""BF16 RVQ with native norm order and official near-boundary rechecks."""
+"""BF16/FP32 RVQ with native norm order and official near-boundary rechecks."""
 
 import torch
 import triton
@@ -141,7 +141,7 @@ def choose(
 
 
 class Quantizer:
-    """Semantic and acoustic residual chains retain official BF16 rounding."""
+    """Semantic and acoustic residual chains retain the loaded model dtype."""
 
     def __init__(self, model, project):
         self.model = model
@@ -196,7 +196,7 @@ class Quantizer:
                 m, d = value.shape
                 codes = torch.empty(m, device=x.device, dtype=torch.int64)
                 next_residual = torch.empty_like(residual)
-                # Preserve native distance order, rounded sqrt, and BF16 residuals.
+                # Preserve native distance order, rounded sqrt, and model-dtype residuals.
                 # Near ties use the official codebook in _recheck.
                 choose[(m,)](
                     dot,

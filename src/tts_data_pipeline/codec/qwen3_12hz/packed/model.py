@@ -1,4 +1,4 @@
-"""Accepted Qwen3 12 Hz BF16 forward pass over packed variable-length samples."""
+"""Qwen3 12 Hz BF16/FP32 forward pass over packed variable-length samples."""
 
 import numpy as np
 import torch

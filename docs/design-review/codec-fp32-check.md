@@ -45,3 +45,5 @@ FP32 将同精度官方参考差异显著降低，但仍非严格逐 token 等�
 
 证据与复现脚本：`artifacts/codec-fp32-review/`，包含 `check.py`、`run.py`、两种精度的
 JSON、官方/批量 codes NPZ 与日志。运行环境沿用 BF16 报告所记录的本地 A800 软件栈。
+
+后续已新增正式 FP32 路径并保留 BF16；完整优化与满载验证见 [FP32 优化](codec-fp32-optimization.md)。本页仅记录最初小测。
