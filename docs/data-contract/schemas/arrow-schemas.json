@@ -170,103 +170,6 @@
       }
     }
   ],
-  "view": [
-    {
-      "name": "view_id",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "view_revision",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "view_run_id",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "source_view_key",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "view_kind",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "parent_sample_id",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "parent_audio_sha256",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "timeline_profile_id",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "text",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "text_kind",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "language",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "speaker_id",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "speaker_scope",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "recording_id",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "group_id",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "parent_view_id",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "metadata_json",
-      "nullable": true,
-      "type": "string"
-    },
-    {
-      "name": "start_frame",
-      "nullable": true,
-      "type": "int64"
-    },
-    {
-      "name": "end_frame",
-      "nullable": true,
-      "type": "int64"
-    }
-  ],
   "annotation_targets": [
     {
       "name": "target_kind",
@@ -488,6 +391,68 @@
     ]
   },
   "codec_selection_text_columns": [
+    {
+      "name": "text",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "language",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text_kind",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text_revision",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "dataset_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "source_key",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "speaker_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "speaker_scope",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text_source",
+      "nullable": false,
+      "type": "uint32"
+    }
+  ],
+  "text_features": [
+    {
+      "name": "target_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "release_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "audio_sha256",
+      "nullable": false,
+      "type": "string"
+    },
     {
       "name": "text",
       "nullable": false,

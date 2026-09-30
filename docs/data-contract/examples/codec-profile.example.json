@@ -29,7 +29,6 @@
     "waveform": {
       "order": [
         "decode_native",
-        "crop_native",
         "mix_channels",
         "resample"
       ],
@@ -45,7 +44,7 @@
         ],
         "padtype": "constant",
         "cval": 0.0,
-        "length": "ceil(native_crop_frames * 24000 / native_sample_rate)",
+        "length": "ceil(native_frames * 24000 / native_sample_rate)",
         "same_rate": "identity"
       },
       "normalization": "none",

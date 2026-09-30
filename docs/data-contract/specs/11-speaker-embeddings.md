@@ -1,5 +1,7 @@
 # 11 · Speaker embedding 与未来解冻
 
+三表独立提取及身份关联见 [13 独立文本表](13-text-features.md)。训练专用构建由训练仓库管理。
+
 ## 两条路径，共用原始音频
 
 当前 speaker encoder 冻结；未来可能解冻。保留这两条明确训练路径：
@@ -7,21 +9,21 @@
 | speaker_conditioning_mode | 训练输入 | 约束 |
 | --- | --- | --- |
 | frozen_embedding | 所选参考片段的离线 embedding | encoder 与前处理固定；训练不再跑 speaker encoder |
-| online_speaker_encoder | 所选参考 sample/view 的音频引用与原生区间 | 训练时按当前 frontend 生成所需输入；encoder 可冻结或更新 |
+| online_speaker_encoder | 所选参考 sample 的音频引用与原生区间 | 训练时按当前 frontend 生成所需输入；encoder 可冻结或更新 |
 
 统一格式**不要求持久化 mel**。原始编码音频保留在 samples.lance，足以重新提取不同 frontend 的输入。
 mel 的采样率、窗、hop、频带、幅度/对数、padding 等都可能变化，不能设成通用共享的真值列。
 在线路径必须在 recipe 固定 speaker_frontend_profile；若未来为吞吐缓存 mel/其他 frontend，
 它是可重建且按完整 profile 区分的缓存，需要独立设计验收，本次不建立 mel 表或默认缓存协议。
 
-解冻时换用 online_speaker_encoder 和新的训练 recipe/build。旧 embedding 仍属于旧 encoder 快照，
+解冻时换用 online_speaker_encoder 和新的训练配置。旧 embedding 仍属于旧 encoder 快照，
 可继续服务使用该冻结模型的旧实验，不能用于代替解冻后逐步变化的 encoder 输出。
 不需要重做 base，也不因 speaker encoder 更新而重算独立 codec。
 encoder 若更新，梯度必须从训练 loss 经过它；离线 embedding 会切断这条梯度路径。
 
 ## 特征属于片段，不属于说话人标签
 
-每行 embedding 的 target 是一个 sample 或 view。它表达该音频区间在指定 encoder 下的输出，
+每行 embedding 的 target 是一个 sample。它表达该音频区间在指定 encoder 下的输出，
 不是 speaker_id 的唯一属性，也不是 speaker 身份真实性的证明。
 同一 speaker 可以有任意多条参考 embedding；不能先求每人平均向量再当作所有片段的标准结果。
 说话人聚合、多个参考加权或拼接属于明确的训练/派生策略，不能覆盖逐片段结果。
@@ -36,7 +38,7 @@ codec 和 embedding 分别生成与发布，不要求同时完成。一轮任务
 
 - encoder 架构、config、实际 speaker 权重与全部必要 buffers、代码和依赖；不能只写 Qwen speaker。
 - waveform frontend 的完整算法、所有 mel/其他输入参数和函数摘要；不只固定 encoder 的神经网络权重。
-- 输入区间、时间轴、声道/重采样/幅度处理；默认整条已声明的 sample/view，不在 encoder 内暗中随机裁剪。
+- 输入区间、时间轴、声道/重采样/幅度处理；默认整条已声明的 sample，不在 encoder 内暗中随机裁剪。
 - pooling、padding/mask 语义、最短/最长支持输入、eval 模式和精度。
 - embedding_dim=D、storage_dtype=float32、normalization=none 或明确的算法/epsilon。
 - 输出层：encoder 最终输出、进入 Talker 条件注入之前；不包含 text_pad、训练 projection 或拼接结果。
@@ -95,20 +97,17 @@ bytes 和 config。来源 checkpoint/revision 记为证据；特征身份不应�
 - ICL/prompt 条件：目标 codec + 所需参考 codec/文本，按模型协议决定是否还需要 embedding。
 - 在线 encoder：目标 codec + 参考音频引用；embedding 在 forward 中产生，不读取旧 embedding 代替。
 
-首版训练固定 reference_policy=self，以目标自身音频作为 speaker 条件，允许无 speaker 标签；
-它不代表独立参考克隆评估。其他实验采用 other_same_speaker 时才要求确认身份、另一条非重复不重叠参考。
-未确认 speaker 不能靠同 dataset/group 伪造跨片段配对。训练与评估各自声明协议，详见 07。
+参考选择及训练/评估协议由训练端管理。使用目标自身音频不需要 speaker 标签，但不代表独立参考克隆评估。
+跨样本的同 speaker 配对需要确认身份，不能仅凭同 dataset/group 推断。
 多个参考是否聚合、如何聚合、是否用文本由模型协议固定，不强行在基础 embedding 表求平均。
 
-frozen_embedding 首选验证 indexed_references：codec 特征表的 build 分支保存 speaker_row，绑定固定 embedding 表快照，
-训练批量定位读取；不先复制所有 embedding。materialized_codes 仅作已验收且有明确预算的备选，见 07。
-online_speaker_encoder 下 build 记录固定 base snapshot + sample_id + view/区间；
-按批量解析并使用有界本地缓存，缓存键至少覆盖音频哈希/时间轴/区间/前处理 profile。
-可保存 snapshot 内 row locator 加速，但它不是永久 ID，换快照必须重建；不做每条音频的全表扫描。
-训练不需要把整个 base 表或音频列预先 load 到主进程。
+离线 embedding 消费者固定特征 manifest/profile 和表快照；在线消费者固定基础音频样本、
+音频摘要及原生区间。关联使用样本身份，不使用隐含相同行序。快照内行定位符不是永久 ID，
+换快照须重新核对对应关系。具体缓存、定位布局和训练读取由训练端实现。
 
-### 条件字段矩阵
+### 消费接口的条件字段示例
 
+以下字段说明已有消费接口的相容约束，不规定训练构建布局或本轮参考选择。
 model_protocol 固定 conditioning=speaker_only/icl、uses_speaker_conditioning、requires_reference_text。
 require_reference_codec 必须等于 conditioning==icl，不能作为与协议矛盾的独立开关。
 speaker_only 必须使用 speaker 条件，且 requires_reference_text=false。ICL 可显式启用或关闭 speaker 条件。
@@ -124,7 +123,7 @@ speaker_only 必须使用 speaker 条件，且 requires_reference_text=false。I
 空表示缺省、null 或 []；启用的记录字段是按 ordered_reference_ids 排列、长度等于 reference_count 的非 null 元素列表。
 共同身份列表含 kind/id/parent_sample_id 与输入快照别名，不能仅凭数组位置推测来自哪段音频。
 reference_embeddings/reference_codes 的每项含所需特征定位及 profile/key/payload 摘要；materialized 布局还含数组。
-reference_audio 的每项含固定 base/view 引用、音频哈希、timeline、原生 start/end 与采样率；不要求离线特征 key。
+reference_audio 的每项含固定样本引用、音频哈希、timeline、原生 start/end 与采样率；不要求离线特征 key。
 reference_texts 的每项绑定对应参考和所选文本修订/tokenizer；多参考聚合规则必须由模型协议声明。
 
 other_same_speaker 要求 require_confirmed_same_speaker=true、allow_same_segment=false、allow_time_overlap=false；

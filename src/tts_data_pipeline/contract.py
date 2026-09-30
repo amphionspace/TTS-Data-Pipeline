@@ -28,35 +28,6 @@ def annotation_targets_schema():
     )
 
 
-def view_schema():
-    strings = [
-        "view_id",
-        "view_revision",
-        "view_run_id",
-        "source_view_key",
-        "view_kind",
-        "parent_sample_id",
-        "parent_audio_sha256",
-        "timeline_profile_id",
-        "text",
-        "text_kind",
-        "language",
-        "speaker_id",
-        "speaker_scope",
-        "recording_id",
-        "group_id",
-        "parent_view_id",
-        "metadata_json",
-    ]
-    return pa.schema(
-        [
-            *[pa.field(k, pa.string()) for k in strings],
-            pa.field("start_frame", pa.int64()),
-            pa.field("end_frame", pa.int64()),
-        ]
-    )
-
-
 def codec_schema(num_codebooks, dtype="int16"):
     if num_codebooks < 1 or dtype not in {"int16", "int32"}:
         raise ValueError("Codec requires a positive codebook count and int16/int32 dtype")
@@ -107,6 +78,17 @@ def codec_text_schema():
             )
         ]
         + [pa.field("text_source", pa.uint32(), nullable=False)]
+    )
+
+
+def text_feature_schema():
+    """Standalone selected text, keyed to the same samples as audio features."""
+    return pa.schema(
+        [
+            pa.field(name, pa.string(), nullable=False)
+            for name in ("target_id", "release_id", "audio_sha256")
+        ]
+        + list(codec_text_schema())
     )
 
 
@@ -182,7 +164,6 @@ def contract_types():
         "contract_version": VERSION,
         "representation": "Arrow type descriptors; semantic validation is additional",
         "base": schema_description(base_schema()),
-        "view": schema_description(view_schema()),
         "annotation_targets": schema_description(annotation_targets_schema()),
         "feature_targets": schema_description(feature_targets_schema()),
         "selection_columns": schema_description(selection_columns_schema()),
@@ -206,6 +187,7 @@ def contract_types():
             "fields": schema_description(codec_schema(2)),
         },
         "codec_selection_text_columns": schema_description(codec_text_schema()),
+        "text_features": schema_description(text_feature_schema()),
         "speaker_embedding_example": {
             "example_only": True,
             "note": "D=3 illustrates storage; actual D comes from the selected speaker encoder",

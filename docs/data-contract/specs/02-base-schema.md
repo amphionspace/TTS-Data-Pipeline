@@ -21,7 +21,7 @@ audio 为 struct<bytes:large_binary,path:string>，只选择标量列时无需�
 | audio_sha256 | string | 必填，原编码 bytes 的 SHA-256 |
 | text | string | 可空，明确选定的一份基础文本 |
 | text_kind | string | 与 text 同时存在或同时为空，说明 original/normalized/asr 等来源语义 |
-| language | string | 可空，已知语言用统一语言标签；混语按视图或分段表达 |
+| language | string | 可空，已知语言用统一语言标签；混语按分段标注表达 |
 | speaker_id | string | 可空，来源范围内说话人键 |
 | speaker_scope | string | 与 speaker_id 同时存在或同时为空，定义该键有效的范围 |
 | metadata_json | string | 必填，JSON object；没有补充信息时为 {} 的字符串 |
@@ -60,7 +60,7 @@ JSON 使用固定编码，不允许 NaN/Infinity；缺测指标保留 null。来
 
 基础接入保留原编码、采样率、声道，不为了统一字段而重采样或统一有损编码。
 v0.1 基础 num_frames 取 SoundFile/libsndfile 报告值，具体依赖记录在 manifest；standard 检查头信息，deep 核对完整解码帧数。
-生成 view/codec 时另行固定并验证 timeline profile，不把基础头信息自动当成已经验证的有效时间轴。
+selection 裁剪及特征提取时另行固定并验证 timeline profile，不把基础头信息自动当成已经验证的有效时间轴。
 必须区分容器时长、解码长度和有效长度，不能混用同一个 num_frames 语义。
 派生裁剪记录的 num_frames 描述新音频；segment 坐标描述父音频。若重采样，两者不必数值相等。
 父对象的版本、时间轴、处理 profile 在派生元信息中固定，父子引用及区间边界必须验收。

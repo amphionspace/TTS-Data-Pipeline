@@ -1,7 +1,7 @@
 {
   "example_only": true,
   "runnable": false,
-  "note": "Conditional field projections only. Placeholder identities/snapshots/profiles and tiny arrays are not production inputs; complete build recipe and model schemas remain required.",
+  "note": "Conditional consumer-interface examples only. Placeholder identities, snapshots, profiles and arrays are not production inputs. Training policies and layouts are owned by the training repository.",
   "cases": [
     {
       "name": "frozen_speaker_only",

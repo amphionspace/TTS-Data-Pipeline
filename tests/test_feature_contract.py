@@ -92,14 +92,13 @@ def test_codec_comparison_is_discrete():
         equivalent_payloads("codec", [[1]], [[1]], atol=1e-6)
 
 
-def test_view_coverage_is_bounded_by_views_not_parents():
+def test_sample_coverage_is_bounded_by_target_snapshot():
     manifest = example("feature-subset-manifest")
     validate_feature_coverage(manifest)
-    manifest["selection"].update(mode="all_views", target_count=100)
+    manifest["selection"].update(mode="all_samples", target_count=100)
     del manifest["selection"]["table"]
     manifest["rows"] = 100
     manifest["coverage"].update(total_targets=100, ok=100)
-    assert manifest["parent_sample_rows"] == 1
     validate_feature_coverage(manifest)
     manifest["selection"]["available_target_rows"] = 99
     with pytest.raises(ValueError, match="subset"):
@@ -125,7 +124,7 @@ def test_invalid_selection_accounting(mutation):
         validate_feature_coverage(manifest)
 
 
-def test_subset_lance_preserves_distinct_views_and_pinned_selection(tmp_path):
+def test_subset_lance_preserves_samples_and_pinned_selection(tmp_path):
     rows = example("feature-targets")["rows"]
     manifest = example("feature-subset-manifest")
     schema = feature_targets_schema()
@@ -134,11 +133,11 @@ def test_subset_lance_preserves_distinct_views_and_pinned_selection(tmp_path):
     ds = lance.write_dataset(pa.Table.from_pylist(rows, schema=schema), path)
     ds.create_scalar_index("target_id", "BTREE")
     version = ds.version
-    assert len({row["parent_sample_id"] for row in rows}) == 1
+    assert all(row["parent_sample_id"] == row["target_id"] for row in rows)
     actual = sorted(ds.to_table().to_pylist(), key=lambda row: row["target_id"])
     assert target_set_sha256(actual) == manifest["selection"]["target_set_sha256"]
     assert ds.to_table(filter=f"target_id = '{rows[0]['target_id']}'").to_pylist() == [rows[0]]
-    extra = dict(rows[0], target_id="f" * 64)
+    extra = dict(rows[0], target_id="f" * 64, parent_sample_id="f" * 64)
     lance.write_dataset(pa.Table.from_pylist([extra], schema=schema), path, mode="append")
     pinned = sorted(
         lance.dataset(path, version=version).to_table().to_pylist(),

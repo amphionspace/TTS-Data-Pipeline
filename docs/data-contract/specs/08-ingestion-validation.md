@@ -13,8 +13,8 @@ adapter 固定 canonical dataset_id、来源单元、source_key、字段映射�
 | tar+idx | 先核对归属 archive、偏移、长度、成员名；旧编码索引不能指向新 bytes |
 | ZIP/7z | 检查清单和配对；提取到受控临时区，不回写原目录 |
 | 音频目录+manifest | 固定全部语义依赖；双向检查音频/标注缺失 |
-| 长录音 | 基础存载体，view 存片段，转写缺失保留 null |
-| 噪声/RIR | 独立 assets 表与资产 schema，不伪装成监督 TTS 样本 |
+| 长录音 | 基础保留原音频，必要裁剪由 selection 处理，转写缺失保留 null |
+| 噪声/RIR | 当前监督 TTS 数据发布不接入，不伪装成监督样本 |
 
 ## 基础发布门槛
 

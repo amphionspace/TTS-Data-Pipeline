@@ -3,11 +3,11 @@
 ## 目的与边界
 
 selection 是一次完整的数据决策发布：包含所有输入数据集、全部样本的入选状态、多重原因、
-已确认排除证据、重复关系、规范化规则和检查覆盖。它不是单个过滤表达式，也不是另一份音频目录。
+已确认排除证据、重复关系、规范化规则和检查覆盖。它不是单个过滤表达式。当前完整样本筛选复用原音频；将来必要的裁剪产物由 selection 负责生成。
 查询“这条为什么没选”“和哪些样本重复”“这次哪些可训练”均有固定结果。
 原始 27 列、音频、text、language、speaker_id 和基础 manifest 保持不变。
 
-使用同一 samples.lance 内的 Lance branch。每行保留，增列记录状态；reason=0 的逻辑视图才是入选集合。
+当前完整样本选择使用同一 samples.lance 内的 Lance branch。每行保留，增列记录状态；reason=0 的逻辑视图才是入选集合。
 不用 delete 表示业务禁用，不另存全量行偏移数组或位图，不建立 catalog/curation/_shared 层。
 annotation布局与依赖见05；本章的规则结果不等于完成音质或音文全量验收。
 本次无annotation输入时manifest显式annotation_inputs=[]，不为启动selection强制先导入质量分数。
@@ -42,7 +42,7 @@ manifest 还包括 rules_sha256、规则实现摘要、reason/flag 字典版本�
 排除文件路径/哈希、重复表版本/类型/行数、父 selection 审计引用，以及 finished_at（+08:00）。
 annotation_inputs固定实际采用的任务manifest哈希、dataset/release、table/branch/version/column及输入bv；
 无输入写空列表。text_sources按整数码固定文本修订来源，规则明确优先级、未处理/失败/不支持/跳过策略。
-selection仍从base建立，绝不以annotation分支为父。采样权重属于training_plan，不默认固化在selection。
+selection仍从base建立，绝不以annotation分支为父。采样权重由训练端管理，不默认固化在selection。
 示例见 [selection manifest](../examples/selection-manifest.example.json)。
 
 ## 分支列和原因字典
@@ -53,7 +53,7 @@ selection仍从base建立，绝不以annotation分支为父。采样权重属于
 | selection_flags | uint32，业务非 null | 所有命中检查类别的位掩码；保留重复代表等非排除信息 |
 
 二者全量未压缩约 0.809 GB（134,832,658 行 × 6 bytes），另有 Lance 元数据、索引和稀疏重复表。
-不复制基础音频/文本。实际大小依赖编码和分布；不能用高度重复的合成列压缩率预测生产占用。
+完整样本选择不复制基础音频/文本。实际大小依赖编码和分布；不能用高度重复的合成列压缩率预测生产占用。
 完整分支总行数等于 base；禁止通过过滤写分支导致失去未入选行的解释。
 
 初始原因注册表（空档保留；已分配码永久不改义、不复用）：
@@ -64,7 +64,7 @@ selection仍从base建立，绝不以annotation分支为父。采样权重属于
 | 101 | missing_audio | 无可用音频 |
 | 102 | decode_failed | 已执行解码且失败 |
 | 103 | invalid_audio | 已确认无效音频，例如 1 帧完整台词 |
-| 104 | invalid_timeline | 原生帧区间或解码长度不一致 |
+| 104 | invalid_timeline | 已确认原生时间轴/区间无效；仅头信息长度差异不自动适用 |
 | 1001 | missing_text | 文本为空或按固定空白判定规则为空 |
 | 1002 | confirmed_mismatch | 已确认文本/音频不匹配 |
 | 2001 | missing_language | 该用途要求语言而缺失 |
@@ -98,7 +98,7 @@ flags=0 只说明此次已执行检查未命中，不代表检查过所有质量
 
 ## 音频区间决策与新数据集接入
 
-selection 必须明确本次用途采用的音频范围。是否裁剪在选择与视图准备阶段决定，
+selection 必须明确本次用途采用的音频范围。是否裁剪在 selection 阶段决定并完成，
 codec/训练消费者只执行固定决定，不能根据 metadata、时长或当前 batch 临时猜测裁剪点。
 这里规定长期规则；一次核查的样本清单、异常数量和放行证据由具体发布固定，不写死为某个数据集的永久豁免。
 
@@ -119,7 +119,7 @@ codec/训练消费者只执行固定决定，不能根据 metadata、时长或�
 | 决定 | 条件与消费方式 |
 | --- | --- |
 | full_sample | 当前完整音频就是选用单位，没有尚待应用的来源范围；消费完整 sample |
-| explicit_view | 确实需要子区间，且父音频、时间轴、边界与对应文本已经验证；消费已发布 view |
+| cropped_sample | 确实需要子区间，且父音频、时间轴、边界与对应文本已经验证；selection 生成实际片段供下游消费 |
 | unresolved | 是否需要切、坐标适用性、解码时间轴或片段文本尚未确定；不能按默认 full_sample 放行 |
 
 正常子集可共享一条有明确适用条件的来源结论，例外以 sample_id/audio_sha256 和必要的 text_revision 稀疏记录；
@@ -133,39 +133,31 @@ unresolved 不等同于已确认损坏。已证实的时间轴/配对错误可�
 优先级和覆盖校验；执行器不能表达的决定不得静默入选或以 pending 发布 complete。
 未确认能安全使用的对象不能进入本用途的训练目标；其他已确认对象的决定不因此被改写为异常。
 
-### 确实需要切时：发布显式 view
+### 确实需要切时：selection 生成实际片段
 
-1. 固定父 sample 所属 base manifest、table/branch/version、sample_id 与 audio_sha256。
-   不重写 base 的 bytes、num_frames、duration、text，也不在 selection 分支覆盖原始 segment 字段。
-2. 按 [04 时间轴](04-views-timelines.md) 固定 decoder/timeline profile，完整解码并核验实际可用帧数。
-   header 长度与实际解码不一致、不同读取方式得到不同时间轴时，先核实，不能用补零或截断凑齐。
-3. 将已验证的来源范围映射到**当前父音频解码后的原生采样帧**，生成 int64 半开区间
-   `[start_frame,end_frame)`，满足 `0 <= start_frame < end_frame <= 有效帧数`。
-   秒/毫秒转换的精度与舍入规则写入 timeline profile；来源数值、单位、原点映射和上游余量保留在 metadata。
-   禁止用重采样后的采样率换算原生坐标，也不静默夹紧负值、越界或反向区间。
-4. 为每个连续区间生成 [03 规定身份](03-identity.md) 的 view，发布固定 views snapshot。
-   一个父 sample 可以有多个 view；view 的文本必须只对应其片段，语言/speaker 也按片段确认。
-   原文、分段/对齐方法、模型或人工修订及证据须可追溯；不能切掉半句仍沿用整条转写。
-   嵌套 view 最终仍用根父 sample 坐标，parent_view_id 只记录派生关系，避免重复减去 offset。
-5. 对 view 的实际时长、文本与用途资格重新选择；固定 view_id/view_revision、父引用、区间、timeline 和目标集合。
-   父 sample 的入选/排除不自动等于所有子 view 的结果；多个合法 view 不得按相同父音频 SHA 合并成一条。
-   重叠片段的重复计权及训练/评估隔离须显式处理，不能把重叠时长相加称为独立语音时长。
-6. codec 以 `target_kind=view` 绑定固定 views/base 输入，完整解码父音频 → 按原生帧裁剪 →
-   按 profile 处理声道/重采样 → 编码。按 [06](06-codecs.md) 保存新的 feature_key，
-   不能把整条 sample 的 codes 按时间比例切分，也不能把 view 的 codes 挂回父 sample ID。
+1. 固定父 sample 的 manifest、table/branch/version、sample_id 与 audio_sha256，不改写原始数据。
+2. 按 [04 时间轴](04-audio-timelines.md) 完整解码，使用实际有效帧数核验区间；
+   不为匹配头信息补零或截断。将来源范围映射到父音频的原生整数帧半开区间，记录单位、原点和舍入方法。
+3. selection 在该区间实际裁剪，生成新的音频样本及对应文本，记录新的身份、音频摘要、帧数和时长。
+   同时保留父样本、父音频摘要、原始区间和解码/裁剪方法；原样本及其已发布快照不变。
+   片段局部坐标从零开始，不把父坐标当作片段上的待执行裁剪指令。
+4. 按片段实际内容重新核验文本、语言、speaker、时长、重复关系和用途资格。
+   一个父样本可产生多个独立片段；不能切掉半句仍沿用整条转写，也不能把重叠时长相加称为独立语音时长。
+5. codec、speaker 和 text 消费同一固定 selection 产出的样本集合。音频特征完整读取片段，
+   再按各自 profile 做声道处理和重采样，不重新读取父音频裁剪，也不按比例截取已有 codec tokens。
 
-view 只保存引用、区间和片段元数据，默认不复制音频 bytes。非连续拼接、去除内部停顿或重编码恢复属于其他音频变换，
-不能伪装成单个连续 view。音量归一化、静音修剪也不是新数据集的默认动作；若采用，须明确规则、证据和身份影响。
+非连续拼接、静音修剪、内部停顿删除和归一化不是默认裁剪动作；需要时另行固定规则与验证。
+当前尚未实现裁剪产物发布；不得仅登记一个区间就宣称已完成上述处理。
 
 ### 常见来源范围的判定示例
 
 | 来源情况 | 应作的决定 |
 | --- | --- |
 | 原录音范围 120–130 秒，当前文件已是该 10 秒片段 | 核实范围已应用后用 full_sample；不能再从当前文件第 120 秒切 |
-| 当前确为 60 秒原录音，已验证文本只对应 10.2–13.7 秒，原生 24kHz | explicit_view `[244800,328800)`，配该 3.5 秒文本；不改父 sample |
+| 当前确为 60 秒原录音，已验证文本只对应 10.2–13.7 秒，原生 24kHz | selection 按 `[244800,328800)` 生成实际 3.5 秒片段及对应文本；不改父 sample |
 | 只有 duration=10 秒，实际解码 9 秒 | 无起点，不能据此推断缺口或补成 10 秒；核实来源声明与音频 |
 | 已切句段带字词时间戳 | 字词对齐范围不自动成为整句切点；保留上游防截词余量，负时间戳不得当负数组索引 |
-| 超过用途的最大时长 | 按时长策略排除，或经验证后生成配套文本的 views；不能偷偷截取前 N 秒 |
+| 超过用途的最大时长 | 按时长策略排除，或经验证后由 selection 生成实际片段及配套文本；不能偷偷截取前 N 秒 |
 
 不采用某组辅助时间戳、但已有独立证据证明完整片段适用时，可以明确选择 full_sample，
 同时记录时间戳不可用；辅助字段异常不自动证明完整音频不可用。
@@ -175,10 +167,9 @@ view 只保存引用、区间和片段元数据，默认不复制音频 bytes。
 现有 sample selection 保留每个父样本一行，`selection_reason=0` 只表达完整 sample 的资格；
 现有 codec `selection_branch` 模式也仅支持 `target_kind=sample`。**这是当前实现的能力限制，不是数据不需要切分的证据。**
 是否需要切分必须由上述来源和音文核查独立决定；需要切分时不能为适配现有 branch 而改判 full_sample。
-不能给该模式附加隐式裁剪规则，
-或把一个 sample 行解释成多个 view。view 特征目标按 06 的 `all_views`/`subset` 绑定固定 views 与父 base，
-子集须保存明确的目标清单；它们不自动构成支持 view 的 supervised_tts selection 执行器。
-实际启用 view 训练选择前，必须补齐 view 级决定/原因、目标发布及文本消费实现，并通过端到端验收。
+不能给当前分支附加隐式裁剪规则，或把一个样本行解释成多个未生成的片段。
+实际启用裁剪前，必须补齐 selection 的片段音频产出、稳定身份/来源记录、文本绑定及发布验收，
+并让三个特征任务读取同一份产物。仅支持整条 sample 不等于所有数据都不需要裁剪。
 
 本节不修改现有 Arrow schema、原因字典或历史发布，不宣称这些新检查已由当前 selection 执行器自动执行。
 历史 manifest 缺少区间核查记录表示证据未记录，不能兼容填充成 full_sample；补验结论随新发布固定，
@@ -263,7 +254,7 @@ merge 可用于按键增列，但大表必须经过峰值内存验收；索引�
 审计须按具体 snapshot 的实际引用核验，不能只认 data/ 或把整个 tree/ 当孤儿删除。
 新增分支不会使基础 shards 清单变成整个目录文件清单。
 
-所有annotations、selections、features、builds、training_plans的complete manifest及其传递依赖都是保留根。
+所有 annotations、selections、features 的 complete manifest、已登记的下游引用及其传递依赖都是保留根。
 生产清理前必须枚举依赖图、检查 tag/固定版本、阻止并发写；被引用 branch/version 不能删除或清理。
 不要删除保护 tag 绕过引擎检查；目录 rename、外部 shallow clone、手工删 fragment 也不允许当作安全回收手段。
 自动回收尚未实现时不运行生产 cleanup_old_versions。实现证据和性能边界记录在 pipeline，规范不宣称已实现发布器。
@@ -274,11 +265,8 @@ merge 可用于按键增列，但大表必须经过峰值内存验收；索引�
 按 06 的 selection_branch 模式记录目标集合，无需再复制全量 targets 或读取一份位置位图。
 特征表仍按 target_id/feature_key 关联；分支没有自动保证特征顺序与原始行顺序一致。
 
-准备训练：以含最终 text/language 的 codec features.lance 为主表，从固定 codec 版本建立 build 分支，
-按 key 关联并验证 speaker 特征，只增加 nullable int64 speaker_row 和 build_ready 等绑定列。
-采样位置就是该 codec 分支的逻辑行偏移，不在 samples/selection 上增加 codec_row。
-codec 缺失的目标记录在 build 的覆盖/未就绪统计中；不能因为主表没有该行而漏记 selection 的目标。
-多 run、在线 speaker 与完整引用字段以 07/11 为准，不在此另定义一套训练布局。
-
-build 不覆盖原 selection_reason；特征失败与数据排除分别记账。
-更换特征快照须重新绑定，改采样权重不改分支或复制 codes。训练读写吞吐须独立验收。
+交付下游：固定 selection 与 codec、speaker、text 的已发布 manifest/table/branch/version，
+按 `(dataset_id, release_id, target_id)` 关联，核对来源摘要、目标集合及缺失/失败状态。
+特征缺失不能因关联时没有对应行而漏记；特征失败与 selection 的数据排除分别记账。
+训练专用构建、token 化、配对、采样与读取布局由训练端管理，不在统一源表上写训练专用列。
+下游固定版本引用及其依赖须保留；更换快照后不能复用未经核对的行定位符。

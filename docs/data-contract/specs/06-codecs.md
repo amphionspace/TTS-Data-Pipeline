@@ -1,5 +1,7 @@
 # 06 · Codec 与音频特征的共同约定
 
+三表独立提取及身份关联见 [13 独立文本表](13-text-features.md)。训练专用构建由训练仓库管理。
+
 本章固定 codec 和 speaker embedding 共同的存储、关联和发布规则；speaker 的两条训练路径见
 [11 Speaker embedding](11-speaker-embeddings.md)。annotation 的结果与依赖规则见 05。
 基础 27 列和 release v0.1 不变；特征类型独立，不把某一训练模型的形状写入 base。
@@ -14,10 +16,10 @@ datasets/<dataset_id>/v0.1/
     └── speaker_embedding/<run_id>/{manifest.json,features.lance/}
 ```
 
-一个 run 属于一个 dataset/release、一个 kind、一个 profile、一种 target_kind（sample 或 view）。
+一个 run 属于一个 dataset/release、一个 kind、一个 profile、一种 target_kind（sample）。
 每个 run 发布一张自包含 Lance 特征表，内部可有多个 fragment；不按 GPU/batch 建公开目录，
 不为每条音频建立 NPZ，不复制原音频。一个 dataset 可拥有多个 codec 和 speaker profiles。
-相同 profile 可以用于多个 dataset，分别发布；跨 dataset 合并和选择放在训练 build。
+相同 profile 可以用于多个 dataset，分别发布；训练所需的跨 dataset 组合由训练端管理。
 selection_branch 模式直接引用已发布的选择分支，不复制目标表；额外任意 subset 才在本 run 保存 targets.lance。
 
 目录不再增加 profile_id 哈希层；run_id 已包含可读 profile_name 和时间/序号。
@@ -31,7 +33,7 @@ profile_id 仍保存在 manifest 与特征行，参与 feature_key/input_fingerp
 
 新的 feature run 使用可读 ID：`<dataset_id>-<kind>-<profile_name>-<北京时间>bjt-<序号>`，
 例如 `libritts_r-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T200000bjt-01`。
-dataset_id 原样保留（包括下划线），不替换为连字符；kind 为 codec 或 speaker_embedding。
+dataset_id 原样保留（包括下划线），不替换为连字符；音频 kind 为 codec 或 speaker_embedding；独立文本使用 text（见 13）。
 profile_name 为 1–128 字符，匹配 `[a-z0-9][a-z0-9_-]{0,127}`，在命名中原样使用。
 北京时间（UTC+08:00）格式为 YYYYMMDDTHHMMSS，路径追加小写 bjt，不使用 `+`、空格或冒号。
 manifest 时间仍使用 ISO8601 `+08:00`；路径时间仅用于可读命名，不能替代 manifest 的时间字段。
@@ -46,7 +48,7 @@ sample_id、feature_key、profile_id 的哈希算法不变；原来源名称仍�
 
 profile.kind 区分 audio_codec 与 speaker_embedding。换权重、影响输出的实现、前处理或精度均产生新 profile。
 同权重而不同重采样/切片策略仍是不同 profile；仅码本数相同不代表训练兼容。
-默认一个 build 为 codec、speaker 各选择一个 profile；同 profile 可组合不同 dataset/run。
+消费者须明确选择各类特征的 profile；同 profile 可组合不同 dataset/run。
 混合不同 profiles 必须在模型协议中声明并验证，不能按模型名称或张量形状自动混合。
 
 ## 2. Profile 和运行参数分开
@@ -58,7 +60,7 @@ profile.kind 区分 audio_codec 与 speaker_embedding。换权重、影响输出
 | 模型 | 架构/variant、完整 config、实际使用权重文件/张量摘要、上游 revision |
 | 实现 | encoder/decoder 或 speaker frontend 的代码 revision/摘要、影响数值的依赖版本 |
 | 时间轴 | timeline profile 的完整定义与 ID，原生采样帧解释、解码器与长度处理 |
-| 波形处理 | 声道合并、裁剪顺序、重采样实现/参数/长度规则、幅度处理、静音处理 |
+| 波形处理 | 完整样本消费、声道合并、重采样实现/参数/长度规则、幅度处理、静音处理 |
 | 推理 | eval、精度、autocast/TF32、随机性、长度/padding/mask、分块与上下文策略 |
 | 输出 | codec 的 K/逐码本 vocab/轴/dtype，或 embedding 的 D/dtype/池化和归一化 |
 
@@ -78,14 +80,14 @@ profile_id 只对完整 profile 对象计算，不包含示例包装中的 examp
 
 ## 3. 输入、时间轴和关联
 
-生成时只读取 complete manifest 指定的 base/view snapshot，不接受转换中的目录。
+生成时只读取 complete manifest 指定的样本 snapshot，不接受转换中的目录。
 基础表负责保留音频，特征表只保存结果和指纹。run inputs 固定 manifest SHA256、table_path、branch（main=null）和整数 snapshot。
 selection_branch 输入另外绑定 selection manifest SHA256；相同整数版本在不同分支不代表相同数据。
 
 | 公共字段 | 语义 |
 | --- | --- |
-| target_kind / target_id | sample 或 view；run 内 target_id 唯一 |
-| parent_sample_id | sample 时等于 target_id；view 时指向原始音频所在 sample |
+| target_kind / target_id | sample；run 内 target_id 唯一 |
+| parent_sample_id | 等于当前完整输入样本的 target_id；原始裁剪来源由 selection 记录 |
 | profile_id | 与 manifest 的完整 profile 摘要一致 |
 | audio_sha256 | 原始编码 audio.bytes 的 SHA256，绝不以路径代替 |
 | timeline_profile_id | 本行实际使用的原生解码时间轴 |
@@ -97,15 +99,18 @@ selection_branch 输入另外绑定 selection manifest SHA256；相同整数版�
 | input_fingerprint | 本次 target 与该计算输入的绑定，公式见下 |
 | status / error_code | ok / failed / unsupported / skipped；非 ok 必须说明原因 |
 
-sample 任务先按所选时间轴解析明确区间：首版严格模式用 `[0, base.num_frames)`，
-解码必须核对采样率、有限值和有效总帧数。头信息与完整解码不一致则失败，不能默认补零/裁尾。
-view 使用已验证的原生坐标和同一 timeline；不能将另一解码器的秒数简单换算冒充同一时间轴。
+sample 任务完整解码当前样本，成功行区间为 `[0, 实际解码帧数)`；
+核对采样率、声道、有限值和有效输入长度，不为匹配头信息补零或裁尾。
+已固定的旧 codec profile 仍可能要求解码长度与 base.num_frames 相等并在不符时失败；
+这属于旧运行限制，不是所有特征的通用拒收规则。不能为修改文档而改写旧 profile 或成功结果。
+输入区间相对于当前完整样本，从零开始；不能把裁剪来源的父录音坐标再次应用到片段。
 错误行保留计划中的父引用、音频哈希和区间；无法确定有效区间的对象必须先解决时间轴，不能假装完成编码。
 
-首版推荐顺序：完整解码/长度核验 → 原生坐标裁剪 → 明确声道策略 → 重采样 → encoder/frontend。
+特征提取顺序：完整解码当前样本 → 明确声道策略 → 重采样 → encoder/frontend。
+需要裁剪时已由 selection 生成实际片段；特征任务不再应用父音频中的裁剪区间。
 完整录音先编码再切 token 不等价于波形先裁剪再编码；不允许由时间比例猜 token 边界。
-长音频若超过已验收容量，标 unsupported 或先生成显式 view；不偷偷截前 N 秒。
-参考裁剪也成为 view 或被已有 sample 表达，不能把随机裁剪的结果挂在整条 sample 下。
+长音频若超过已验收容量，标 unsupported 或由 selection 先生成实际裁剪样本；不偷偷截前 N 秒。
+需要裁剪的样本在 selection 阶段生成；不能把随机裁剪结果挂在原始整条 sample 下。
 
 ```text
 feature_key = SHA256(canonical_json(["feature-v1", audio_sha256, timeline_profile_id,
@@ -130,7 +135,7 @@ feature_key 相同的不同来源 target 可以各有一行；首版不引入额
 `abs(candidate - canonical) <= atol + rtol * abs(canonical)`，用 float64 比较、权威结果为相对容差基准。
 容差内保留原权威结果并记录重算验收数量；超出容差或输入冲突必须隔离并阻止发布，不能记为普通单条 failed 来绕过。
 因此同一 run 发布的同 key 成功行仍具有完全相同的 payload 摘要；数值等价不替代磁盘完整性校验。
-不同 run 的同 key 浮点结果可能摘要不同，build 必须固定实际 run/snapshot/摘要；跨 run 复用也须验证来源，不能查 latest。
+不同 run 的同 key 浮点结果可能摘要不同，消费者必须固定实际 run/snapshot/摘要；跨 run 复用也须验证来源，不能查 latest。
 
 ### 输出等价的实现升级
 
@@ -193,10 +198,10 @@ hash 不包含 NPZ 文件包装、Lance 编码或输出路径；这些物理文�
 
 ## 6. 索引和高吞吐读取
 
-### 首版监督训练：文本随 codec 表发布
+### 已有 codec 运行的兼容文本列
 
-本轮 `selection_branch` / supervised_tts 的 codec 表除音频特征列，还必须物化以下选用元数据。
-训练读取 text 和 codes 时只打开固定的 codec 表，不在每个 step 回查 samples/selection。
+已有冻结 codec 执行器在音频特征列之外物化以下选用元数据，保留该输出以兼容当前运行。
+独立 text 表是后续合表选定的文本来源，见 13；不要求新音频执行器重复保存这些列。
 这不改变纯音频特征身份；`profile_id`、`feature_key`、`input_fingerprint` 和 codes 摘要不包含文本。
 
 | 列 | 类型 | 含义 |
@@ -213,9 +218,9 @@ hash 不包含 NPZ 文件包装、Lance 编码或输出路径；这些物理文�
 `target_kind=sample` 时 target_id 就是 sample_id，不必再增加一列相同 ID。
 duration 可由 `(end_frame-start_frame)/native_sample_rate` 求得，不必复制音频或 metadata_json。
 首版不保存 text token_ids：它们依赖训练文本 tokenizer 和协议，未来缓存须独立固定 tokenizer/config。
-speaker embedding 表可保持音频特征结构，不再复制这份文本；训练的目标行以 codec 表为主。
+speaker embedding 表不复制这份文本；三表按样本身份关联，训练端决定自己的读取布局。
 
-发布 manifest 必须有 `text_materialization`：模式 `selection_text_columns_v1`、列名、覆盖行数、
+使用此兼容物化流程的 codec manifest 必须有 `text_materialization`：模式 `selection_text_columns_v1`、列名、覆盖行数、
 有序 `(target_id, 元数据)` 回读摘要、text_sources，以及是否保持原 codec 文件。
 选用来源由原有 selection manifest SHA256、分支和版本固定；不接受只有当前文本字符串的无来源快照。
 新增列纳入真实 schema_sha256；文本摘要与 codes 摘要分开验证。
@@ -235,20 +240,19 @@ speaker embedding 表可保持音频特征结构，不再复制这份文本；�
 
 ### 定位
 
-features.lance 必有 target_id、feature_key 的 BTREE；view 特征另建 parent_sample_id BTREE。
-parent_sample_id 在固定 base snapshot 的 sample_id 索引上查找；view 还需核对对应 views snapshot。
+features.lance 必有 target_id、feature_key 的 BTREE。
+parent_sample_id 在固定 base snapshot 的 sample_id 索引上查找。
 按 ID 取少数结果无需把所有文件 load 进内存。批量全库生成使用顺序/分片扫描，
 投影所需列；构建训练数据时批量关联，可用本地盘外部排序/SQLite，禁止逐行远程随机查询。
 索引不保证唯一性和外键，发布时必须显式验证。
 
-训练优先验收 indexed_references，在 codec 特征表的 build 分支一次生成 speaker row locator，按批量 take 读取；
-不要为改采样权重再复制 codes。结果乱序写入可以接受，但必须按 key 验证后建立定位，不靠相同行序。
-吞吐尚未验收，不把物化作为无存储成本的默认退路。详见 07/12；在线 speaker 路径见 11。
+结果乱序写入可以接受，但消费者必须按样本身份核对对应关系，不靠相同行序。
+训练专用定位、采样和读取布局由训练端管理；交付边界见 12/13，在线 speaker 路径见 11。
 
 ## 7. 生成、失败、续跑和验收
 
 1. 固定 inputs/profile/target_kind；首轮使用 selection_branch，消费完整发布的 supervised_tts selection。
-   all_samples/all_views 只适用真正全体目标。任意额外 subset 固定 targets.lance；
+   all_samples 只适用真正全体目标。任意额外 subset 固定 targets.lance；
    所有模式都在推理前校验目标集合摘要，不接受只有易变查询字符串的范围。
 2. 按目标 ID 与 input_fingerprint 建有界任务；CPU 解码、GPU 推理、Lance 写入分工。
    每张 GPU 的进程/队列数显式有界，按验收配置执行；CPU 解码线程、GPU 进程与模型 batch 是不同参数。
@@ -268,13 +272,13 @@ complete 表示任务范围完整记账和存储验收完成，不等于全部�
 
 同一未发布 run 可对失败目标重试，最终只保留一个结果。已发布 run 不覆盖；同 profile 补算
 优先仅对缺失/失败/新入选目标发布 subset run，不复制已有成功数组。新 run 对自身目标集合完整记账。
-build 可以显式绑定多个兼容 run，固定每个目标选中的 run 和行位置（见 07），不得查询 latest 补洞。
+消费者可以显式引用多个兼容 run，固定每个目标选中的 run 和 snapshot，不得查询 latest 补洞。
 不同 profile 不作为兼容补算；全量重新物化已有成功结果需明确空间预算，不能默认每次补洞复制全库。
 
 特征提取/发布验收包括：多采样率/声道/长度/语言、空或损坏音频的处理、batch padding/重排、
 长音频边界、真实形状/长度/值域、错误处理与覆盖记账、断点/换 worker、Lance 回读与按 ID 查询。
 codec 还需编码再解码抽检、听检及有效帧数记录，不能把重建保真度当作原始语音质量评分。
-音色克隆、训练 loss/梯度与真实训练读取吞吐属于 build/训练验收（07/11），不阻止已验收的纯特征提取。
+音色克隆、训练 loss/梯度与真实训练读取吞吐由训练端验收，不阻止已验收的纯特征提取。
 fail-closed 执行器可以在任何输入/模型错误时停留 incomplete，不必伪造失败行后宣称 complete；
 如果允许失败行发布，则必须验证明确的错误策略与全部目标终态计数。
 实现与验收状态由 pipeline 记录；满足本章提取门槛不等于训练读取已经就绪。
@@ -282,23 +286,23 @@ fail-closed 执行器可以在任何输入/模型错误时停留 incomplete，�
 ## 8. 选择范围与 targets.lance
 
 selection 固定 mode、input_alias、available_target_rows、target_count、target_set_sha256。
-input_alias 指向 inputs 中唯一的目标表：sample 对 samples，view 对 views；view 的父 base 另在 inputs 固定。
-available_target_rows 是该目标表指定 snapshot 的总行数，绝不是 view 对应的父音频数。
-all_samples/all_views 要求 target_count 等于 available_target_rows，不创建 targets.lance；
+input_alias 指向 inputs 中固定的目标样本表。
+available_target_rows 是该目标表指定 snapshot 的总行数。
+all_samples 要求 target_count 等于 available_target_rows，不创建 targets.lance；
 subset 要求 `0 < target_count <= available_target_rows`，允许显式列举全体。空选择不发布 feature run。
 
 subset 的 selection.table 必含 table_path（相对 release 根的本 run targets.lance）、branch（main=null）、lance_version、
 schema_sha256、rows；rows 等于 target_count。类型见 schemas 中 feature_targets：
 target_kind、target_id、parent_sample_id，均为非 null string。一个 run 只允许一种 target_kind 和一个目标表别名。
-sample 的 parent_sample_id 等于 target_id；view 的父引用必须与固定 views/base 快照一致。
+sample 的 parent_sample_id 等于 target_id；裁剪产物的原始来源由 selection 追溯。
 发布前全量核验目标唯一、存在、父引用正确，features 的目标集合与选择集合精确相等，不能只比较行数。
-targets 建 target_id BTREE；parent 可以重复，不能把多个合法 views 合并成一个任务。
+targets 建 target_id BTREE；各个目标样本独立核验，不能按同一来源合并任务。
 
 target_set_sha256 对按 (target_kind,target_id) 字符串升序排列的唯一目标做流式 SHA256：
 每行是 `canonical_json([target_kind,target_id,parent_sample_id]).encode("utf-8") + b"\n"`。
 all 模式也计算同一摘要；它与固定输入 snapshot 共同定义范围，不受扫描顺序影响。
 选择表在推理前验证并写入执行计划；恢复必须匹配原摘要和 snapshot。发布后两个表都不可改写，均为保留根。
-示例见 [view 子集 manifest](../examples/feature-subset-manifest.example.json)。
+示例见 [样本子集 manifest](../examples/feature-subset-manifest.example.json)。
 
 
 ## 9. 直接消费 selection 分支

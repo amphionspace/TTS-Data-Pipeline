@@ -17,7 +17,7 @@ for batch in ds.to_batches(columns=["sample_id", "language", "duration_seconds"]
 查询 metadata/quality 时不选择 audio；查询少数样本使用 sample_id 标量索引，音频按需读取。
 批量全库任务使用顺序扫描；不要对数百万样本逐个发 SQL 查询。
 
-samples 必有 sample_id BTREE；views 有 view_id 索引；独立结果表有 target_id 索引；codec/speaker embedding 有 target_id/feature_key 索引，view 特征还有 parent_sample_id 索引。
+samples 必有 sample_id BTREE；独立结果表有 target_id 索引；codec/speaker embedding 有 target_id/feature_key 索引。
 语言、speaker、quality 等索引由实际过滤模式选择；写了索引不代表所有 filter 都会使用它，应检查执行计划。
 索引不检查唯一性、不执行外键，也不保证所有 merge 都不扫描。
 用户给定 ID 必须先验证/安全构造过滤表达式；本 contract 的 sample_id 是 64 个小写十六进制字符（256 bit）。
@@ -49,7 +49,7 @@ for batch in selected.to_batches(
 ```
 
 此例用于有文本/语言覆盖列的 selection；缺少这些可选列的旧分支应显式使用基础值。
-coalesce 只对 null 回退，不能把合法空字符串按 truthiness 回退。正式训练读取 06/07 的 codec 选用文本列。
+coalesce 只对 null 回退，不能把合法空字符串按 truthiness 回退。最终选用文本读取见 13；已有 codec 文本列的兼容约定见 06。
 
 同根分支继承文件，不采用外部 shallow clone。新增列不默认建索引：低基数 reason 的顺序筛选
 先测过滤开销，必要时再建相应索引。分支完整发布约束见 [12](12-selections.md)。
@@ -82,8 +82,8 @@ codec 使用 Arrow 嵌套整数数组；只读 codes 和缓存 embedding 时不�
 
 ## 快照保留和清理
 
-基础 manifest、selection、标注 run、feature run、build 和 training_plan 都是 snapshot 的保留根。可为这些版本创建 Lance tag，
-但 tag 只是辅助，recipe 仍保存 table/branch/整数 snapshot 和 manifest 哈希。
+基础 manifest、selection、标注 run、feature run 及已登记的下游引用都是 snapshot 的保留根。可为这些版本创建 Lance tag，
+但 tag 只是辅助，引用仍保存 table/branch/整数 snapshot 和 manifest 哈希。
 基础与 selection 输出必须创建保护 tag；被引用版本的 tag 不得改指向或删除。
 先收集 selections/*/manifest.json 及其他保留根，再检查引擎分支关系；禁止手工只扫 data/ 判断孤儿。
 禁止对被引用版本执行 cleanup_old_versions；只保留最新版本会破坏训练复现。
@@ -93,4 +93,4 @@ codec 使用 Arrow 嵌套整数数组；只读 codes 和缓存 embedding 时不�
 递归收集annotation间及selection引用的annotation依赖（已复制文本仍保留审计引用） →
 确认可回收版本 → 调用受支持的引擎清理 API → 验证仍保留的版本可读。
 不得手动删除 samples.lance/data 或 _versions 内“看起来旧”的文件。
-compaction 是新的提交，会改变行位置和索引布局；旧 snapshot 可继续被 build 引用，直到解除引用并正式清理。
+compaction 是新的提交，会改变行位置和索引布局；旧 snapshot 可继续被下游消费者引用，直到解除引用并正式清理。

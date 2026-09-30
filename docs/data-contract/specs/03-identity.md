@@ -9,8 +9,8 @@
 | run_id / profile_id | 一次派生发布 / 完整计算配置 | 质量任务 run、codec profile 摘要 |
 | Lance snapshot version | 一张物理表的提交版本 | 整数 2、3；独立于 release_id |
 
-外部输入引用（inputs、recipe）必须包含相对于统一根目录的路径、显式 branch（main 用 null）、整数 snapshot version 和输入 manifest 的哈希。
-产物 manifest 自身的 table_path 则相对于所属 release 根目录；build 自身相对于该 build 根目录，详见 10。
+外部输入引用（inputs）必须包含相对于统一根目录的路径、显式 branch（main 用 null）、整数 snapshot version 和输入 manifest 的哈希。
+产物 manifest 自身的 table_path 则相对于所属 release 根目录，详见 10。
 同一个 v0.1 可以有多个派生 snapshot；训练固定具体版本，不依赖 latest。
 
 ## 来源身份算法
@@ -59,13 +59,11 @@ run_id 是一个 release/task 下唯一的不可复用名称；必须记录 prof
 同一 run 重试是完成同一次发布；发布后改变结果必须新建 run。
 
 input_fingerprint = SHA256(canonical_json(任务声明的输入对象))，该对象至少明确：
-音频哈希、sample 或 view 身份、实际裁剪区间与 timeline profile、所用文本/说话人修订（若依赖）、处理 profile。
+音频哈希、样本身份、实际输入区间与 timeline profile、所用文本/说话人修订（若依赖）、处理 profile。
 音文一致性依赖文本，纯音质/codec 不应加入无关文本以造成无意义失效。
 
-view_id = SHA256(canonical_json(["view-v1", parent_sample_id, parent_audio_sha256,
-  timeline_profile_id, start_frame, end_frame, view_kind, source_view_key]))。
-相同区间可以有不同来源视图；其文本修订由 view_revision 表达。
-view_revision = SHA256(canonical_json(除 view_revision 外的所有视图列))。
+selection 裁剪后须生成新的样本身份，绑定父音频、实际区间、处理方法和产物摘要。
+具体产物 schema 与身份算法须随裁剪执行器实现并验收；当前不支持将父样本 ID 直接用于不同片段。
 
 feature_key = SHA256(canonical_json(["feature-v1", audio_sha256, timeline_profile_id,
   start_frame, end_frame, profile_id]))；整条音频也填写明确区间。
@@ -73,7 +71,7 @@ feature_key = SHA256(canonical_json(["feature-v1", audio_sha256, timeline_profil
 
 ## 关联约束
 
-base：sample_id 唯一。view：view_id 唯一，父 sample/音频哈希/区间一致。
+base：sample_id 唯一。selection 裁剪产物还须核验父样本、父音频摘要与原始区间。
 一对一标注：run 内每个 target 最多一个最终结果。一对多标注：每个 target 可有多行，
 run 内 (target_kind,target_id,item_id) 唯一；同一 target 的任务完成状态还需单独表达，见 05。
 特征：run 内 (target_kind,target_id) 唯一；feature_key 可重复以表达多个来源指向相同内容。

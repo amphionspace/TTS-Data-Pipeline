@@ -21,7 +21,7 @@ def make_feature_run_id(dataset_id, kind, profile_name, created_at, sequence=1):
     validate_profile_name(profile_name)
     if not isinstance(dataset_id, str) or re.fullmatch(r"[a-z][a-z0-9_]*", dataset_id) is None:
         raise ValueError("Invalid dataset_id")
-    if kind not in {"codec", "speaker_embedding"}:
+    if kind not in {"codec", "speaker_embedding", "text"}:
         raise ValueError("Invalid feature kind")
     if type(sequence) is not int or sequence < 1:
         raise ValueError("Run sequence must be a positive integer")
@@ -61,9 +61,7 @@ def target_set_sha256(sorted_rows):
     checksum, previous, count = hashlib.sha256(), None, 0
     for row in sorted_rows:
         kind, target, parent = (row[k] for k in ("target_kind", "target_id", "parent_sample_id"))
-        if kind not in {"sample", "view"} or any(
-            not isinstance(v, str) or not v for v in (target, parent)
-        ):
+        if kind != "sample" or any(not isinstance(v, str) or not v for v in (target, parent)):
             raise ValueError("Invalid target identity")
         if kind == "sample" and parent != target:
             raise ValueError("Sample must reference itself as parent")
@@ -117,7 +115,7 @@ def equivalent_payloads(kind, canonical, candidate, *, atol=0.0, rtol=0.0):
 def validate_feature_coverage(manifest):
     """Check feature count/selection metadata; table contents need a separate audit."""
     validate_feature_metadata(manifest)
-    if manifest["target_kind"] not in {"sample", "view"}:
+    if manifest["target_kind"] != "sample":
         raise ValueError("Unknown feature target kind")
     coverage, selection = manifest["coverage"], manifest["selection"]
     counts = [manifest["rows"], selection["available_target_rows"], selection["target_count"]]
@@ -137,9 +135,7 @@ def validate_feature_coverage(manifest):
     ):
         raise ValueError("Published feature coverage must account for every selected target")
     mode = selection["mode"]
-    if mode in {"all_samples", "all_views"}:
-        if mode != {"sample": "all_samples", "view": "all_views"}[manifest["target_kind"]]:
-            raise ValueError("Selection mode disagrees with target kind")
+    if mode == "all_samples":
         if selected != selection["available_target_rows"] or "table" in selection:
             raise ValueError("All-target selection cannot hide a subset table")
     elif mode == "subset":
@@ -168,7 +164,7 @@ def validate_feature_coverage(manifest):
         # verify this exact output, and audit IDs/fingerprints against both tables.
     else:
         raise ValueError("Unknown selection mode")
-    # parent_sample_rows is only an audit statistic, never the view target bound.
+    # Sample identity and source membership are verified against the pinned input table.
 
 
 def validate_speaker_mode(recipe, record):

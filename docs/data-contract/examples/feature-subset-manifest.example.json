@@ -8,7 +8,7 @@
   "dataset_id": "example_synthetic",
   "release_id": "v0.1",
   "run_id": "example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-02",
-  "target_kind": "view",
+  "target_kind": "sample",
   "profile_id": "<verified complete profile SHA256>",
   "profile": {
     "kind": "audio_codec",
@@ -38,7 +38,6 @@
     "waveform": {
       "order": [
         "decode_native",
-        "crop_native",
         "mix_channels",
         "resample"
       ],
@@ -54,7 +53,7 @@
         ],
         "padtype": "constant",
         "cval": 0.0,
-        "length": "ceil(native_crop_frames * 24000 / native_sample_rate)",
+        "length": "ceil(native_frames * 24000 / native_sample_rate)",
         "same_rate": "identity"
       },
       "normalization": "none",
@@ -113,10 +112,10 @@
   "rows": 2,
   "selection": {
     "mode": "subset",
-    "input_alias": "views",
+    "input_alias": "base",
     "available_target_rows": 100,
     "target_count": 2,
-    "target_set_sha256": "90b7f9bf342dcd5b07b972b4f1a8828c505b7f25ec5427bf8fd7c6ce13f0f885",
+    "target_set_sha256": "45a9f119f36d2548511e7a958c728e2a669d8931753a82b1723f3c35fc1be4e8",
     "table": {
       "table_path": "features/codec/example_synthetic-codec-qwen3-12hz-24k-k16-fp32-v1-20260929T080000bjt-02/targets.lance",
       "lance_version": 2,
@@ -133,15 +132,6 @@
       "manifest_sha256": "<base manifest SHA256>",
       "table_path": "datasets/example_synthetic/v0.1/samples.lance",
       "lance_version": 2,
-      "branch": null
-    },
-    {
-      "alias": "views",
-      "artifact_kind": "view",
-      "manifest_path": "datasets/example_synthetic/v0.1/views/synthetic_views/manifest.json",
-      "manifest_sha256": "<view manifest SHA256>",
-      "table_path": "datasets/example_synthetic/v0.1/views/synthetic_views/views.lance",
-      "lance_version": 3,
       "branch": null
     }
   ],
@@ -173,7 +163,7 @@
     "same_key_payload_conflicts": 0,
     "recomputed_candidates_checked": 0,
     "equivalent_candidates_retained_canonical": 0,
-    "limitation": "Synthetic example: one parent, 100 available views, two selected views; no model inference executed."
+    "limitation": "Synthetic example: 100 available samples, two selected samples; no model inference executed."
   },
   "execution": {
     "code_sha256": "<feature executor source digest>",
@@ -189,7 +179,6 @@
     "canonical_result_policy": "first_validated_durable_commit_per_feature_key"
   },
   "finished_at": "2026-09-29T08:00:00+08:00",
-  "note": "Non-runnable synthetic view subset. Selection rows are in feature-targets.example.json; targets and features publish together.",
-  "parent_sample_rows": 1,
+  "note": "Non-runnable synthetic sample subset. Selection rows are in feature-targets.example.json; targets and features publish together.",
   "profile_name": "qwen3-12hz-24k-k16-fp32-v1"
 }

@@ -11,9 +11,9 @@ manifest 文件哈希由引用者计算，不将自己的哈希写进自身导�
 | 字段 | 用途 |
 | --- | --- |
 | contract_version | v0.1 |
-| artifact_kind | base / selection / annotation / view / feature / training_build / training_plan / asset |
+| artifact_kind | base / selection / annotation / feature |
 | status | 公开发布只接受 complete |
-| dataset_id / release_id | dataset产物归属；跨数据集annotation/selection/build按inputs/outputs逐项列出 |
+| dataset_id / release_id | dataset产物归属；跨数据集annotation/selection按inputs/outputs逐项列出 |
 | storage_format | lance |
 | storage_version | 实际 Lance 文件格式版本；与 contract version 分开 |
 | table_path / lance_version | 表路径与固定整数 snapshot；列内标注还需要 column |
@@ -24,10 +24,8 @@ manifest 文件哈希由引用者计算，不将自己的哈希写进自身导�
 | finished_at | 发布时间 |
 
 base 的 table_path 相对 release 根目录，固定 samples.lance。其他 dataset 产物的 table_path 也相对该 release 根目录。
-所有 inputs/recipe 中的外部引用 table_path 和 manifest_path 相对统一根目录，不依赖调用者当前工作目录。
+所有 inputs 中的外部引用 table_path 和 manifest_path 相对统一根目录，不依赖调用者当前工作目录。
 引用保存 manifest_sha256；一份 manifest 引用多个内部 snapshot 时，还需指定对应表/列，不能只凭 manifest 哈希猜版本。
-materialized training_build 的 table_path 相对该 build 根目录，固定 records.lance；
-indexed_references build 通过 bindings 引用统一根下的 codec build 分支和 speaker/在线音频输入，不强制有自身表。
 selection 的文件路径相对自身发布目录，所有外部 samples 引用相对统一根；具体内容见 12。
 新引用显式写 branch（main 用 null）及 lance_version；旧引用缺 branch 按 main 解释，绝不猜测 selection 分支。
 annotation统一manifest位于annotations/<task>/<run_id>/；inputs/outputs内所有表和外部manifest路径相对统一根。
@@ -37,8 +35,8 @@ annotation统一manifest位于annotations/<task>/<run_id>/；inputs/outputs内�
 新一对一样本标注使用storage_kind=sample_branch；独立表为result_table；旧sample_column保留兼容读取。
 一个 run 如果没有实际结果表，不创建空 results.lance。
 
-通用字段按产物布局适用：无自身 Lance 表的 selection/build/plan 不伪造顶层 table_path、
-lance_version、rows 或 storage_version；在具体 inputs/outputs/bindings 中记录所引用表的信息。
+通用字段按产物布局适用：无自身 Lance 表的 selection 不伪造顶层 table_path、
+lance_version、rows 或 storage_version；在具体 inputs/outputs 中记录所引用表的信息。
 
 ## 基础发布额外字段
 
@@ -73,7 +71,7 @@ null 表示未知/未记录（finalization 也可能不适用），与 0、[]、
 直接解析历史 JSON 的外部消费者必须使用同样的缺省规则；引用哈希始终计算原文件 bytes，
 不得对补齐后的内存对象计算哈希冒充原 manifest 哈希。兼容读取不会补造历史审计证据。
 
-## Run 与 build 额外字段
+## Run 额外字段
 
 run 固定 task、run_id、target_kind、profile_id/profile、输入依赖与 schema、覆盖数、各 status 数、未运行数。
 sample_branch按output.columns逐列记录selected_targets/coverage，table_rows固定bv全行数；
@@ -84,12 +82,13 @@ complete要求范围内missing=0，范围外struct=null，不把不同列的结�
 两者通过 manifest 固定的 selection 或选择表区分。coverage 的各状态加 missing 等于 total_targets。
 独立一对一结果表 rows 是物理结果行数；一对多 rows 是事件数，并另记 target_rows 和目标状态统计。
 每个任务定义 result 类型/指标范围。manifest 的 snapshot/column 是结果位置，run_id 不是查询 latest 的别名。
-feature 固定 kind、完整 profile、target_kind、输出形状/dtype/轴/数组哈希序列化以及全部终态数量。
+feature 固定 kind、完整 profile、target_kind、输出 schema 及覆盖数量；音频数组另固定形状/dtype/轴/摘要规则。
 新的 feature manifest 同时保存可读 run_id 和 profile_name；运行日志/状态中的时间也按北京时间展示。
 命名与 hash 分工见 06；不改写历史已发布 ID。
-codec 的 codes 与 speaker 的 embedding 分别按 06/11 定义；profile hash 只覆盖完整 profile 对象。
+codec 的 codes 与 speaker 的 embedding 分别按 06/11 定义，text 的列和发布规则按 13 定义；
+profile hash 只覆盖完整 profile 对象。
 feature 不继承 sample_column 的 table_rows 上限。输入别名和 selection 固定生成范围，具体字段见 06 第 8 节。
-selection.available_target_rows 是目标 samples 或 views 快照的行数；可选 parent_sample_rows 仅为审计统计。
+selection.available_target_rows 是目标样本快照的行数；可选 parent_sample_rows 仅为审计统计。
 subset 的 targets.lance 由同一 run manifest 的 selection.table 固定路径、snapshot、schema 摘要和行数，随 run 发布并保留。
 feature 发布必须 rows = selection.target_count = coverage.total_targets = ok + failed + unsupported + skipped，missing=0。
 完整终态记账仍可包含失败，训练只用所需特征均为 ok 的记录。
@@ -97,8 +96,6 @@ execution 记录实际软硬件、CPU/GPU 并发和 batch 参数，validation �
 示例见 [feature manifest](../examples/feature-manifest.example.json)。
 selection 固定输入/输出全体成员、规则、原因/flags 字典、排除继承与自包含证据、重复表、检查覆盖与统计，见 12。
 feature 的 selection_branch 模式固定 selection manifest 哈希、输入分支和 reason=0，不创建重复的目标清单，见 06。
-build 固定 data_recipe 哈希、selection、全部特征快照及定位绑定、模型输入协议、就绪/失败计数。
-training_plan 独立固定 build、采样、预算、评估策略和恢复规则；不把采样权重计入 build 身份。
 
 ## Schema 演进
 

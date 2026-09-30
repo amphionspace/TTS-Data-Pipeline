@@ -23,7 +23,7 @@ run_id 使用 `tts-ann-<task>-YYYYMMDDTHHMMSSbjt-NN`，首次创建的北京时�
 | 每样本一个质量/识别/置信度结果 | annotation 分支的任务 struct 列，storage_kind=sample_branch |
 | 每样本多个事件、字词对齐、多个候选 | 独立 results.lance + targets.lance，storage_kind=result_table |
 | 文本纠错、重新转写 | annotation 分支的文本修订 struct，明确 keep/replace 等状态 |
-| 改变实际音频区间、切分 | view；不能只改 annotation 来冒充新的音频输入 |
+| 改变实际音频区间、切分 | 由 selection 产出实际片段；不能只改 annotation 来冒充新的音频输入 |
 
 极稀疏或大体积的一对一结果也可显式选择 result_table，manifest 固定布局和原因；
 不强制为少量结果创建全行结果列。稀疏空列有 bitmap/元数据开销，不承诺零存储。
@@ -69,7 +69,7 @@ missing、failed、unsupported、skipped 如何影响入选，由selection逐任
 
 一对多结果用targets记录各目标的status/input_fingerprint/error_code/item_count，
 results仅存成功事件，(target_kind,target_id,item_id)唯一。ok且item_count=0表示检查过但无事件。
-目标表固定范围并完整记账；结果表的sample/view目标必须存在，所有成功事件数与item_count对账。
+目标表固定范围并完整记账；结果表的 sample 目标必须存在，所有成功事件数与item_count对账。
 按target_id建BTREE辅助查询，索引不提供唯一性或外键保证；一对多不使用基础行位置直接对齐。
 
 ## 物理平级与逻辑依赖
@@ -132,7 +132,7 @@ selected_raw_text为选中的原始或修订字符串（也可null），normaliz
 按同一 normalization_definition 计算并核验 revision；不要求训练每步回读 annotation。
 仅实现基础文本来源的执行器，不得宣称支持任意 annotation 文本修订。
 重复组比较采用最终选用文本/语言，修订可能改变冲突和代表，必须重新全局裁决再发布selection。
-codec 发布物化时读 selection 的覆盖值；训练直接读固定 codec/build 的选用文本，不逐 step 查询 annotation；这些小列的空间需实测，不假设null完全免费。
+codec 发布物化时读 selection 的覆盖值；消费者直接读固定文本特征快照的选用文本，不逐 step 查询 annotation；这些小列的空间需实测，不假设null完全免费。
 
 ## 上游质量导入与采样
 
@@ -143,8 +143,8 @@ Wenet：`json.loads(metadata_json).get("upstream_dnsmos_p808")` → upstream_dns
 这属于导入，不声称本地重算；未经校准不混用阈值。初版selection不依赖质量时无需先导入。
 按投影批次读取metadata，不加载audio；空间统计包含struct/指纹/索引，不能只按一个float估算。
 
-annotation保留测量事实；selection固定资格/原因和采用结果；training_plan固定质量到权重的映射、语言比例与预算。
-可按需要在selection/build投影少量选用分数并记录来源，避免训练反复解析JSON；不将某次实验权重变成selection默认列。
+annotation保留测量事实；selection固定资格/原因和采用结果；训练端管理质量到权重的映射、语言比例与预算。
+可按需要在 selection 或下游消费表中投影少量选用分数并记录来源，避免训练反复解析JSON；不将某次实验权重变成selection默认列。
 
 ## 生命周期与保留
 

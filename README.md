@@ -31,7 +31,7 @@ DATA-TTS-UNIFIED/datasets/<dataset_id>/v0.1/
 ```
 
 selection在samples.lance的独立分支保存原因/flags，全局manifest与稀疏证据位于selections/；
-不复制音频。后续 views/features 位于同一 release 中，annotation 采用平级分支；codec 和 speaker 特征已有执行器。全量布局和全部契约见 [v0.1 contract](docs/data-contract/README.md)。
+不复制音频。后续 features 位于同一 release 中，annotation 采用平级分支；codec 和 speaker 特征已有执行器。全量布局和全部契约见 [v0.1 contract](docs/data-contract/README.md)。
 Lance 管理物理文件与 snapshot，文件目标约 1 GiB；不再手工按 Parquet glob 读取。
 音频原始 bytes 内嵌，source_split 固定 train，原 split/config 保留于 metadata。
 
@@ -86,3 +86,5 @@ python scripts/check_contract.py
 # tts-features 环境：包含 codec 波形、批形状、恢复、发布及文本对齐
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m pytest -q
 ```
+
+独立最终文本/语言提取（不做 token 化）：[docs/text.md](docs/text.md)。
