@@ -18,36 +18,34 @@
     },
     "timeline_profile_id": null,
     "timeline": {
-      "decoder": "soundfile",
+      "decoder": "libsndfile_memfd; system Opus, packaged library for other formats",
       "soundfile_version": "0.13.1",
       "libsndfile_version": null,
       "output_rate": "native",
       "output_channels": "native",
       "dtype": "float32",
-      "length_policy": "exact_match_base_frames",
-      "implicit_pad_or_trim": "none"
+      "length_policy": "use_complete_actual_decode",
+      "implicit_pad_or_trim": "none",
+      "metadata_frame_count": "scheduling_hint_only",
+      "decoder_libraries_sha256": null
     },
     "waveform": {
       "order": [
-        "decode_native",
-        "crop_native",
+        "decode_native_whole_sample",
         "mix_channels",
         "resample"
       ],
       "channel_policy": "arithmetic_mean_float32",
       "sample_rate": 24000,
       "resampling": {
-        "implementation": "scipy.signal.resample_poly",
-        "version": "1.15.3",
-        "up_down": "reduce_by_gcd",
-        "window": [
-          "kaiser",
-          5.0
-        ],
-        "padtype": "constant",
-        "cval": 0.0,
-        "length": "ceil(native_crop_frames * 24000 / native_sample_rate)",
-        "same_rate": "identity"
+        "implementation": "cached torchaudio.transforms.Resample(dtype=float32), native-equivalent kernel",
+        "version": null,
+        "resampling_method": "sinc_interp_hann",
+        "lowpass_filter_width": 6,
+        "rolloff": 0.99,
+        "beta": null,
+        "same_rate": "identity",
+        "length": "native torchaudio FP32 ceil, without correction"
       },
       "normalization": "none",
       "silence_trim": "none",
@@ -57,14 +55,20 @@
       "eval": true,
       "precision": "float32",
       "autocast": false,
-      "tf32": false,
       "randomness": "none",
-      "batch_semantics": "per_target_independent",
-      "padding_and_valid_lengths": null,
-      "chunking": "none"
+      "batch_semantics": "concatenate_actual_frames_with_per_sample_offsets",
+      "padding_and_valid_lengths": "no external padding; preserve native reflection",
+      "chunking": "none",
+      "min_waveform_frames": 1280,
+      "min_mel_frames": 5,
+      "torch_allow_tf32": false,
+      "matrix_multiply": "tf32x3_compensated_float32",
+      "final_projection": "original_fp32_conv1d",
+      "max_batch_size": 64,
+      "mel_frame_budget": 90000
     },
     "frontend": {
-      "function": "qwen_tts.core.models.modeling_qwen3_tts.mel_spectrogram",
+      "function": "CUDA FP32 rfft on actual STFT windows and FP32 mel projection",
       "function_sha256": null,
       "sample_rate": 24000,
       "n_fft": 1024,
@@ -74,7 +78,8 @@
       "fmin": 0,
       "fmax": 12000,
       "remaining_defaults_and_padding": null,
-      "persistent_mel_required": false
+      "persistent_mel_required": false,
+      "cpu_bitwise_equivalent": false
     },
     "output": {
       "layer": "speaker_encoder_output_before_talker_injection",
@@ -86,12 +91,12 @@
     },
     "reproducibility": {
       "comparator": "elementwise_atol_rtol",
-      "atol": null,
-      "rtol": null,
+      "atol": 1e-05,
+      "rtol": 0.0001,
       "reference_operand": "canonical",
       "comparison_dtype": "float64"
     }
   },
-  "note": "Frozen FP32 encoder candidate; downloaded config confirms D=1024. Weights, frontend defaults, batching and tolerances still require inference validation. The scipy resampler is a candidate, not equivalent by assumption to the training torchaudio path. Unfreezing uses waveform references.",
-  "profile_name": "qwen3-ecapa-0p6b-24k-fp32-v1"
+  "note": "Example only. Production profile pins weights, implementation and decoder libraries. Actual frames are packed without external padding; the original single-sample FP32 path is the independent oracle. Floating-point reduction order can differ within the fixed acceptance tolerance. Offline training integration is a separate task.",
+  "profile_name": "qwen3-ecapa-24k-fp32-packed-v1"
 }

@@ -28,6 +28,7 @@ samples 必有 sample_id BTREE；views 有 view_id 索引；独立结果表有 t
 # entry 来自校验过的 complete selection manifest；不得省略分支版本。
 import pyarrow as pa
 import pyarrow.compute as pc
+
 base = lance.dataset(root / entry["table_path"], version=entry["base_version"])
 selected = base.checkout_version((entry["branch"], entry["lance_version"]))
 for batch in selected.to_batches(
@@ -35,11 +36,16 @@ for batch in selected.to_batches(
     filter="selection_reason = 0",
     batch_size=8192,
 ):
-    process(pa.record_batch([
-        batch["sample_id"],
-        pc.coalesce(batch["selected_text"], batch["text"]),
-        pc.coalesce(batch["selected_language"], batch["language"]),
-    ], names=["sample_id", "text", "language"]))
+    process(
+        pa.record_batch(
+            [
+                batch["sample_id"],
+                pc.coalesce(batch["selected_text"], batch["text"]),
+                pc.coalesce(batch["selected_language"], batch["language"]),
+            ],
+            names=["sample_id", "text", "language"],
+        )
+    )
 ```
 
 此例用于有文本/语言覆盖列的 selection；缺少这些可选列的旧分支应显式使用基础值。

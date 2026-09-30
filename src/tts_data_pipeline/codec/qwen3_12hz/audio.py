@@ -6,27 +6,14 @@ coordinates on already-cut audio bytes. This module does not import GPU code.
 
 import hashlib
 import io
-import json
 import math
 
 import numpy as np
 import soundfile as sf
 from scipy.signal import resample_poly
 
-
-def canonical(value):
-    return json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
-    ).encode("utf-8")
-
-
-def array_sha256(array, axes):
-    array = np.asarray(array)
-    if array.dtype.kind not in "fi" or array.ndim != len(axes):
-        raise ValueError("Unsupported canonical array")
-    data = np.ascontiguousarray(array, dtype=array.dtype.newbyteorder("<"))
-    header = {"dtype": data.dtype.name, "shape": list(data.shape), "axes": axes}
-    return hashlib.sha256(canonical(header) + b"\n" + data.tobytes()).hexdigest()
+from ...feature_audio import array_sha256 as array_sha256
+from ...feature_audio import canonical as canonical
 
 
 def waveform(row):

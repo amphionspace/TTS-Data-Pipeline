@@ -41,9 +41,26 @@ codec 和 embedding 分别生成与发布，不要求同时完成。一轮任务
 - embedding_dim=D、storage_dtype=float32、normalization=none 或明确的算法/epsilon。
 - 输出层：encoder 最终输出、进入 Talker 条件注入之前；不包含 text_pad、训练 projection 或拼接结果。
 
-当前候选为训练仓库使用的冻结 Qwen ECAPA-TDNN 输出。它不使用 FA2 attention；
-安装版池化没有有效长度入参，不允许未经验证的异长补零混批。先逐条或严格等长 mel 推理。D 从实际 speaker_encoder_config.enc_dim 核实，
-不写死成 codec K、codebook size 或某一 Talker 的 hidden size。若训练有额外投影，属于模型协议。
+当前提取的是训练仓库使用的冻结 Qwen ECAPA-TDNN 输出。它不使用 FA2 attention。
+生产路径只拼接真实 mel 帧，并通过逐样本 offsets 隔离卷积边界、SE 统计和 attentive pooling；
+不添加 waveform/mel batch padding，不裁剪、不分段。原生单条或严格等长推理保留为独立数值参考。
+原生 mel 前处理和 encoder 卷积的 reflection padding 保留，它们属于模型算法，不是 batch 补齐。
+D 从实际 speaker_encoder_config.enc_dim 核实；当前缓存模型为 1024 维，不写死成 codec K、codebook size 或某一 Talker 的 hidden size。若训练有额外投影，属于模型协议。
+
+FP32 波形前处理遵循训练语义：完整原生解码、float32 声道均值、
+默认 sinc_interp_hann 重采样到 24 kHz。缓存的 `Resample(dtype=torch.float32)` 与原生 functional 内核逐值一致。
+解码通过内存文件避免 Python 回调争用；仅 Opus 使用经过波形摘要对照的系统 libsndfile，
+其余格式保留原有库，profile 固定对应库摘要。mel 在 GPU 上按原生窗、反射边界和公式计算。
+不能沿用 codec 的 scipy 重采样替代它。torchaudio 内部以 FP32 计算输出帧数并向上取整，
+少数输入的结果与精确整数比例公式相差一帧；必须保留原生输出，分组预测遵循同一长度计算，
+不能通过补齐或截断“修正”它。实际 waveform/mel 长度决定 offsets，头信息只用于调度。
+卷积使用补偿 TF32x3 的 FP32 路径，最终投影保持原生 FP32；普通 Torch/cuDNN TF32 和 autocast 关闭。
+GPU FFT、矩阵乘法和分段归约的运算顺序与原生单条不同，不承诺逐位等同；
+必须满足既定逐元素 `atol=1e-5, rtol=1e-4`，写盘摘要仍严格逐字节校验。
+原生 encoder 至少需要 5 个 mel 帧（该 frontend 下为 1280 个 24 kHz 波形帧）；
+不足时记录失败，不延长音频。帧数以实际解码结果为准，base/容器头的帧数仅用于调度预估，不因帧数差异丢弃样本，也不据此补齐或截断波形；采样率、声道仍须一致。成功行的 `end_frame` 使用实际解码的原生帧数；前处理后的实际输入长度和摘要写入 `encoder_input_*`，分组以实际 mel 形状为准。计算与存储均为 FP32，关闭 autocast、普通 TF32，权重由缓存 checkpoint 的原始值转换为 FP32。
+严格等长 batch 与逐条推理仍可能因底层算子计算顺序产生微小数值差异，
+按 profile 的 `atol=1e-5, rtol=1e-4` 对照同权重原生逐条 FP32 验收；存储回读与摘要检查仍必须精确。
 默认保存 encoder 原始输出，不擅自 L2 normalize；模型原本输出是否归一化亦需核对实现。
 
 若 speaker 权重取自完整 TTS checkpoint，建议导出独立 speaker artifact，固定 tensor names、shape、dtype、

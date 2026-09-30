@@ -31,7 +31,7 @@ DATA-TTS-UNIFIED/datasets/<dataset_id>/v0.1/
 ```
 
 selection在samples.lance的独立分支保存原因/flags，全局manifest与稀疏证据位于selections/；
-不复制音频。后续 views/features 位于同一 release 中，annotation采用平级分支，执行器尚待实现。全量布局和全部契约见 [v0.1 contract](docs/data-contract/README.md)。
+不复制音频。后续 views/features 位于同一 release 中，annotation 采用平级分支；codec 和 speaker 特征已有执行器。全量布局和全部契约见 [v0.1 contract](docs/data-contract/README.md)。
 Lance 管理物理文件与 snapshot，文件目标约 1 GiB；不再手工按 Parquet glob 读取。
 音频原始 bytes 内嵌，source_split 固定 train，原 split/config 保留于 metadata。
 
@@ -67,11 +67,13 @@ for batch in ds.to_batches(columns=["sample_id", "text", "language"], batch_size
 selection存储验证与性能见 [验证报告](docs/design-review/selection-validation.md)，codec决定见 [提取计划](docs/design-review/feature-extraction-plan.md)。
 正式selection入口与规则见 [selection执行说明](docs/selection.md)；codec 已通过 8 卡实测和用户抽样试听，
 正式执行入口与状态见 [codec 执行说明](docs/codec.md)，结果与边界见 [codec 验证](docs/design-review/codec-inference-validation.md)。
-上述为历史通过范围，旧全量 codec 已退役，unified 中旧 codec 输出和状态已按用户要求删除。逐来源区间核查与独立 padding 对照已补做；当前默认为已整理的固定计算 packed BF16；长度 policy 已删除，不承诺与官方逐 token 一致。新的全量启动已暂停，正在比较 FP32。
+旧全量 codec 已退役。当前保留 BF16 与 FP32 路径，生产使用已验证的 FP32；长度 policy 已删除，不承诺跨计算顺序逐 token 一致。运行进度以对应 work 的状态文件为准。
 当前代码职责和入口见 [codec 说明](docs/codec.md)，BF16 精度与实际吞吐见 [验收报告](docs/design-review/codec-bf16-experiments.md)。
 
+speaker 的 FP32 无补齐提取、验收与恢复见 [speaker 执行说明](docs/speaker.md)。
+
 src 保存生产逻辑；scripts 保存运行入口与数据/contract 检查器。
-已清理退役的 A/B 路径和一次性试验脚本；tests 保留转换、selection、contract 与当前 codec 的回归检查。
+已清理退役的 A/B 路径和一次性试验脚本；tests 保留转换、selection、contract、codec 与 speaker 的回归检查。
 reports、artifacts 和缓存被 Git 忽略。原始数据只读。
 
 基础环境运行转换/存储检查，特征环境包含 codec 的 CPU 回归；真实 GPU 数值验收另见验证记录。
