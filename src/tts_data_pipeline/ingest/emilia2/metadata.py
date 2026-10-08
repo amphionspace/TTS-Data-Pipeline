@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import tarfile
 from collections import Counter
 from pathlib import Path
@@ -215,10 +216,17 @@ def scan_archive(job):
         if buffer:
             writer.write_table(pa.Table.from_pylist(buffer, schema=CANDIDATE_SCHEMA))
     check_source(root, source)
+    # Publish a checkpoint only after a durable write and matching readback.
+    with temp.open("r+b") as stream:
+        os.fsync(stream.fileno())
+    expected_sha256 = file_hash(temp)
     temp.replace(output)
+    actual_sha256 = file_hash(output)
+    if actual_sha256 != expected_sha256:
+        raise ValueError(f"Partition readback mismatch: {output}")
     report = dict(
         source=source,
-        sha256=file_hash(output),
+        sha256=actual_sha256,
         counts=dict(counts),
         types=dict(types),
         json_payload_sha256=payload_hash.hexdigest(),

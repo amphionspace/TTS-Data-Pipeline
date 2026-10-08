@@ -59,7 +59,7 @@ def deduplicate(work):
                 rep = json.loads(checkpoint.read_text())
                 path = checkpoint.with_suffix(".parquet")
                 if rep["source"] != source or rep["sha256"] != file_hash(path):
-                    raise ValueError("Unverified candidate partition")
+                    raise ValueError(f"Unverified candidate partition: {path}")
                 inputs.append(dict(path=str(path.relative_to(work)), sha256=rep["sha256"]))
                 pos = 0
                 for batch in pq.ParquetFile(path).iter_batches(

@@ -161,3 +161,25 @@ def test_empty_winner_archive_has_no_fragments(tmp_path):
     from tts_data_pipeline.writer import write_batches
 
     assert list(write_batches(iter([]), tmp_path / "samples.lance")) == []
+
+
+def test_unstable_partition_readback_never_creates_checkpoint(tmp_path, monkeypatch):
+    from tts_data_pipeline.ingest.emilia2 import metadata
+
+    root = tmp_path / "raw"
+    root.mkdir()
+    source = make_source(root, "data/a.tar")
+    real_hash = metadata.file_hash
+
+    def inconsistent_read(path):
+        return "0" * 64 if Path(path).suffix == ".parquet" else real_hash(path)
+
+    monkeypatch.setattr(metadata, "file_hash", inconsistent_read)
+    work = tmp_path / "work"
+    with pytest.raises(ValueError, match="Partition readback mismatch"):
+        scan_archive((root, work, 0, source))
+    assert not (work / "metadata/00000.json").exists()
+    # Retrying from the pinned source rebuilds the uncheckpointed partition.
+    monkeypatch.setattr(metadata, "file_hash", real_hash)
+    repaired = scan_archive((root, work, 0, source))
+    assert repaired["sha256"] == real_hash(work / "metadata/00000.parquet")
