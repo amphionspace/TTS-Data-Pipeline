@@ -16,7 +16,6 @@
 | feature-manifest.example.json | codec run 的固定输入/快照/完整终态记账示例 |
 | feature-subset-manifest.example.json | 100 个 samples 中选择两个的 run；绑定 targets 表 |
 | feature-targets.example.json | 上述子集的真实合成 ID 和目标集合摘要输入 |
-| training-modes.example.json | 冻结/在线、speaker-only/ICL 和 self 的条件字段投影 |
 | selection-rules.example.json | 合成训练规则、原因优先级、语言alias；时长阈值仅为例子 |
 | selection-manifest.example.json | 两个合成数据集组成的完整 selection 元数据，不对应生产分支 |
 

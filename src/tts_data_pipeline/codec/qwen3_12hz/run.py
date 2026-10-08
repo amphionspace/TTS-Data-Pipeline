@@ -35,7 +35,7 @@ from ...feature_runtime import (
 from ...schema import digest
 from ...timestamps import BEIJING
 from ...writer import remove_uncommitted_data_files
-from .audio import array_sha256, validate_codes, waveform
+from .audio import array_sha256, decode, validate_codes
 from .encoder import Encoder
 from .profile import feature_row, profile
 from .text import materialize_text
@@ -270,19 +270,33 @@ def run_task(args):
 
     # At most two canonical batches decoded ahead (~960 audio seconds), independent of task size.
     def submit(indices):
-        return [(i, _DECODERS.submit(waveform, rows[i])) for i in indices]
+        return [(i, _DECODERS.submit(decode, rows[i])) for i in indices]
 
     pending = submit(batches[0][2]) if batches else []
     results = [None] * len(rows)
     encode_seconds = 0.0
+    audio_seconds = 0.0
+    frame_count_mismatches = []
     for at, (_, _, indices) in enumerate(batches):
-        waves = [future.result() for _, future in pending]
+        decoded = [future.result() for _, future in pending]
+        waves = [wave for wave, _ in decoded]
         pending = submit(batches[at + 1][2]) if at + 1 < len(batches) else []
         t = time.perf_counter()
         outputs = _ENCODER.encode_many(waves)
         encode_seconds += time.perf_counter() - t
-        for i, wave, codes in zip(indices, waves, outputs, strict=True):
-            results[i] = feature_row(rows[i], p["profile"], wave, codes)
+        for i, (wave, native_frames), codes in zip(indices, decoded, outputs, strict=True):
+            results[i] = feature_row(
+                rows[i], p["profile"], wave, codes, native_frames=native_frames
+            )
+            audio_seconds += native_frames / rows[i]["sample_rate"]
+            if native_frames != rows[i]["num_frames"]:
+                frame_count_mismatches.append(
+                    dict(
+                        sample_id=rows[i]["sample_id"],
+                        base_frames=rows[i]["num_frames"],
+                        decoded_frames=native_frames,
+                    )
+                )
     table = pa.Table.from_pylist(results, schema=SCHEMA)
     destination = Path(d["stage"]) / "features.lance"
     fragments = write_fragments(
@@ -313,7 +327,8 @@ def run_task(args):
         "fragments": [f.to_json() for f in fragments],
         "files": files,
         "rows": len(rows),
-        "audio_seconds": sum(r["num_frames"] / r["sample_rate"] for r in rows),
+        "audio_seconds": audio_seconds,
+        "frame_count_mismatches": frame_count_mismatches,
         "encode_seconds": encode_seconds,
         "wall_seconds": time.perf_counter() - started,
         "payloads_validated": True,

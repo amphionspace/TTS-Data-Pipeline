@@ -21,7 +21,7 @@ def make_feature_run_id(dataset_id, kind, profile_name, created_at, sequence=1):
     validate_profile_name(profile_name)
     if not isinstance(dataset_id, str) or re.fullmatch(r"[a-z][a-z0-9_]*", dataset_id) is None:
         raise ValueError("Invalid dataset_id")
-    if kind not in {"codec", "speaker_embedding", "text"}:
+    if kind not in {"codec", "speaker_embedding", "text", "merged"}:
         raise ValueError("Invalid feature kind")
     if type(sequence) is not int or sequence < 1:
         raise ValueError("Run sequence must be a positive integer")
@@ -165,75 +165,3 @@ def validate_feature_coverage(manifest):
     else:
         raise ValueError("Unknown selection mode")
     # Sample identity and source membership are verified against the pinned input table.
-
-
-def validate_speaker_mode(recipe, record):
-    """Check conditional training inputs; identity/profile/payload validation is separate."""
-    protocol, pairing = recipe["model_protocol"], recipe["reference_pairing"]
-    mode = recipe["speaker_conditioning_mode"]
-    conditioning = protocol["conditioning"]
-    uses_speaker = protocol["uses_speaker_conditioning"]
-    needs_text = protocol["requires_reference_text"]
-    trainable = recipe["speaker_encoder_trainable"]
-    if conditioning not in {"speaker_only", "icl"}:
-        raise ValueError("Unknown conditioning protocol")
-    if any(
-        type(v) is not bool
-        for v in (uses_speaker, needs_text, trainable, recipe["require_reference_codec"])
-    ):
-        raise ValueError("Conditioning flags must be booleans")
-    if recipe["require_reference_codec"] != (conditioning == "icl"):
-        raise ValueError("Reference codec requirement must match the model protocol")
-    if conditioning == "speaker_only" and (not uses_speaker or needs_text):
-        raise ValueError("Speaker-only requires a speaker input and no reference text")
-    count = pairing["reference_count"]
-    if type(count) is not int or count < 1:
-        raise ValueError("Reference count must be positive")
-    if any(
-        type(pairing[k]) is not bool
-        for k in ("require_confirmed_same_speaker", "allow_same_segment", "allow_time_overlap")
-    ):
-        raise ValueError("Reference pairing flags must be booleans")
-    if recipe["reference_policy"] == "self":
-        if count != 1 or not pairing["allow_same_segment"] or not pairing["allow_time_overlap"]:
-            raise ValueError("Self-reference must explicitly allow the same segment and overlap")
-    elif recipe["reference_policy"] == "other_same_speaker":
-        if (
-            not pairing["require_confirmed_same_speaker"]
-            or pairing["allow_same_segment"]
-            or pairing["allow_time_overlap"]
-        ):
-            raise ValueError("Other-same-speaker policy requires confirmed nonoverlapping segments")
-    else:
-        raise ValueError("Unknown reference policy")
-
-    def require_items(field, required):
-        value = record.get(field)
-        if required:
-            if not isinstance(value, list) or len(value) != count or any(v is None for v in value):
-                raise ValueError(f"{field} must contain one item per ordered reference")
-        elif value is not None and value != []:
-            raise ValueError(f"{field} is inactive in this conditioning mode")
-
-    embedding_profile = recipe.get("speaker_feature_profile_id")
-    frontend_profile = recipe.get("speaker_frontend_profile")
-    if uses_speaker and mode == "frozen_embedding":
-        if trainable or not embedding_profile or frontend_profile is not None:
-            raise ValueError(
-                "Frozen embedding requires a fixed embedding profile and frozen encoder"
-            )
-    elif uses_speaker and mode == "online_speaker_encoder":
-        if embedding_profile is not None or not frontend_profile:
-            raise ValueError(
-                "Online speaker requires a frontend profile, not a cached embedding profile"
-            )
-    elif not uses_speaker and mode is None:
-        if trainable or embedding_profile is not None or frontend_profile is not None:
-            raise ValueError("Disabled speaker conditioning cannot require speaker inputs")
-    else:
-        raise ValueError("Speaker mode disagrees with the model protocol")
-    require_items("reference_embeddings", uses_speaker and mode == "frozen_embedding")
-    require_items("ordered_reference_ids", True)
-    require_items("reference_audio", uses_speaker and mode == "online_speaker_encoder")
-    require_items("reference_codes", conditioning == "icl")
-    require_items("reference_texts", needs_text)

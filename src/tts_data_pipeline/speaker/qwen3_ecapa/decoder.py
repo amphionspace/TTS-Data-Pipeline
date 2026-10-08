@@ -66,6 +66,11 @@ def read_audio(raw):
         packet = 27 + raw[26]
         if raw[packet : packet + 8] == b"OpusHead":
             return read_opus(raw)
+    return read_native_audio(raw)
+
+
+def read_native_audio(raw):
+    """Packaged libsndfile on a memory file, including Opus (codec timeline)."""
     fd = libc.memfd_create(b"speaker-audio", 1)
     if fd < 0:
         raise OSError(ctypes.get_errno(), "memfd_create failed")

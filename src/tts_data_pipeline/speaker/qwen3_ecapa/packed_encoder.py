@@ -17,8 +17,9 @@ MEL_FRAME_BUDGET = 90000
 
 
 class Encoder(NativeEncoder):
-    def __init__(self, model_root, gpu, memory_fraction=0.25):
+    def __init__(self, model_root, gpu, memory_fraction=0.25, mel_frame_budget=MEL_FRAME_BUDGET):
         super().__init__(model_root, gpu, memory_fraction)
+        self.mel_frame_budget = mel_frame_budget
         self.frontend = GPUMel(self.device)
         self.network = Packed(self.model)
         self.encode_seconds = 0.0
@@ -29,16 +30,20 @@ class Encoder(NativeEncoder):
         return self.network(self.frontend(waves))
 
     def extract(self, rows, decoders):
+        def native_length(row):
+            ref = row.get("reference")
+            return max(1, ref["end_frame"] - ref["start_frame"]) if ref else row["num_frames"]
+
         indices = sorted(
             range(len(rows)),
-            key=lambda i: resampled_frames(rows[i]["num_frames"], rows[i]["sample_rate"]),
+            key=lambda i: resampled_frames(native_length(rows[i]), rows[i]["sample_rate"]),
         )
         batches = []
         batch = []
         frames = 0
         for i in indices:
-            length = resampled_frames(rows[i]["num_frames"], rows[i]["sample_rate"]) // 256
-            if batch and (len(batch) == MAX_BATCH or frames + length > MEL_FRAME_BUDGET):
+            length = resampled_frames(native_length(rows[i]), rows[i]["sample_rate"]) // 256
+            if batch and (len(batch) == MAX_BATCH or frames + length > self.mel_frame_budget):
                 batches.append(batch)
                 batch = []
                 frames = 0
@@ -69,9 +74,15 @@ class Encoder(NativeEncoder):
             start = time.perf_counter()
             if valid:
                 output = self.packed([mel.to(self.device) for i, mel, info in valid]).cpu().numpy()
-                assert output.shape == (len(valid), 1024) and np.isfinite(output).all()
+                if output.shape != (len(valid), 1024):
+                    raise ValueError("Unexpected speaker output shape")
                 for (i, mel, info), y in zip(valid, output, strict=True):
-                    results[i] = (info, y, None)
+                    if not np.isfinite(y).all() or np.linalg.norm(y) == 0:
+                        results[i] = (info, None, "invalid_speaker_embedding")
+                    else:
+                        results[i] = (info, y, None)
+                if all(results[i][2] for i, _, _ in valid):
+                    raise ValueError("All speaker outputs in batch are invalid")
                 self.batch_sizes[len(valid)] += 1
             self.encode_seconds += time.perf_counter() - start
             for i, (_, info, error) in zip(ids, decoded, strict=True):

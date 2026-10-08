@@ -21,7 +21,12 @@ def make_table(rows, values, definition):
         if vector is not None:
             vectors[i] = vector
             missing[i] = False
-    schema = speaker_embedding_schema(dimension)
+    if "reference" in definition:
+        from .reference import schema as reference_schema
+
+        schema = reference_schema(dimension)
+    else:
+        schema = speaker_embedding_schema(dimension)
     metadata_schema = pa.schema([field for field in schema if field.name != "embedding"])
     metadata = pa.Table.from_pylist(records, schema=metadata_schema)
     embedding = pa.FixedSizeListArray.from_arrays(
@@ -43,3 +48,19 @@ def validate_table(table):
     for i, row in enumerate(metadata):
         row["embedding"] = None if nulls[i] else actual[i]
         validate_result(row)
+        if "reference_codec_start" in row and row["status"] == "ok":
+            from .reference import validate
+
+            total, rate = row["reference_native_total_frames"], row["native_sample_rate"]
+            validate(
+                row,
+                dict(
+                    target_id=row["target_id"],
+                    audio_sha256=row["audio_sha256"],
+                    native_sample_rate=rate,
+                    start_frame=0,
+                    end_frame=total,
+                    feature_key=row["reference_codec_feature_key"],
+                    num_codec_frames=((total * 24000 + rate - 1) // rate + 1919) // 1920,
+                ),
+            )

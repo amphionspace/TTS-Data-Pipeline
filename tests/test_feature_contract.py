@@ -1,4 +1,4 @@
-"""Regression checks for feature identity, selection coverage and conditional inputs."""
+"""Regression checks for feature identity, selection coverage."""
 
 import copy
 import hashlib
@@ -16,7 +16,6 @@ from tts_data_pipeline.feature_contract import (
     make_feature_run_id,
     target_set_sha256,
     validate_feature_coverage,
-    validate_speaker_mode,
 )
 from tts_data_pipeline.timestamps import parse_timestamp
 
@@ -148,47 +147,6 @@ def test_subset_lance_preserves_samples_and_pinned_selection(tmp_path):
         target_set_sha256([rows[0], rows[0]])
     with pytest.raises(ValueError, match="sorted"):
         target_set_sha256(reversed(rows))
-
-
-@pytest.mark.parametrize("case", example("training-modes")["cases"], ids=lambda case: case["name"])
-def test_valid_conditioning_modes(case):
-    validate_speaker_mode(case["recipe"], case["record"])
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        "trainable_cache",
-        "missing_audio",
-        "stale_embedding",
-        "missing_codes",
-        "self_flags",
-        "wrong_codec_flag",
-        "missing_identity",
-    ],
-)
-def test_invalid_conditioning_modes(mutation):
-    cases = {case["name"]: copy.deepcopy(case) for case in example("training-modes")["cases"]}
-    case = cases["frozen_speaker_only"]
-    if mutation == "trainable_cache":
-        case["recipe"]["speaker_encoder_trainable"] = True
-    elif mutation in {"missing_audio", "stale_embedding"}:
-        case = cases["online_speaker_only"]
-        if mutation == "missing_audio":
-            del case["record"]["reference_audio"]
-        else:
-            case["record"]["reference_embeddings"] = [{"embedding": [0.1]}]
-    elif mutation == "missing_codes":
-        case = cases["frozen_icl"]
-        del case["record"]["reference_codes"]
-    elif mutation == "self_flags":
-        case["recipe"]["reference_policy"] = "self"
-    elif mutation == "wrong_codec_flag":
-        case["recipe"]["require_reference_codec"] = True
-    else:
-        del case["record"]["ordered_reference_ids"]
-    with pytest.raises(ValueError):
-        validate_speaker_mode(case["recipe"], case["record"])
 
 
 def test_selection_branch_requires_pinned_manifest_and_exact_filter():

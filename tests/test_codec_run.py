@@ -25,7 +25,7 @@ TEXT_SOURCES = {
 }
 
 
-def fixture(tmp_path):
+def fixture(tmp_path, frame_hint_offset=0):
     rows = []
     for i in range(9):
         buffer = io.BytesIO()
@@ -49,6 +49,8 @@ def fixture(tmp_path):
                 language="en-US",
             )
         )
+    for row in rows:
+        row["num_frames"] += frame_hint_offset
     ds = lance.write_dataset(
         pa.Table.from_pylist(rows, schema=base_schema()),
         tmp_path / "samples.lance",
@@ -160,6 +162,26 @@ def test_target_set_digest_matches_contract():
     assert run.sorted_set_hash(np.asarray(ids, dtype="S64")) == expected
     with pytest.raises(ValueError, match="Duplicate"):
         run.sorted_set_hash(np.asarray([ids[0], ids[0]], dtype="S64"))
+
+
+def test_actual_frames_reach_checkpoint_and_stored_identity(tmp_path, monkeypatch):
+    from lance.file import LanceFileReader
+
+    _, p, d = fixture(tmp_path, frame_hint_offset=2)
+    with ThreadPoolExecutor(2) as decoders:
+        setup_worker(monkeypatch, p, d, decoders)
+        for task in d["tasks"]:
+            checkpoint = run.run_task(("example", task))
+            assert len(checkpoint["frame_count_mismatches"]) == task["rows"]
+            for entry in checkpoint["frame_count_mismatches"]:
+                assert entry["base_frames"] == entry["decoded_frames"] + 2
+            for entry in checkpoint["files"]:
+                path = Path(d["stage"]) / "features.lance/data" / entry["name"]
+                for batch in LanceFileReader(str(path)).read_all().to_batches():
+                    for row in batch.to_pylist():
+                        run.validate_result(row)
+                        assert row["end_frame"] == row["encoder_input_num_frames"]
+                        assert checkpoint["audio_seconds"] == row["end_frame"] / 24000
 
 
 def test_publish_recovery_text_and_flat_run_path(tmp_path, monkeypatch):

@@ -15,7 +15,8 @@ DATA-TTS-UNIFIED/
 │   │       └── features/
 │   │           ├── codec/<run_id>/{manifest.json,features.lance/}
 │   │           ├── speaker_embedding/<run_id>/{manifest.json,features.lance/}
-│   │           └── text/<run_id>/{manifest.json,features.lance/}
+│   │           ├── text/<run_id>/{manifest.json,features.lance/}
+│   │           └── merged/<run_id>/{manifest.json,features.lance/}
 │   └── mls_sidon/v0.1/...
 ├── annotations/<task>/<run_id>/manifest.json  # 统一发布一个或多个dataset的任务输出
 └── selections/<selection_id>/{manifest.json,rules.json,exclusions.jsonl,exclusion_changes.jsonl,duplicates.lance/}
@@ -52,7 +53,8 @@ annotation/selection 在 samples.lance 的独立分支增列，分支文件由�
 普通读取只接受 complete manifest 引用的 snapshot。不读取 incomplete、临时 batch 输出或未发布的最新版本。
 清理之前按 manifest 依赖判断可达性；整个 `.lance` 目录不是可随意清理的缓存。
 
-codec、speaker embedding 和 text 独立发布；音频特征见 [06](06-codecs.md)，文本见 [13](13-text-features.md)。
+codec、speaker embedding 和 text 独立发布并保留；merged 为额外生成的合并表，见 [13](13-text-features.md)。
+音频特征见 [06](06-codecs.md)，文本见 [13](13-text-features.md)。
 feature 的 selection_branch 模式直接固定已发布 selection 的分支，不重复写 targets；任意额外子集仍固定 targets.lance，见 06。
 下游消费者固定所需 manifest、表路径、分支和版本。被引用的快照及数据文件必须保留；
 清理需同时检查数据端依赖和已登记的下游引用。分支、重复证据和保留规则见 12。

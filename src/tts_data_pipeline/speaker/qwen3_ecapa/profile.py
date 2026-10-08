@@ -160,7 +160,7 @@ def feature_row(
         audio_sha256=row["audio_sha256"],
         timeline_profile_id=definition["timeline_profile_id"],
         native_sample_rate=row["sample_rate"],
-        start_frame=0,
+        start_frame=info.get("start_frame", 0),
         end_frame=info.get("end_frame", row["num_frames"]),
         profile_id=pid,
     )
@@ -172,7 +172,7 @@ def feature_row(
                 "feature-v1",
                 row["audio_sha256"],
                 definition["timeline_profile_id"],
-                0,
+                identity["start_frame"],
                 identity["end_frame"],
                 pid,
             ]
@@ -234,7 +234,7 @@ def validate_result(row):
         raise ValueError("Invalid speaker failure record")
 
 
-def profile(model_root):
+def profile(model_root, reference_seed=None):
     """Production numerical profile; launch/resume binds exact implementation and libraries."""
     from .decoder import DECODER_LIBRARIES
     from .packed_encoder import MAX_BATCH, MEL_FRAME_BUDGET
@@ -268,4 +268,22 @@ def profile(model_root):
         max_batch_size=MAX_BATCH,
         mel_frame_budget=MEL_FRAME_BUDGET,
     )
+    if reference_seed is not None:
+        from .reference import policy
+
+        definition["reference"] = policy(reference_seed)
+        definition["implementation"]["sources_sha256"]["reference"] = file_hash(
+            Path(__file__).with_name("reference.py")
+        )
+        definition["timeline"]["decoder"] = (
+            "packaged soundfile memfd, matching codec native timeline"
+        )
+        definition["timeline"]["length_policy"] = "verify_codec_actual_length_then_crop_reference"
+        definition["timeline_profile_id"] = digest(definition["timeline"])
+        definition["waveform"]["order"] = [
+            "decode_native",
+            "crop_codec_grid_reference",
+            "mix_channels",
+            "resample",
+        ]
     return definition

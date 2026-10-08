@@ -50,11 +50,30 @@ INPUT_COLUMNS = [
 ]
 
 
-def prepare(targets_plan, work, model_root, acceptance, *, output_root=None, datasets=None):
+def prepare(
+    targets_plan,
+    work,
+    model_root,
+    acceptance,
+    *,
+    output_root=None,
+    datasets=None,
+    reference_sources_plan=None,
+    reference_seed=20261008,
+):
     """Reuse the already-audited pinned codec target plan, never its codec feature outputs."""
     work = Path(work).resolve()
     original = json.loads(Path(targets_plan).read_text())
-    definition = profile(model_root)
+    definition = profile(model_root, reference_seed if reference_sources_plan else None)
+    reference_sources = {}
+    if reference_sources_plan:
+        reference_sources = {
+            d["source"]["dataset_id"]: d["sources"]["codec"]
+            for d in json.loads(Path(reference_sources_plan).read_text())["datasets"]
+        }
+    profile_name = PROFILE_NAME
+    if reference_sources_plan:
+        from .reference import PROFILE_NAME as profile_name
     accepted = json.loads(Path(acceptance).read_text())
     if not accepted.get("production_speaker_accepted") or accepted["profile_id"] != digest(
         definition
@@ -81,7 +100,7 @@ def prepare(targets_plan, work, model_root, acceptance, *, output_root=None, dat
         inputs=original["inputs"],
         profile=definition,
         profile_id=digest(definition),
-        profile_name=PROFILE_NAME,
+        profile_name=profile_name,
         acceptance_path=str(Path(acceptance).resolve()),
         acceptance_sha256=file_hash(acceptance),
         execution_code_sha256=file_hash(__file__),
@@ -104,7 +123,14 @@ def prepare(targets_plan, work, model_root, acceptance, *, output_root=None, dat
             or d["target_count"] != source["selected_rows"]
         ):
             raise ValueError("Target plan row coverage disagrees")
-        run_id = make_feature_run_id(name, "speaker_embedding", PROFILE_NAME, created)
+        if reference_sources_plan:
+            d["reference_codec_source"] = reference_sources[name]
+            offset = 0
+            d["tasks"] = [dict(t) for t in d["tasks"]]
+            for t in d["tasks"]:
+                t["reference_offset"] = offset
+                offset += t["rows"]
+        run_id = make_feature_run_id(name, "speaker_embedding", profile_name, created)
         release = Path(output_root) / "datasets" / name / source["release_id"]
         final = release / "features/speaker_embedding" / run_id
         d.update(
@@ -141,7 +167,7 @@ def validate_plan(p):
         file_hash(p["selection_path"]) != p["selection_sha256"]
         or file_hash(p["acceptance_path"]) != p["acceptance_sha256"]
         or file_hash(__file__) != p["execution_code_sha256"]
-        or profile(p["model_root"]) != p["profile"]
+        or profile(p["model_root"], p["profile"].get("reference", {}).get("seed")) != p["profile"]
     ):
         raise ValueError("Pinned input, implementation, or numerical profile changed")
     accepted = json.loads(Path(p["acceptance_path"]).read_text())
@@ -150,6 +176,11 @@ def validate_plan(p):
     for item in accepted["evidence"]:
         if file_hash(item["path"]) != item["sha256"]:
             raise ValueError("Acceptance evidence changed")
+    for d in p["datasets"]:
+        if "reference_codec_source" in d:
+            item = d["reference_codec_source"]
+            if file_hash(item["manifest_path"]) != item["manifest_sha256"]:
+                raise ValueError("Pinned reference codec changed")
     for item in p["inputs"]:
         if file_hash(Path(p["root"]) / item["manifest_path"]) != item["manifest_sha256"]:
             raise ValueError("Base manifest changed")
@@ -177,6 +208,18 @@ def read_task(p, d, task):
         or ordered_hash([r["sample_id"] for r in rows]) != task["ordered_ids_sha256"]
     ):
         raise ValueError("Task target set changed")
+    if "reference_codec_source" in d:
+        from .reference import attach
+
+        attach(
+            rows,
+            d["reference_codec_source"],
+            task,
+            d["state"],
+            p["profile"]["reference"]["seed"],
+            d["source"]["dataset_id"],
+            d["source"]["release_id"],
+        )
     return rows, started
 
 
@@ -214,6 +257,14 @@ def write_task(p, d, task, rows, values, started, hardware):
         hardware=hardware,
         error_counts=dict(Counter(error for _, _, error in values if error)),
     )
+    if "reference" in p["profile"]:
+        reference_path = Path(d["state"]) / "references" / f"{task['id']}.arrow"
+        checkpoint["reference_plan_sha256"] = file_hash(reference_path)
+        checkpoint["reference_audio_seconds"] = sum(
+            (info["end_frame"] - info["start_frame"]) / r["sample_rate"]
+            for r, (info, _, error) in zip(rows, values, strict=True)
+            if not error
+        )
     write_json(Path(d["state"]) / "checkpoints" / f"{task['id']}.json", checkpoint)
     return checkpoint
 
@@ -223,7 +274,12 @@ def worker(gpu, p, jobs, results, decode_threads):
     try:
         pa.set_cpu_count(2)
         pa.set_io_thread_count(2)
-        encoder = Encoder(p["model_root"], gpu)
+        encoder = Encoder(
+            p["model_root"],
+            gpu,
+            memory_fraction=p.get("memory_fraction", 0.25),
+            mel_frame_budget=p.get("mel_frame_budget", 90000),
+        )
         sources = {d["source"]["dataset_id"]: d for d in p["datasets"]}
         with (
             ThreadPoolExecutor(max_workers=decode_threads) as decoders,
@@ -242,6 +298,14 @@ def worker(gpu, p, jobs, results, decode_threads):
                 if following is not None:
                     future = reader.submit(read_task, p, sources[following[0]], following[1])
                 values = encoder.extract(rows, decoders)
+                if "reference" in p["profile"]:
+                    unexpected = sum(
+                        bool(error) and error != "no_legal_reference" for _, _, error in values
+                    )
+                    if unexpected >= max(16, len(values) // 4):
+                        raise RuntimeError(
+                            "Widespread reference extraction failures; task not committed"
+                        )
                 if written is not None:
                     results.put(("checkpoint", written.result()))
                 written = writer.submit(
@@ -278,11 +342,15 @@ def finalize(p, d):
     ]
     destination = stage / "features.lance"
     previous = lance.dataset(destination).version if (destination / "_versions").exists() else 0
+    dimension = p["profile"]["output"]["embedding_dim"]
+    schema = speaker_embedding_schema(dimension)
+    if "reference" in p["profile"]:
+        from .reference import schema as reference_schema
+
+        schema = reference_schema(dimension)
     ds = lance.LanceDataset.commit(
         destination,
-        lance.LanceOperation.Overwrite(
-            speaker_embedding_schema(p["profile"]["output"]["embedding_dim"]), fragments
-        ),
+        lance.LanceOperation.Overwrite(schema, fragments),
         read_version=previous,
     )
     ids = np.empty(d["target_count"], dtype="S64")
@@ -408,13 +476,22 @@ def finalize(p, d):
         },
         "finished_at": datetime.now(BEIJING).isoformat(),
     }
+    if "reference_codec_source" in d:
+        manifest["inputs"].append(
+            dict(alias="reference_codec", artifact_kind="feature", **d["reference_codec_source"])
+        )
+        manifest["execution"]["reference_audio_seconds"] = sum(
+            c["reference_audio_seconds"] for c in checkpoints
+        )
     validate_feature_coverage(manifest)
     write_json(stage / "manifest.json", manifest)
     stage.rename(final)
     return manifest
 
 
-def run(work, gpus, decode_threads=16, *, max_tasks=None):
+def run(
+    work, gpus, decode_threads=16, *, max_tasks=None, memory_fraction=0.25, mel_frame_budget=90000
+):
     """Resume verified checkpoints; max_tasks supports a bounded launch/recovery test."""
     work = Path(work)
     with (work / "run.lock").open("w") as lock:
@@ -423,6 +500,8 @@ def run(work, gpus, decode_threads=16, *, max_tasks=None):
         validate_plan(p)
         owner = digest(p)
         p["gpus"] = gpus
+        p["memory_fraction"] = memory_fraction
+        p["mel_frame_budget"] = mel_frame_budget
         jobs = []
         done = 0
         audio_seconds = 0.0

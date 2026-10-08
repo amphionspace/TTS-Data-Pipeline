@@ -5,7 +5,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from tts_data_pipeline.codec import array_sha256, validate_codes, waveform
+from tts_data_pipeline.codec.qwen3_12hz.audio import array_sha256, decode, validate_codes, waveform
+from tts_data_pipeline.codec.qwen3_12hz.profile import feature_row
 
 
 def audio_row():
@@ -33,7 +34,6 @@ def test_full_sample_not_source_timestamp_crop():
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("num_frames", 22050),
         ("sample_rate", 24000),
         ("channels", 1),
         ("audio_sha256", "0" * 64),
@@ -68,3 +68,18 @@ def test_array_digest_canonicalizes_byte_order_and_memory_layout():
     assert array_sha256(codes.astype(">i2"), ["time", "codebook"]) == expected
     assert array_sha256(np.asfortranarray(codes), ["time", "codebook"]) == expected
     assert array_sha256(codes, ["codebook", "time"]) != expected
+
+
+@pytest.mark.parametrize("hint", [22050, 22052, 1, 100000])
+def test_actual_decode_controls_waveform_and_identity(hint):
+    row = {**audio_row(), "sample_id": "a" * 64}
+    definition = {"timeline_profile_id": "b" * 64}
+    reference, frames = decode(row)
+    codes = np.zeros(((len(reference) + 1919) // 1920, 16), dtype=np.int16)
+    expected = feature_row(row, definition, reference, codes, native_frames=frames)
+    row["num_frames"] = hint
+    wave, frames = decode(row)
+    assert frames == 22051
+    assert np.array_equal(wave, reference)
+    assert feature_row(row, definition, wave, codes, native_frames=frames) == expected
+    assert row["num_frames"] == hint

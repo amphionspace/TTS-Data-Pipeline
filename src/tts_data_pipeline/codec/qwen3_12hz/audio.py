@@ -17,17 +17,21 @@ from ...feature_audio import canonical as canonical
 
 
 def waveform(row):
+    return decode(row)[0]
+
+
+def decode(row):
     """Decode the entire base sample; source recording timestamps are not crop coordinates."""
     data = row["audio"]["bytes"]
     if not data or hashlib.sha256(data).hexdigest() != row["audio_sha256"]:
         raise ValueError("audio_sha256_mismatch")
     audio, sr = sf.read(io.BytesIO(data), dtype="float32", always_2d=True)
-    if (
-        sr != row["sample_rate"]
-        or len(audio) != row["num_frames"]
-        or audio.shape[1] != row["channels"]
-    ):
-        raise ValueError("native_timeline_mismatch")
+    if sr != row["sample_rate"] or audio.shape[1] != row["channels"]:
+        raise ValueError(
+            f"native_format_mismatch: sample={row.get('sample_id')} "
+            f"expected_rate_channels={(row['sample_rate'], row['channels'])} "
+            f"actual_rate_channels={(sr, audio.shape[1])}"
+        )
     if not len(audio) or not np.isfinite(audio).all():
         raise ValueError("invalid_native_waveform")
     if any(
@@ -49,7 +53,8 @@ def waveform(row):
     mono = np.ascontiguousarray(mono, dtype=np.float32)
     if len(mono) != (len(audio) * 24000 + sr - 1) // sr or not np.isfinite(mono).all():
         raise ValueError("invalid_resampled_waveform")
-    return mono
+    # Container frame counts are scheduling hints, never pad/trim coordinates.
+    return mono, len(audio)
 
 
 def validate_codes(codes, num_input_frames):

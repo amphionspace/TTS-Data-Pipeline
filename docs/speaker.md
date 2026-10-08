@@ -61,3 +61,27 @@ python scripts/extract_speaker.py run \
 
 全量启动时冻结 `src/` 与运行脚本到 work 的 `runtime/`；后续恢复应使用该冻结入口，避免工作区修改改变运行实现。
 实际工作目录、PID 与日志保存在 `reports/speaker/active.json`；进度以 work 的 `status.json` 为准。
+
+## 随机 reference 提取
+
+新增 `--reference-sources-plan <已有合表计划>` 和 `--reference-seed 20261008`。
+计划仅从已有合表计划取得各数据集的独立 codec manifest/固定快照，不读取旧 merged payload。
+`--targets-plan` 使用覆盖全部 16 个数据集的原 speaker 目标计划；`--acceptance` 必须绑定新的 reference profile。
+具体坐标和采样规则见 data-contract/specs/11-speaker-embeddings.md。
+
+`reference.py` 集中实现采样、坐标验证和推理前采样计划持久化，其他提取、检查点与发布流程复用原实现。
+`run --memory-fraction 0.07 --mel-frame-budget 12000` 可以限制共卡提取的显存与组批预算；
+它们只控制资源调度，不改变输入区间或精度。长 reference 独立组批，仍不足则显式报错，不截短或补齐。
+本模式不限制绝对 reference 时长，实际资源与吞吐需按目标数据及共卡负载验证。
+
+2026-10-08 reference 验证记录：
+
+- 扫描 16 个数据集、128,220,178 条 codec 的实际长度；125,561 条无合法 reference，其余 128,094,617 条具备合法区间，最终有效数以实际提取为准。
+- 最终实现对 3,764 条短、中、长及边界样本验证，3,568 条成功结果全部通过原生单条 FP32 容差；覆盖历史 42 条解码长度差异。最大 reference 43.28 秒。
+- 全速 90,000 mel 帧预算另验证 1,716 条，1,534 条成功结果全部通过原生参考，最大绝对差 9.06e-6；其余均为无合法 reference。
+- packaged libsndfile 的 BytesIO 与内存文件输入在 256 条真实样本上逐值一致；reference 使用内存文件输入，并严格核对 codec 原生长度。
+- 自动回归 230 项通过；验证了实际 speaker/merged 发布、重复运行、空输出分片、失败过滤与来源表保留。
+
+验收证据位于 `artifacts/speaker-reference-validation/`，新生产运行及最终质量报告位于
+`artifacts/reference-runs/`，当前运行入口为 `reports/reference/active.json`。
+完成全部新表发布和校验后才清理本次临时特征表；最小验收证据和正式回归测试继续保留。

@@ -3,11 +3,13 @@
 import hashlib
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
 import lance
 import numpy as np
+import pyarrow.compute as pc
 
 from .feature_contract import validate_feature_coverage
 from .schema import digest
@@ -103,8 +105,16 @@ def verify_checkpoint(d, task):
     if not path.exists():
         return None
     c = json.loads(path.read_text())
-    if c["task"] != task or c["rows"] != task["rows"] or not c.get("payloads_validated"):
+    if (
+        c["task"] != task
+        or c.get("input_rows", c["rows"]) != task["rows"]
+        or not c.get("payloads_validated")
+    ):
         raise ValueError("Checkpoint task changed")
+    if "reference_plan_sha256" in c:
+        reference = Path(d["state"]) / "references" / f"{task['id']}.arrow"
+        if file_hash(reference) != c["reference_plan_sha256"]:
+            raise ValueError("Reference plan corrupted")
     for f in c["files"]:
         if file_hash(Path(d["stage"]) / "features.lance/data" / f["name"]) != f["sha256"]:
             raise ValueError("Checkpoint file corrupted")
@@ -125,3 +135,38 @@ def published_manifest(p, d):
     ):
         raise ValueError("Published output differs from plan")
     return manifest
+
+
+def align(table, ids):
+    if table.num_rows != len(ids) or pc.count_distinct(table["target_id"]).as_py() != len(ids):
+        raise ValueError("Missing or duplicate feature targets")
+    if table["target_id"].equals(ids):
+        return table
+    positions = pc.index_in(ids, value_set=table["target_id"])
+    if positions.null_count:
+        raise ValueError("Feature target sets differ")
+    return table.take(positions)
+
+
+def source_table(item):
+    return lance.dataset(item["table_path"], version=item["lance_version"])
+
+
+def read_aligned(ds, task, ids, columns=None):
+    table = ds.scanner(
+        columns=columns,
+        offset=task["offset"],
+        limit=task["rows"],
+        scan_in_order=True,
+        batch_readahead=1,
+        fragment_readahead=1,
+    ).to_table()
+    # Positional reads are only an optimization. The ID join verifies every row.
+    if table.num_rows == len(ids) and not pc.index_in(ids, value_set=table["target_id"]).null_count:
+        return table
+    values = ids.to_pylist()
+    if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in values):
+        raise ValueError("Invalid target ID")
+    return ds.to_table(
+        columns=columns, filter="target_id IN (" + ",".join(f"'{v}'" for v in values) + ")"
+    )

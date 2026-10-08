@@ -49,6 +49,8 @@ codec 和 embedding 分别生成与发布，不要求同时完成。一轮任务
 原生 mel 前处理和 encoder 卷积的 reflection padding 保留，它们属于模型算法，不是 batch 补齐。
 D 从实际 speaker_encoder_config.enc_dim 核实；当前缓存模型为 1024 维，不写死成 codec K、codebook size 或某一 Talker 的 hidden size。若训练有额外投影，属于模型协议。
 
+以下描述整条音频模式；reference 模式的裁剪和解码差异见本页末节。
+
 FP32 波形前处理遵循训练语义：完整原生解码、float32 声道均值、
 默认 sinc_interp_hann 重采样到 24 kHz。缓存的 `Resample(dtype=torch.float32)` 与原生 functional 内核逐值一致。
 解码通过内存文件避免 Python 回调争用；仅 Opus 使用经过波形摘要对照的系统 libsndfile，
@@ -86,50 +88,13 @@ bytes 和 config。来源 checkpoint/revision 记为证据；特征身份不应�
 同 profile/feature_key 结果复用时验证 embedding_sha256，不按 speaker_id 复用。
 索引、快照、恢复与覆盖数遵循 06，默认不建 ANN 向量索引：这里做精确 ID 读取，并非相似度检索。
 
-## 训练如何绑定参考
+## 下游消费边界
 
-训练 recipe 固定 reference_policy 和 speaker_conditioning_mode，两种模式使用相同的参考身份和区间。
-每条训练记录保留 target、ordered_reference_ids、对应父 sample 与所引用表的固定 snapshot。
-仅启用离线特征时记录相应 profile/feature_key/摘要；在线音频路径不要求离线特征身份。
-表级引用可用统一字典，不必逐行重复完整 manifest。
-
-- speaker-only 条件：目标 codec + 冻结参考 embedding 或在线参考音频；不要求参考 codec 或参考文本。
-- ICL/prompt 条件：目标 codec + 所需参考 codec/文本，按模型协议决定是否还需要 embedding。
-- 在线 encoder：目标 codec + 参考音频引用；embedding 在 forward 中产生，不读取旧 embedding 代替。
-
-参考选择及训练/评估协议由训练端管理。使用目标自身音频不需要 speaker 标签，但不代表独立参考克隆评估。
-跨样本的同 speaker 配对需要确认身份，不能仅凭同 dataset/group 推断。
-多个参考是否聚合、如何聚合、是否用文本由模型协议固定，不强行在基础 embedding 表求平均。
-
-离线 embedding 消费者固定特征 manifest/profile 和表快照；在线消费者固定基础音频样本、
-音频摘要及原生区间。关联使用样本身份，不使用隐含相同行序。快照内行定位符不是永久 ID，
-换快照须重新核对对应关系。具体缓存、定位布局和训练读取由训练端实现。
-
-### 消费接口的条件字段示例
-
-以下字段说明已有消费接口的相容约束，不规定训练构建布局或本轮参考选择。
-model_protocol 固定 conditioning=speaker_only/icl、uses_speaker_conditioning、requires_reference_text。
-require_reference_codec 必须等于 conditioning==icl，不能作为与协议矛盾的独立开关。
-speaker_only 必须使用 speaker 条件，且 requires_reference_text=false。ICL 可显式启用或关闭 speaker 条件。
-
-| 条件 | 必填 | 不启用的字段 |
-| --- | --- | --- |
-| frozen_embedding | speaker_feature_profile_id；每个参考的 reference_embeddings | speaker_frontend_profile=null；reference_audio 空；speaker_encoder_trainable=false |
-| online_speaker_encoder | speaker_frontend_profile 完整定义；每个参考的 reference_audio | speaker_feature_profile_id=null；reference_embeddings 空；trainable 可 true/false |
-| ICL 不使用 speaker | reference_codes；协议要求时 reference_texts | speaker_conditioning_mode=null；两个 speaker profile=null；trainable=false；embedding/audio 空 |
-| speaker_only | 上面两种 speaker 路径之一 | reference_codes、reference_texts 空 |
-| icl | 每个参考的 reference_codes；requires_reference_text=true 时每个参考的 reference_texts | requires_reference_text=false 时 reference_texts 空 |
-
-空表示缺省、null 或 []；启用的记录字段是按 ordered_reference_ids 排列、长度等于 reference_count 的非 null 元素列表。
-共同身份列表含 kind/id/parent_sample_id 与输入快照别名，不能仅凭数组位置推测来自哪段音频。
-reference_embeddings/reference_codes 的每项含所需特征定位及 profile/key/payload 摘要；materialized 布局还含数组。
-reference_audio 的每项含固定样本引用、音频哈希、timeline、原生 start/end 与采样率；不要求离线特征 key。
-reference_texts 的每项绑定对应参考和所选文本修订/tokenizer；多参考聚合规则必须由模型协议声明。
-
-other_same_speaker 要求 require_confirmed_same_speaker=true、allow_same_segment=false、allow_time_overlap=false；
-self 要求 reference_count=1、allow_same_segment=true、allow_time_overlap=true，参考身份与目标一致。
-仅改 policy 而遗留矛盾开关是非法 recipe。运行时仍需实际核验身份/重复关系/重叠，不能只看布尔声明。
-模式示例见 [training modes](../examples/training-modes.example.json)；示例只展示条件字段，不是完整生产记录。
+离线 embedding 消费者固定特征 manifest/profile 和表快照；在线消费者固定样本及音频摘要。
+关联使用样本身份，不使用隐含相同行序；快照内行定位符不是永久 ID，换快照须重新核对。
+参考选择、speaker-only/ICL 协议、聚合方式、训练记录字段和条件校验由训练端管理。
+跨样本的同 speaker 配对需要确认身份，不能仅凭同 dataset/group 推断；
+使用目标自身音频不需要 speaker 标签，但不代表独立参考克隆评估。
 
 ## 验收
 
@@ -140,3 +105,42 @@ self 要求 reference_count=1、allow_same_segment=true、allow_time_overlap=tru
 失败不补零、Lance float32 向量与 null 读回。小模型训练需要验证缓存 embedding 接口的真实 loss/梯度行为。
 在线路径需验证参考音频定位、frontend 一致性、encoder 参数确实更新以及训练读取吞吐。
 规范只定义两条接口；尚未实现的训练分支、真实权重核验和性能问题记录在 pipeline 仓库。
+
+## Codec 帧定位的 reference speaker 版本
+
+`qwen3-ecapa-24k-fp32-reference-v1` 是新增的离线片段模式，不改变整条 speaker 的历史版本。
+它固定 selection/base、完整 codec 快照、模型、seed 与 `codec-grid-reference-v1` 策略。
+每个 sample 只生成一个 reference，完整 text 和 codec 不裁剪。不是音频 selection 的重新切样本，
+不创建新 sample_id，也不使用父录音时间戳。
+
+当前 codec 的时间网格是 24 kHz / 1920 samples，即每帧 80 ms。
+先计算所有合法帧长度，再均匀选择长度、均匀选择合法起点。长度须满足实际原音频的
+10%～50% 且至少 0.5 秒；没有额外绝对上限。只使用完整时间帧，尾部不完整帧不选入 reference，
+但保留在完整 codec 中。最短可选 7 帧（0.56 秒），通常至少 1.12 秒的原音频才能满足约束。
+边界换算到原始采样点后再次满足约束；不截短、不补零。
+
+随机身份包含 dataset_id、release_id、sample_id、audio_sha256、固定 seed 和策略版本。
+算法为规范 JSON SHA256 派生种子、SHA256 计数器及拒绝采样，避免取模偏差；长度先均匀，再选起点。
+采样计划按分片先持久化为 Arrow IPC，重试比对计划，checkpoint 固定其摘要；worker 顺序不影响结果。
+
+所有区间均为左闭右开。speaker `start_frame/end_frame` 是原始采样率下的裁剪点；
+映射规则为 `native_boundary(k) = ceil(k * 1920 * native_rate / 24000)`。
+新增 nullable 字段（成功行必须有值）：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| reference_codec_start | int64 | 完整 codec 序列起始帧，包含 |
+| reference_codec_end | int64 | 完整 codec 序列结束帧，不包含 |
+| reference_codec_feature_key | string | 对应完整 codec 行的 feature_key |
+| reference_native_total_frames | int64 | 对应完整 codec 实际解码的原生总采样点数 |
+
+为与已发布 codec 的时间轴一致，本模式使用其 packaged soundfile 原生解码约定，核对实际长度后，
+先裁原始波形，再沿用 FP32 声道均值、torchaudio 重采样及无 batch padding 的 speaker 路径。
+输入长度/摘要描述裁后重采样波形，不能与完整 codec 输入摘要直接比较。
+模型原生边界处理保留；不同样本不共享卷积、池化或重采样上下文。
+坐标描述监督时间网格，不表示 codec token 的感受野仅限于该时间段。
+
+`no_legal_reference`、解码失败、无效 embedding 等保留失败行及原因，embedding 为 null；
+不写零向量、不回退到完整音频 embedding。来源冲突或普遍性故障停止阶段，不能静默大量跳过。
+该表仍覆盖完整输入 selection；后续 reference merged 仅保留成功行，并报告排除原因。
+不生成文本 token、训练 batch 或 loss mask；训练端自行将帧区间映射至预测目标位置。

@@ -56,7 +56,7 @@ def profile(model_root, precision="fp32"):
         "output_rate": "native",
         "output_channels": "native",
         "dtype": "float32",
-        "length_policy": "exact_match_base_frames",
+        "length_policy": "actual_decoded_frames_base_count_is_hint",
         "implicit_pad_or_trim": "none",
     }
     files = {
@@ -85,7 +85,7 @@ def profile(model_root, precision="fp32"):
         "timeline": timeline,
         "timeline_profile_id": hashlib.sha256(canonical(timeline)).hexdigest(),
         "waveform": {
-            "order": ["decode_native", "crop_native", "mix_channels", "resample"],
+            "order": ["decode_native", "mix_channels", "resample"],
             "channel_policy": "arithmetic_mean_float32",
             "sample_rate": 24000,
             "resampling": {
@@ -95,7 +95,7 @@ def profile(model_root, precision="fp32"):
                 "window": ["kaiser", 5.0],
                 "padtype": "constant",
                 "cval": 0.0,
-                "length": "ceil(native_crop_frames * 24000 / native_sample_rate)",
+                "length": "ceil(actual_native_frames * 24000 / native_sample_rate)",
                 "same_rate": "identity",
             },
             "normalization": "none",
@@ -159,8 +159,9 @@ def profile(model_root, precision="fp32"):
     }
 
 
-def feature_row(row, definition, wave=None, codes=None, error=None):
+def feature_row(row, definition, wave=None, codes=None, error=None, *, native_frames):
     pid = hashlib.sha256(canonical(definition)).hexdigest()
+    end_frame = native_frames
     identity = {
         "task": "audio-feature-v1",
         "kind": "codec",
@@ -171,7 +172,7 @@ def feature_row(row, definition, wave=None, codes=None, error=None):
         "timeline_profile_id": definition["timeline_profile_id"],
         "native_sample_rate": row["sample_rate"],
         "start_frame": 0,
-        "end_frame": row["num_frames"],
+        "end_frame": end_frame,
         "profile_id": pid,
     }
     result = {k: v for k, v in identity.items() if k not in {"task", "kind"}}
@@ -184,7 +185,7 @@ def feature_row(row, definition, wave=None, codes=None, error=None):
                     row["audio_sha256"],
                     definition["timeline_profile_id"],
                     0,
-                    row["num_frames"],
+                    end_frame,
                     pid,
                 ]
             )

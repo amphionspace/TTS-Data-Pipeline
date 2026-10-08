@@ -22,7 +22,6 @@ from tts_data_pipeline.feature_contract import (
     target_set_sha256,
     validate_feature_coverage,
     validate_profile_name,
-    validate_speaker_mode,
 )
 from tts_data_pipeline.schema import digest
 
@@ -196,10 +195,6 @@ def check(target=None):
         key=lambda row: row["target_id"],
     )
     assert target_set_sha256(samples) == feature["selection"]["target_set_sha256"]
-    modes = json.loads((root / "examples/training-modes.example.json").read_text())
-    assert modes["example_only"] and not modes["runnable"]
-    for case in modes["cases"]:
-        validate_speaker_mode(case["recipe"], case["record"])
     for name in ("codec-profile", "speaker-profile"):
         template = json.loads((root / f"examples/{name}.example.json").read_text())
         assert template["example_only"] and not template["runnable"]

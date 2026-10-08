@@ -14,6 +14,10 @@ FP32 的权重、激活、累加和 RVQ residual 均为 float32；Triton 矩阵�
 
 不使用长度 policy、逐长度 JSON 或外部 padding。新数据集不需要穷举计算形状。
 模型自带因果/stride/replicate padding 按定义保留；selection 当前只选整条 sample。
+与 speaker embedding 一样，base/container 的帧数只作为调度提示，实际解码得到的
+整条波形才是输入。不为头信息差异补零、截尾或跳过样本；采样率、声道和音频哈希仍校验。
+`end_frame`、特征指纹、重采样长度、codec 帧数和实际处理时长均使用解码后的长度；
+每个 checkpoint 记录头信息与实际长度不同的 sample_id 和两种帧数，供后续核对。
 BF16 历史对照和早期 FP32 小测见 [BF16 实验](design-review/codec-bf16-experiments.md)
 和 [FP32 小测](design-review/codec-fp32-check.md)。此前长度对齐实验的零差异结果
 不代表目前无 policy 的实现。
@@ -24,10 +28,22 @@ BF16 历史对照和早期 FP32 小测见 [BF16 实验](design-review/codec-bf16
 `selection_reason=0`：16 个数据集，128,220,178 条，约 357,506.84 小时。
 原始音频和 selection 不重写。旧 C 已退役，其 unified codec 输出及状态已删除。
 
+2026-09-30 的实际长度修复续跑使用 `packed-actual-v2` profile。
+已全部编码完成的 aishell3、csemotions、emilia、emilia_yodas 保留原 FP32 profile 和
+冻结实现，由原 finalizer 发布；其余 12 个数据集使用新 profile。
+Galgame 已完成的 47 个检查点（171,784 条）只更新 profile/时间轴身份及指纹，
+完整核对文件摘要和读回结果，codes 与波形摘要不变。旧成功检查点已保证头信息帧数等于
+实际帧数，因此这一部分可以复用。已完成四个数据集共 78,302,060 条，不重编码、不改写。
+两部分仍覆盖同一 selection；按 dataset/release/target_id 对齐，不能要求所有数据集使用
+同一历史 profile_id。新运行的 plan 与 `reports/codec/active.json` 记录前驱和全局目标数，
+其 `status.json` 在编码阶段仅统计剩余 12 个数据集；前驱四个数据集随后自动发布。
+保留前驱运行目录和 `.incomplete/.state`，直到对应数据集发布完成。
+修复与原失败任务验证记录位于 `artifacts/codec-actual-length-repair/`。
+
 ## 代码职责
 
 实现集中在 `src/tts_data_pipeline/codec/qwen3_12hz/`，未来其他 tokenizer 使用各自子包。
-顶层 `codec/__init__.py` 仅惰性兼容公共 API；没有重复的 BF16 / FP32 模型实现。
+顶层 `codec/__init__.py` 仅标记包；没有重复的 BF16 / FP32 模型实现。
 
 | 模块 | 职责 |
 | --- | --- |
