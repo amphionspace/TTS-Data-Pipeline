@@ -40,6 +40,7 @@ def main():
     execute.add_argument("--gpus", type=int, nargs="+", default=list(range(1, 8)))
     execute.add_argument("--decode-threads", type=int, default=16)
     execute.add_argument("--max-tasks", type=int)
+    execute.add_argument("--workers-per-gpu", type=int, default=1)
     execute.add_argument("--memory-fraction", type=float, default=0.25)
     execute.add_argument("--mel-frame-budget", type=int, default=90000)
     args = parser.parse_args()
@@ -60,7 +61,11 @@ def main():
         if args.decode_threads < 1 or (args.max_tasks is not None and args.max_tasks < 1):
             parser.error("decode-threads and max-tasks must be positive")
         try:
-            if not 0 < args.memory_fraction <= 1 or args.mel_frame_budget < 5:
+            if (
+                not 0 < args.memory_fraction <= 1
+                or args.mel_frame_budget < 5
+                or args.workers_per_gpu < 1
+            ):
                 parser.error("Invalid memory fraction or mel frame budget")
             run(
                 args.work,
@@ -69,6 +74,7 @@ def main():
                 max_tasks=args.max_tasks,
                 memory_fraction=args.memory_fraction,
                 mel_frame_budget=args.mel_frame_budget,
+                workers_per_gpu=args.workers_per_gpu,
             )
         except BaseException as exc:
             event(args.work, "failed", error_type=type(exc).__name__, error=str(exc))

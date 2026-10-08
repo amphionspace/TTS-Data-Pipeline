@@ -466,6 +466,9 @@ def finalize(p, d):
             "max_encoder_batch_size": 64,
             "requested_gpus": p.get("gpus", []),
             "workers_per_gpu": p.get("workers_per_gpu", 1),
+            "decode_threads_per_worker": p.get("decode_threads", 16),
+            "mel_frame_budget": p.get("mel_frame_budget", 90000),
+            "memory_fraction_per_worker": p.get("memory_fraction", 0.25),
             "canonical_result_policy": "one_selected_target_per_audio",
             "audio_seconds": sum(c["audio_seconds"] for c in checkpoints),
             "hardware": list({digest(c["hardware"]): c["hardware"] for c in checkpoints}.values()),
@@ -490,9 +493,19 @@ def finalize(p, d):
 
 
 def run(
-    work, gpus, decode_threads=16, *, max_tasks=None, memory_fraction=0.25, mel_frame_budget=90000
+    work,
+    gpus,
+    decode_threads=16,
+    *,
+    max_tasks=None,
+    memory_fraction=0.25,
+    mel_frame_budget=90000,
+    workers_per_gpu=1,
 ):
     """Resume verified checkpoints; max_tasks supports a bounded launch/recovery test."""
+    if workers_per_gpu < 1 or len(set(gpus)) != len(gpus):
+        raise ValueError("Invalid worker count or duplicate GPU IDs")
+    slots = [gpu for _ in range(workers_per_gpu) for gpu in gpus]
     work = Path(work)
     with (work / "run.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -500,6 +513,8 @@ def run(
         validate_plan(p)
         owner = digest(p)
         p["gpus"] = gpus
+        p["workers_per_gpu"] = workers_per_gpu
+        p["decode_threads"] = decode_threads
         p["memory_fraction"] = memory_fraction
         p["mel_frame_budget"] = mel_frame_budget
         jobs = []
@@ -542,6 +557,7 @@ def run(
             rows_total=total,
             gpus=gpus,
             decode_threads=decode_threads,
+            workers_per_gpu=workers_per_gpu,
         )
         started = time.perf_counter()
         if jobs:
@@ -550,11 +566,18 @@ def run(
             results = ctx.Queue()
             for item in jobs:
                 job_queue.put(item)
-            for _ in gpus:
+            for _ in slots:
                 job_queue.put(None)
+            # Tasks travel through the queue; do not pickle the full task catalog
+            # into every GPU process during startup.
+            worker_plan = dict(
+                p, datasets=[{k: v for k, v in d.items() if k != "tasks"} for d in p["datasets"]]
+            )
             processes = [
-                ctx.Process(target=worker, args=(gpu, p, job_queue, results, decode_threads))
-                for gpu in gpus
+                ctx.Process(
+                    target=worker, args=(gpu, worker_plan, job_queue, results, decode_threads)
+                )
+                for gpu in slots
             ]
             for process in processes:
                 process.start()

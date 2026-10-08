@@ -85,3 +85,22 @@ python scripts/extract_speaker.py run \
 验收证据位于 `artifacts/speaker-reference-validation/`，新生产运行及最终质量报告位于
 `artifacts/reference-runs/`，当前运行入口为 `reports/reference/active.json`。
 完成全部新表发布和校验后才清理本次临时特征表；最小验收证据和正式回归测试继续保留。
+
+## 每卡多 worker 调度
+
+`run --workers-per-gpu N` 为每张 GPU 启动 N 个独立上下文，共用任务队列。
+默认仍为 1；每个任务只由一个 worker 写入，采样计划、batch=64、数值内核与 profile 不变。
+`--memory-fraction` 是每个 worker 的上限，`--decode-threads` 也是每个 worker 的线程数。
+执行 manifest 记录这些运行参数。启动时只传递各数据集的必要元数据，任务明细通过队列发送，
+避免为每个进程重复序列化整库任务目录。
+
+2026-10-08 的 44,514 条真实读取、解码、推理与完整写回测试（GPU 6，正式任务同时运行）：
+单 worker/16 解码线程两次为 303、292 条/秒；2 worker/每进程 8 线程为 394 条/秒；
+3 worker/每进程 8 线程为 530 条/秒。44,514 条样本在四轮测试间的 embedding 最大差为 0，
+输入波形摘要与状态一致。启动和最终数值对照不计入上述流式吞吐。
+另对 6 个大数据集测试 batch=64/128/256，128/256 平均收益仅约 1%～3%，不采用实验内核。
+多卡收益须以生产稳定区间测量为准，不能直接将单卡倍率外推。
+
+改变 worker 数只更新执行代码和运行参数；已有 run 切换时先退出当前 coordinator，
+固定迁移前计划和代码摘要，再更新执行快照与 stage owner，从已验证检查点恢复。
+不修改已生成的 reference、embedding 或其 profile，不重算已完成任务。
