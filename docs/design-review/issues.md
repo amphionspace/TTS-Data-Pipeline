@@ -1,6 +1,6 @@
 # 实现状态与待解决问题
 
-当前选择：Lance，contract/release v0.1。旧 Parquet 输出已删除；截至 2026-09-29，16 个 adapter 对应的 v0.1 均已发布。Emilia2 暂不接入。
+当前选择：Lance，contract/release v0.1。旧 Parquet 输出已删除；截至 2026-09-29，16 个 adapter 对应的 v0.1 均已发布。Emilia2 的 short 接入正在验证与全量元数据准备中，尚未发布 samples。
 规范在 [data-contract](../data-contract/README.md)，这里单独记录实施边界。
 
 ## Codec 区间与 padding 复核进展
@@ -193,3 +193,14 @@ LibriHeavy 保留 283 个（9,331,886 行）；重启后进度先统计逐片重
 同轮将 AISHELL3、原神、星铁的完成批次切换到本地 SQLite 收尾；三者均已正式发布，
 行数分别为 88,035 / 654,252 / 403,437。生产收尾耗时（不含恢复分片复核）为
 7.863 / 86.739 / 59.890 秒。沿用已有音频分片，固定 snapshot、索引查询和 manifest 一致性复核。
+
+## Emilia2 short 基础接入（2026-10-08）
+
+按用户确认，独立 short 保留 M4A，long/dialogue 展开内部 short 后物化；三路按上游
+short ID 全局去重并保留冲突/越界记录。只发布 samples，不启动 selection 或特征。
+当前代码入口 `scripts/ingest_emilia2.py`，阶段为 plan / scan / dedup / run。
+运行时通过 `TTS_FFMPEG` 固定 FFmpeg 可执行文件；版本与 SHA256 进入接入 profile。
+真实三种来源的 86 条 samples 已完成本地 Lance 发布及完整回读，证据在
+`artifacts/emilia2-ingest-integration/`；该本地样本不代表全库发布。
+全量准备状态在 `artifacts/emilia2-runs/active.json` 指向的 work/status.json。
+旧节的 AAC 和来源下载调查是历史记录，正式输入以本次固定的 tar/idx 清单为准。

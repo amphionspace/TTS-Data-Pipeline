@@ -1,11 +1,11 @@
 """v0.1 base contract. Arrow representation is separate from validation rules."""
 
 import hashlib
-import io
 import json
 
 import pyarrow as pa
-import soundfile as sf
+
+from .audio_io import audio_info
 
 VERSION = "v0.1"
 IDENTITY_SCHEME = "source-file-v1"
@@ -110,7 +110,7 @@ def make_record(
     text_variants: list | None = None,
     metadata: dict | None = None,
 ) -> dict:
-    info = sf.info(io.BytesIO(audio_bytes))
+    info = audio_info(audio_bytes)
     row = dict.fromkeys(BASE_FIELD_NAMES)
     row.update(
         schema_version=VERSION,
@@ -161,7 +161,7 @@ def validate_record(row: dict) -> None:
     data = row["audio"]["bytes"]
     require(isinstance(data, bytes) and len(data) > 0, "Embedded audio bytes required")
     require(hashlib.sha256(data).hexdigest() == row["audio_sha256"], "Audio hash mismatch")
-    info = sf.info(io.BytesIO(data))
+    info = audio_info(data)
     require(
         (info.samplerate, info.channels, info.frames)
         == (row["sample_rate"], row["channels"], row["num_frames"]),

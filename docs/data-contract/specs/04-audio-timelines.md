@@ -1,9 +1,9 @@
 # 04 · 音频时间轴与裁剪来源
 
-## 裁剪归 selection
+## 已发布基础样本的裁剪归 selection
 
 基础一行代表一个独立编码音频样本；短句、长录音、对话都可以作为来源。
-是否需要裁剪及必要的裁剪处理，统一由 [12 selection](12-selections.md#音频区间决策与新数据集接入)负责。
+对已发布基础样本是否需要裁剪及必要的裁剪处理，统一由 [12 selection](12-selections.md#音频区间决策与新数据集接入)负责。
 需要裁剪时，selection 产出实际片段音频及其对应文本，作为后续完整消费的样本。
 不设置独立片段引用表，也不把“父音频 + 待应用区间”交给 codec、speaker 各自裁剪。
 上游已经提供独立剪辑文件时直接使用该样本；原录音中的时间范围不能再次应用于片段 bytes。
@@ -36,3 +36,10 @@ selection 完成原生时间轴裁剪后，codec、speaker 按各自 profile 对
 顶层 language 为空不代表无用，可通过分段语言标注支持 selection 的片段选择；方言原值保留。
 recording/group 关系用于追溯及下游隔离，group_id 相同不证明同 speaker。
 重叠片段、多麦克风、不同编码的重复关系须明确，不能直接相加声称独立语音时长。
+
+## 上游载体拆分与 selection 的边界
+
+Emilia2 接入按上游 short 定义基础对象：独立 short 直接读入，long/dialogue 的内部
+short 在 adapter 中物化后写 samples.lance。来源载体没有成为待训练的基础长样本，
+这一来源映射遵循 02/03 的专用接入约定，不经过 selection 裁剪。
+后续 selection 仍完整筛选每条 short；不能再次把来源载体坐标应用到本行音频。

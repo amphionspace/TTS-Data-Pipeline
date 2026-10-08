@@ -82,3 +82,21 @@ Lance `_rowid`、row index、fragment ID 只在指定 snapshot 下作为执行�
 
 codec/speaker 特征的 input_fingerprint 对象、encoder_input_sha256 的波形定义和数组摘要格式
 固定在 [06](06-codecs.md)。这两类纯音频任务不依赖文本和 speaker 标签修订。
+
+## 上游 short 映射的接入身份
+
+Emilia2 使用 `identity_scheme=source-transform-v1`，其 source_snapshot 为：
+
+```text
+"source-transform-v1:sha256:" + SHA256(canonical_json({
+  "path": source_tar_relative_path,
+  "sha256": source_tar_sha256,
+  "ingest_profile_id": SHA256(canonical_json(ingest_profile))
+}))
+```
+
+sample_id 仍按 `[dataset_id, source_snapshot, source_key]` 计算，source_key 为上游 short ID。
+源 tar 同时包含原始音频和带整数区间的 JSON。profile 固定解码器、区间规则、输出编码、
+候选优先级、实现摘要和依赖版本；原始 short 也使用同一明确的接入身份方案。
+因此改变裁剪、编码或来源会改变身份，改变 worker 数或分片不会改变身份。
+此规则只描述上游对象到基础 short 的映射；不复用为 selection 派生身份协议。

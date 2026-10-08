@@ -5,7 +5,7 @@
 
 已有 16 个 adapter：CSEMOTIONS、LibriTTS-R、LibriHeavy、MLS SIDON、AISHELL-3、LJSpeech、
 VCTK、HiFiTTS、WenetSpeech4TTS、genshin-voice、starrail-voice、Galgame、WutheringWaves-2.2、Emilia、Emilia-YODAS、HiFiTTS2。
-已发布数据完成源文件哈希、逐条音频头与 Lance 完整回读、全局身份校验；不代表全库逐条完整解码或听检。Emilia2 暂不接入。
+已发布数据完成源文件哈希、逐条音频头与 Lance 完整回读、全局身份校验；不代表全库逐条完整解码或听检。Emilia2 的 short 接入已实现，当前全量元数据准备中；未声明已发布。
 项目直接运行本地模块，无需 pip install -e .。旧 Parquet 输出及 converted 用法已取消，原始 Parquet 读取仍保留。
 
 ## 运行
@@ -88,3 +88,23 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m pytest -q
 ```
 
 独立最终文本/语言提取（不做 token 化）：[docs/text.md](docs/text.md)。
+
+## Emilia2：仅基础 samples 接入
+
+独立 short 原字节接入；long/dialogue 按内部 short 标注裁剪；三路按上游 short ID 全局去重。
+独立 M4A 使用固定 FFmpeg 解码检查，片段使用 FLAC PCM24（幅度溢出时 FLOAT WAV）。
+保留来源区间和原标注，不重采样、不补零，不创建 selection 或任何 features。
+AAC 支持目前只接入基础样本验证；本轮不修改 codec/speaker 的音频读取实现。
+
+```bash
+export TTS_FFMPEG=/path/to/pinned/ffmpeg
+python scripts/ingest_emilia2.py plan --root /path/to/Emilia2 --work /path/to/new-work
+python scripts/ingest_emilia2.py scan --work /path/to/new-work --workers 8
+python scripts/ingest_emilia2.py dedup --work /path/to/new-work
+python scripts/ingest_emilia2.py run --work /path/to/new-work --output /path/to/emilia2/v0.1 --workers 8
+```
+
+scan 和 run 可用相同参数恢复，检查已完成分区的摘要；plan 只能创建新的工作目录。
+执行代码与 FFmpeg 必须固定，改变转换配置需新建任务。只在全部回读、全局 sample_id / short ID
+唯一性及数量核对通过后发布 complete manifest。各步骤不覆盖已有发布或原始 tar。
+元数据候选和去重排除清单随新 release 保留，解码失败在 ingestion-checkpoints 中逐条记载。

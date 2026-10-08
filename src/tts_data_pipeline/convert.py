@@ -21,6 +21,7 @@ import pyarrow.parquet as pq
 import soundfile as sf
 
 from .adapters import ADAPTERS, identity_scheme
+from .audio_io import is_mp4, read_audio
 from .contract import schema_description
 from .schema import (
     VERSION,
@@ -47,6 +48,15 @@ def file_hash(path: Path) -> str:
 
 
 def decode_check(row: dict) -> None:
+    if is_mp4(row["audio"]["bytes"]):
+        audio, rate = read_audio(row["audio"]["bytes"])
+        if (len(audio), rate, audio.shape[1]) != (
+            row["num_frames"],
+            row["sample_rate"],
+            row["channels"],
+        ):
+            raise ValueError("Decoded AAC timeline mismatch")
+        return
     frames = 0
     with sf.SoundFile(io.BytesIO(row["audio"]["bytes"])) as audio:
         for block in audio.blocks(blocksize=65536, dtype="float32", always_2d=True):
