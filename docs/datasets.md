@@ -30,7 +30,7 @@ Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [�
 | libriheavy / libriheavy.py ✓（Lance v0.1） | Parquet；原书文本与 ASR 分开 | 全部 12,441,834 个 ID 已核对，八配置无 ID 交集；原始配置进 metadata，统一输出 train |
 | mls_sidon / mls_sidon.py ✓（Lance v0.1） | 8 语言 tar.gz；FLAC+metadata.json | 原 HF paths.yaml 与本地完全相同，2,628 包逐包首条配对通过；实际 FLAC 路径与源秒数分别保留 |
 | starrail-voice / starrail_voice.py ✓ | Parquet；ingame_filename、transcription | 空文本/说话人；保留 voice_type；先区分对话与其他声音 |
-| zenless-voice / zenless.py | Parquet；ingame_filename、transcription | 空文本/说话人、性别分支/变量标签、字幕可能不是实际朗读内容 |
+| zenless-voice / zenless_voice.py ✓ | Parquet；ingame_filename、transcription | 沿用游戏 adapter；保留空文本/说话人、性别分支/变量标签，字幕不等于核验过的转写 |
 
 ## 新增适配器
 
@@ -72,6 +72,7 @@ Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [�
 | wenetspeech4tts | WenetSpeech4TTS | all/Basic 读三个物理目录共 70 包一次，Standard 读 Standard+Premium，Premium 只读 Premium；来源键 utterance ID；无可靠 speaker，不推断 |
 | genshin_voice | genshin-voice | 来源键相对 shard+原始行号；角色按 dataset+language 命名；保留全部小字段与原音频路径 |
 | starrail_voice | starrail-voice | 同上；保留 voice_type、ingame_filename、缺失文本与角色原值 |
+| zenless_voice | zenless-voice | 同上；46 个 Parquet 的完整 samples 接入，保留原音频 bytes 和字幕，不做 ASR/selection/features |
 | galgame | Galgame-VisualNovel-Reupload | all 读全部游戏，也可 --config 游戏目录；来源键 shard+原始行号；保留 audio_ID/game；speaker=null，game 仅作 group |
 
 全部基础 source_split=train；已有上游划分保存 original_split，无官方划分用 null。

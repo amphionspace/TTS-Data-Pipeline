@@ -16,6 +16,19 @@ def annotation_type(result_type):
     )
 
 
+def annotation_sample_schema(result_type):
+    """Independent one-row-per-sample annotation, retaining every target status."""
+    return pa.schema(
+        [
+            pa.field("sample_id", pa.string(), nullable=False),
+            pa.field("input_fingerprint", pa.string(), nullable=False),
+            pa.field("status", pa.string(), nullable=False),
+            pa.field("error_code", pa.string()),
+            pa.field("result", result_type),
+        ]
+    )
+
+
 def annotation_targets_schema():
     return pa.schema(
         [
@@ -165,6 +178,13 @@ def contract_types():
         "representation": "Arrow type descriptors; semantic validation is additional",
         "base": schema_description(base_schema()),
         "annotation_targets": schema_description(annotation_targets_schema()),
+        "annotation_sample_example": {
+            "example_only": True,
+            "storage_kind": "sample_table",
+            "fields": schema_description(
+                annotation_sample_schema(pa.struct([pa.field("score", pa.float64())]))
+            ),
+        },
         "feature_targets": schema_description(feature_targets_schema()),
         "selection_columns": schema_description(selection_columns_schema()),
         "selection_text_columns": schema_description(

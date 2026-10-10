@@ -1,0 +1,36 @@
+"""Qwen3-ASR checkpoint language names; source aliases only affect optional candidates."""
+
+LANGUAGE_NAMES = {
+    "zh": "Chinese",
+    "en": "English",
+    "yue": "Cantonese",
+    "ar": "Arabic",
+    "de": "German",
+    "fr": "French",
+    "es": "Spanish",
+    "pt": "Portuguese",
+    "id": "Indonesian",
+    "it": "Italian",
+    "ko": "Korean",
+    "ru": "Russian",
+    "th": "Thai",
+    "vi": "Vietnamese",
+    "ja": "Japanese",
+    "tr": "Turkish",
+    "hi": "Hindi",
+    "ms": "Malay",
+    "nl": "Dutch",
+    "sv": "Swedish",
+    "da": "Danish",
+    "fi": "Finnish",
+    "pl": "Polish",
+    "cs": "Czech",
+    "fil": "Filipino",
+    "fa": "Persian",
+    "el": "Greek",
+    "hu": "Hungarian",
+    "mk": "Macedonian",
+    "ro": "Romanian",
+}
+SOURCE_LANGUAGES = dict(LANGUAGE_NAMES, **{"zh-CN": "Chinese", "en-US": "English"})
+LANGUAGE_CODES = {name: code for code, name in LANGUAGE_NAMES.items()}

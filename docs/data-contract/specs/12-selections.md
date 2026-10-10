@@ -100,6 +100,8 @@ flags=0 只说明此次已执行检查未命中，不代表检查过所有质量
 
 selection 必须明确本次用途采用的音频范围。是否裁剪在 selection 阶段决定并完成，
 codec/训练消费者只执行固定决定，不能根据 metadata、时长或当前 batch 临时猜测裁剪点。
+这里指训练样本的音文范围；[11 reference speaker](11-speaker-embeddings.md) 的条件片段
+按独立 profile 确定，不改变 selection 样本、完整 text 或完整 codec。
 这里规定长期规则；一次核查的样本清单、异常数量和放行证据由具体发布固定，不写死为某个数据集的永久豁免。
 
 ### 逐来源核查与三种决定

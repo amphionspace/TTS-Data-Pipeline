@@ -99,7 +99,7 @@ selection_branch 输入另外绑定 selection manifest SHA256；相同整数版�
 | input_fingerprint | 本次 target 与该计算输入的绑定，公式见下 |
 | status / error_code | ok / failed / unsupported / skipped；非 ok 必须说明原因 |
 
-sample 任务完整解码当前样本，成功行区间为 `[0, 实际解码帧数)`；
+整条音频模式的 sample 任务完整解码当前样本，成功行区间为 `[0, 实际解码帧数)`；
 核对采样率、声道、有限值和有效输入长度，不为匹配头信息补零或裁尾。
 已固定的旧 codec profile 仍可能要求解码长度与 base.num_frames 相等并在不符时失败；
 这属于旧运行限制，不是所有特征的通用拒收规则。不能为修改文档而改写旧 profile 或成功结果。
@@ -110,7 +110,9 @@ sample 任务完整解码当前样本，成功行区间为 `[0, 实际解码帧�
 需要裁剪时已由 selection 生成实际片段；特征任务不再应用父音频中的裁剪区间。
 完整录音先编码再切 token 不等价于波形先裁剪再编码；不允许由时间比例猜 token 边界。
 长音频若超过已验收容量，标 unsupported 或由 selection 先生成实际裁剪样本；不偷偷截前 N 秒。
-需要裁剪的样本在 selection 阶段生成；不能把随机裁剪结果挂在原始整条 sample 下。
+改变训练音文范围的裁剪样本在 selection 阶段生成，不能将其冒充原始整条 sample 的特征。
+显式 reference speaker 模式是例外，按 [11](11-speaker-embeddings.md) 固定子区间并保留原 sample 身份；
+其 start_frame/end_frame 描述实际 reference，完整 codec/text 保持不变。上面的整条输入顺序不适用于该模式。
 
 ```text
 feature_key = SHA256(canonical_json(["feature-v1", audio_sha256, timeline_profile_id,

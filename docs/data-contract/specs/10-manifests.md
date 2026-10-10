@@ -32,8 +32,13 @@ annotation统一manifest位于annotations/<task>/<run_id>/；inputs/outputs内�
 每个输出绑定base_input_alias、dataset/release、布局；sample_branch另需branch/version/tag及columns逐列覆盖。
 一对多标注的每个output使用tables.targets/tables.results两组引用，schema描述覆盖两张表。
 文件系统绝对根从部署配置映射，不写进内容身份。
-新一对一样本标注使用storage_kind=sample_branch；独立表为result_table；旧sample_column保留兼容读取。
-一个 run 如果没有实际结果表，不创建空 results.lance。
+新一对一样本标注可使用 storage_kind=sample_branch，或显式独立单表 sample_table；旧 sample_column 保留兼容读取。
+sample_table 的每个 output 使用单个 table 引用（路径/分支/版本/tag/rows/schema/schema_sha256），
+rows 包含成功与失败，coverage 完整对账；音频统计 audio-stats-v2 使用此布局。
+result_table 用于一对多及尚未迁移的兼容任务。
+sample_branch 不额外创建 results.lance。result_table 必须固定 targets/results 两张表；
+所有目标无事件或均失败时，results 可以是带已声明 schema 的零行表，targets 仍完整记录终态与 item_count。
+空结果不表示未执行，也不能省略结果表引用后猜测其含义。
 
 通用字段按产物布局适用：无自身 Lance 表的 selection 不伪造顶层 table_path、
 lance_version、rows 或 storage_version；在具体 inputs/outputs 中记录所引用表的信息。
@@ -76,11 +81,13 @@ null 表示未知/未记录（finalization 也可能不适用），与 0、[]、
 run 固定 task、run_id、target_kind、profile_id/profile、输入依赖与 schema、覆盖数、各 status 数、未运行数。
 sample_branch按output.columns逐列记录selected_targets/coverage，table_rows固定bv全行数；
 complete要求范围内missing=0，范围外struct=null，不把不同列的结果数相加当样本数。
-新annotation须记录有序ID摘要与对齐/基础列/指纹核查覆盖；依赖须无环并传递保留，详见05。
+sample_branch 须记录有序ID摘要与对齐/基础列/指纹核查覆盖；result_table 核验目标身份、指纹、
+结果键唯一性及 item_count 对账，不要求结果事件行与基础行位置一致。依赖须无环并传递保留，详见05。
 仅对 storage_kind=sample_column：rows 表示非 null 结果数，table_rows 表示所引用 samples snapshot 的总行数。
 这类 run 的 coverage.total_targets 表示声明的任务范围大小，必须 ≤ table_rows；范围外行和范围内未运行行均不写结果，
 两者通过 manifest 固定的 selection 或选择表区分。coverage 的各状态加 missing 等于 total_targets。
-独立一对一结果表 rows 是物理结果行数；一对多 rows 是事件数，并另记 target_rows 和目标状态统计。
+sample_table 的 rows 是目标行数，包含失败；每个成功行 result 非空，失败行 result=null。
+兼容 result_table 的 results.rows 仅是成功结果行数；一对多 rows 是事件数，并另记目标覆盖和状态统计。
 每个任务定义 result 类型/指标范围。manifest 的 snapshot/column 是结果位置，run_id 不是查询 latest 的别名。
 feature 固定 kind、完整 profile、target_kind、输出 schema 及覆盖数量；音频数组另固定形状/dtype/轴/摘要规则。
 新的 feature manifest 同时保存可读 run_id 和 profile_name；运行日志/状态中的时间也按北京时间展示。

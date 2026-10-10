@@ -32,6 +32,10 @@
 
 ## 版本边界
 
+实验设计见 [Annotation 实验契约](experiments/annotation-v1.md)：独立标注表、质量档案、文本修订与 Sidon 恢复音频。
+通用文本过滤见 [Selection 文本过滤实验契约](experiments/selection-text-filter-v1.md)：文本来源、复读和完整音频时长/字符比规则。
+实验稿不替代正式 specs，不表示模型或执行器已验收；生产读取仍遵循固定发布版本。
+
 - `contract_version`、基础 `schema_version` 和首次 `release_id` 均为 `v0.1`。
 - `identity_scheme` 独立于发布版本：自包含文件用 source-file-v1，外部语义依赖用 source-unit-v1。
 - Lance 的整数 snapshot version、Lance 文件格式版本和 pylance 软件版本是存储实现信息，不能充当发布版本。

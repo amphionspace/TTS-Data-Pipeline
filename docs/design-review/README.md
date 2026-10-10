@@ -5,13 +5,15 @@
 
 | 文档 | 用途 |
 | --- | --- |
+| [Galgame 一万条转写对比](galgame-transcription-comparison-2026-10-10.md) | 固定随机抽样、日语 WER/CER、失败及语言冲突、原文差异；后续全量范围见 annotation 说明 |
+| [2026-10-09 Contract 复核](contract-review-2026-10-09.md) | 全套规范的一致性、reference 例外、annotation 实验与当前实现缺口 |
 | [Codec FP32 小测](codec-fp32-check.md) | 同精度官方参考、固定计算、耗时与显存；全量暂停 |
 | [Codec BF16 验收与代码整理](codec-bf16-experiments.md) | 官方 BF16 单条参考、实际满载、规则消融与生产实现 |
 | [Codec padding 实验与研究](codec-padding-experiments.md) | 独立参考、无补齐/变长/Graph 候选、上游实践和性能边界 |
 | [codec-packed-experiments.md](codec-packed-experiments.md) | 固定归约、真实变长卷积、性能与重建对照 |
 | [Codec 精度归因与等速优化](codec-precision-experiments.md) | 舍入/累加差异、阶段替换、172 条验证与同卡性能门槛 |
 | [Codec 历史问题与修复进展](codec-open-issues.md) | 区间核查、padding 归因和后续验收范围 |
-| [本轮 contract 复核](contract-review.md) | C 目录、文本物化、build 引用、规范精简、清理和实现边界 |
+| [历史 contract 复核](contract-review.md) | 当时的目录、文本物化、build 引用及实现边界，不代表当前状态 |
 | [验收与契约复核](adapter-contract-review.md) | 原四个来源与新增九个来源的验证范围、契约修正和性能边界 |
 | [LibriHeavy / MLS 核查](libriheavy-mls-check.md) | 配置交集、来源清单、MLS 坏包与明确排除 |
 | [Emilia / YODAS 本地核查](emilia-local-check.md) | 4,343 包首条检查、采样解码、字段映射与训练注意事项 |

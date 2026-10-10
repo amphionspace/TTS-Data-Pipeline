@@ -17,6 +17,7 @@ from . import (
     vctk,
     wenetspeech4tts,
     wutheringwaves,
+    zenless_voice,
 )
 
 ADAPTERS = {
@@ -36,6 +37,7 @@ ADAPTERS = {
     "libritts_r": libritts_r,
     "libriheavy": libriheavy,
     "mls_sidon": mls_sidon,
+    "zenless_voice": zenless_voice,
 }
 
 

@@ -57,6 +57,7 @@ for batch in ds.to_batches(columns=["sample_id", "text", "language"], batch_size
 
 | 入口 | 内容 |
 | --- | --- |
+| [完整 pipeline 总览](docs/pipeline.md) | 全部入口、阶段依赖、数据流、裁剪边界、版本关联、恢复与发布 |
 | [数据约定](docs/data-contract/README.md) | 唯一规范源稿；同步至统一根目录 |
 | [转换](docs/bulk-conversion.md) | 并行写、检查点、发布、恢复 |
 | [核查与待办](docs/design-review/README.md) | 当前验收证据与实现边界 |
@@ -95,6 +96,11 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m pytest -q
 独立 M4A 使用固定 FFmpeg 解码检查，片段使用 FLAC PCM24（幅度溢出时 FLOAT WAV）。
 保留来源区间和原标注，不重采样、不补零，不创建 selection 或任何 features。
 AAC 支持目前只接入基础样本验证；本轮不修改 codec/speaker 的音频读取实现。
+
+Zenless 的 `zenless_voice` adapter 也已接入，沿用原神、星铁的游戏字段映射，仅转换 samples；
+核查与运行边界见 [Zenless 接入检查](docs/design-review/zenless-ingest.md)。
+独立 ASR 转写见 [annotation 说明](docs/annotation.md)：四个游戏已发布单表结果；
+新增全量覆盖其余已发布数据集（含 Galgame），明确排除 Emilia2。
 
 ```bash
 export TTS_FFMPEG=/path/to/pinned/ffmpeg

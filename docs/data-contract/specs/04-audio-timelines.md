@@ -17,6 +17,10 @@
 本章定义职责与验收要求，不新增未经实现的目录、schema 或裁剪身份算法。
 启用裁剪前须实现并验证 selection 的样本产出、来源关联及三个特征任务的输入衔接。
 
+本节裁剪指改变训练样本的音文范围。[11 随机 reference speaker](11-speaker-embeddings.md)
+是显式的条件特征例外：保留原 sample 身份及完整 text/codec，仅按固定 profile 从原音频
+裁取 speaker encoder 的输入，并记录原生区间与 codec 帧映射；不生成新的训练片段样本。
+
 ## 时间轴
 
 frame 指每声道采样帧，区间为 `[start_frame,end_frame)`；0 ≤ start < end ≤ 实际解码有效帧数。

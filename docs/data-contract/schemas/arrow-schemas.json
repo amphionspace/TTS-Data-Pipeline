@@ -202,6 +202,44 @@
       "type": "int64"
     }
   ],
+  "annotation_sample_example": {
+    "example_only": true,
+    "storage_kind": "sample_table",
+    "fields": [
+      {
+        "name": "sample_id",
+        "nullable": false,
+        "type": "string"
+      },
+      {
+        "name": "input_fingerprint",
+        "nullable": false,
+        "type": "string"
+      },
+      {
+        "name": "status",
+        "nullable": false,
+        "type": "string"
+      },
+      {
+        "name": "error_code",
+        "nullable": true,
+        "type": "string"
+      },
+      {
+        "name": "result",
+        "nullable": true,
+        "type": "struct",
+        "fields": [
+          {
+            "name": "score",
+            "nullable": true,
+            "type": "double"
+          }
+        ]
+      }
+    ]
+  },
   "feature_targets": [
     {
       "name": "target_kind",

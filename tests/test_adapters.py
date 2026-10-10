@@ -150,7 +150,7 @@ def test_wenet_dependency_changes_identity_and_resume_checks_hash(tmp_path):
     )
 
 
-@pytest.mark.parametrize("dataset", ["genshin_voice", "starrail_voice", "galgame"])
+@pytest.mark.parametrize("dataset", ["genshin_voice", "starrail_voice", "zenless_voice", "galgame"])
 def test_game_namespace_nulls_and_original_ids(tmp_path, dataset):
     folder = tmp_path / ("game-A" if dataset == "galgame" else "data")
     folder.mkdir()
@@ -176,6 +176,35 @@ def test_game_namespace_nulls_and_original_ids(tmp_path, dataset):
         assert result[0]["speaker_id"] != result[1]["speaker_id"]
         assert result[2]["text"] is None and result[2]["speaker_id"] is None
     assert source_plan(dataset, tmp_path, 1024**2)
+
+
+def test_zenless_preserves_caption_provenance_and_audio(tmp_path):
+    folder = tmp_path / "raw" / "data"
+    folder.mkdir(parents=True)
+    rows = [
+        {
+            "audio": {"bytes": audio(), "path": f"clip-{i}.wav"},
+            "transcription": "{F#原文}<color=red>台词</color>" if i == 0 else None,
+            "speaker": "Wise" if i == 0 else None,
+            "language": lang,
+            "ingame_filename": "Chinese(PRC)/voice.wem" if i == 0 else None,
+            "voice_type": "Level",
+        }
+        for i, lang in enumerate(["Chinese", "English", "Japanese", "Korean"])
+    ]
+    pq.write_table(pa.Table.from_pylist(rows), folder / "train.parquet")
+    result = convert("zenless_voice", folder.parent, tmp_path / "v0.1", deep_verify=True)
+    output = release_dataset(tmp_path / "v0.1").to_table().to_pylist()
+    assert result["rows"] == 4
+    assert [r["language"] for r in output] == ["zh", "en", "ja", "ko"]
+    for source, row in zip(rows, output, strict=True):
+        assert row["audio"]["bytes"] == source["audio"]["bytes"]
+        assert row["text"] == source["transcription"]
+        assert row["dataset_id"] == "zenless_voice"
+        assert json.loads(row["source_locator_json"])["path"].startswith("zenless-voice/")
+        assert json.loads(row["metadata_json"])["upstream"] == {
+            k: v for k, v in source.items() if k != "audio"
+        }
 
 
 @pytest.mark.parametrize(

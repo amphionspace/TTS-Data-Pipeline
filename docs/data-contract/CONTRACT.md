@@ -30,10 +30,11 @@ samples.lance：原音频 + 基础文字/语言/speaker/来源
 1. 统一存储使用本地 Lance 表，不要求启动数据库服务。HF Parquet 可以作为输入或将来的交换导出格式。
 2. 根目录为 `/workspace/data/DATA-TTS-UNIFIED`。按 dataset 管理发布，每个 release 的主表是 `samples.lance`。
 3. 首次发布名为 `v0.1`。主表在物理上由 Lance 管理多个数据文件；运行 batch 不是数据目录或训练读取单元。
-4. 音频保留原始编码 bytes、采样率和声道；不在基础接入时重采样、归一化、重编码。
+4. 独立音频文件保留原始编码 bytes、采样率和声道；不在基础接入时重采样或归一化。
+   Emilia2 等按上游 short 从载体物化基础样本的专用接入例外，按 02/04 固定裁剪与编码规则。
 5. 基础列按 27 列 schema 写入；缺失文本、语言、speaker 使用 null。后续标注不覆盖基础列。
 6. 全部基础记录 `source_split=train`；上游 split/config/tier 保留在 metadata。存储的 train 不替代评估隔离。
-7. selection 在 samples 的独立分支记录入选状态；稀疏重复关系和排除证据归该 selection。一对一 annotation 使用从相同 base 建立的平级分支，大特征独立存表。
+7. selection 在 samples 的独立分支记录入选状态；稀疏重复关系和排除证据归该 selection。一对一 annotation 默认使用从相同 base 建立的平级分支，显式独立结果表按 05 发布，大特征独立存表。
 8. 为 `sample_id` 建标量索引。不能把 Lance 内部行号或物理文件位置当永久 ID。
 9. 已发布 manifest、main 与固定逻辑快照不可变；允许在 samples.lance 新增 annotation/selection 分支。引用必须固定 table/branch/version，不跟随 latest。
 10. 发布前校验，失败不静默丢数据。原始全量转换、标注和特征任务都要明确处理与验证覆盖范围。
