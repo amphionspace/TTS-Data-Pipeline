@@ -506,3 +506,71 @@ def test_truncation_evidence_is_written_before_checkpoint(tmp_path, monkeypatch)
     lines = (tmp_path / "failures.jsonl").read_text().splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0])["details"]["content"] == "unfinished"
+
+
+def test_malformed_output_retries_and_retains_raw_evidence(monkeypatch):
+    bad = dict(content="language. So, I'd say that's part of it.", finish_reasons=["stop"])
+    good = dict(content="language English<asr_text>Correct text.", finish_reasons=["stop"])
+    replies = iter([bad, good])
+    monkeypatch.setattr(client.transport, "call", lambda read: next(replies))
+    result = client.transcribe("http://local/v1", "model", b"audio")
+    assert result["error_code"] is None and result["text"] == "Correct text."
+    assert result["raw_response"]["invalid_format_attempts"] == [bad]
+
+
+def test_persistent_bad_output_is_recorded_and_next_sample_continues(tmp_path, monkeypatch):
+    from tts_data_pipeline.annotations.qwen_asr import journal
+
+    bad = dict(content="language. So, I'd say that's part of it.", finish_reasons=["stop"])
+    good = dict(content="language Korean<asr_text>안녕하세요", finish_reasons=["stop"])
+    replies = iter([bad, bad, bad, good])
+    monkeypatch.setattr(client.transport, "call", lambda read: next(replies))
+    plan = dict(
+        endpoint="http://local/v1",
+        model="model",
+        profile_id="profile",
+        _failure_journal=journal.FailureJournal(tmp_path / "failures.jsonl"),
+    )
+    failed = run.process(example_row(), plan)
+    assert failed[0]["error_code"] == "asr_output_invalid_format" and failed[1] is None
+    recorded = json.loads((tmp_path / "failures.jsonl").read_text())
+    assert len(recorded["details"]["invalid_format_attempts"]) == 3
+    success = run.process(dict(example_row(), sample_id=digest("next")), plan)
+    assert success[0]["status"] == "ok" and success[1]["text"] == "안녕하세요"
+    run.validate_output_formats([failed, success])
+    task = dict(
+        dataset_id="test",
+        offset=0,
+        rows=2,
+        ids_sha256=run.ordered_hash([failed[0]["target_id"], success[0]["target_id"]]),
+    )
+    checkpoint = run.save_checkpoint(tmp_path, task, "plan", [failed, success])
+    assert checkpoint["counts"] == {"failed": 1, "ok": 1}
+
+
+def test_format_failures_do_not_hide_systemic_errors(monkeypatch):
+    unknown = dict(content="text", finish_reasons=["unknown"])
+    monkeypatch.setattr(client.transport, "call", lambda read: unknown)
+    with pytest.raises(RuntimeError, match="completion format"):
+        client.transcribe("http://local/v1", "model", b"audio")
+    bad = (dict(error_code="asr_output_invalid_format"), None)
+    good = (dict(error_code=None), None)
+    run.validate_output_formats([bad] + [good] * 511)
+    with pytest.raises(RuntimeError, match="Systemic"):
+        run.validate_output_formats([bad] * 128 + [good] * 384)
+    candidate = (
+        dict(error_code=None),
+        dict(
+            language_candidate_response_json=json.dumps(
+                dict(error_code="asr_output_invalid_format")
+            )
+        ),
+    )
+    with pytest.raises(RuntimeError, match="Systemic"):
+        run.validate_output_formats([candidate] * 8)
+
+
+def test_unmatched_prefix_cannot_become_successful_empty_text():
+    with pytest.raises(client.InvalidASROutput):
+        client.parse_content("language \nEnglish<asr_text>text")
+    assert client.parse_content("<|nospeech|>")["text"] == ""

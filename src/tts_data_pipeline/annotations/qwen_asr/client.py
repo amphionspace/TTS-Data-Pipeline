@@ -8,6 +8,12 @@ import uuid
 from . import transport
 from .languages import LANGUAGE_NAMES
 
+FORMAT_ATTEMPTS = 3
+
+
+class InvalidASROutput(ValueError):
+    """A completed model response lacks a parseable transcription prefix."""
+
 
 def request_json(url, payload=None):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -72,14 +78,25 @@ def transcribe(endpoint, model, audio, language=None):
         with opener.open(request, timeout=600) as stream:
             return read_stream(stream)
 
-    response = transport.call(read)
-    if "length" in response["finish_reasons"]:
-        return {"error_code": "asr_output_truncated", "raw_response": response}
-    if any(reason != "stop" for reason in response["finish_reasons"]):
-        raise RuntimeError("Unexpected ASR completion format")
-    return dict(
-        parse_content(response["content"], language), raw_response=response, error_code=None
-    )
+    invalid = []
+    for attempt in range(FORMAT_ATTEMPTS):
+        response = transport.call(read)
+        evidence = dict(response, invalid_format_attempts=invalid) if invalid else response
+        if "length" in response["finish_reasons"]:
+            return {"error_code": "asr_output_truncated", "raw_response": evidence}
+        if any(reason != "stop" for reason in response["finish_reasons"]):
+            raise RuntimeError("Unexpected ASR completion format")
+        try:
+            parsed = parse_content(response["content"], language)
+        except InvalidASROutput:
+            invalid.append(response)
+            if attempt + 1 == FORMAT_ATTEMPTS:
+                return {"error_code": "asr_output_invalid_format", "raw_response": evidence}
+            print(
+                json.dumps(dict(event="asr_output_format_retry", attempt=attempt + 1)), flush=True
+            )
+            continue
+        return dict(parsed, raw_response=evidence, error_code=None)
 
 
 def parse_content(raw, requested_language=None):
@@ -89,6 +106,8 @@ def parse_content(raw, requested_language=None):
     elif "<asr_text>" in raw and raw.startswith("language "):
         # vLLM emits another prefix for every server-side audio chunk.
         parts = re.split(r"language ([^<\n]+)<asr_text>", raw)
+        if len(parts) < 3 or parts[0]:
+            raise InvalidASROutput(f"Unexpected ASR protocol: {raw[:160]!r}")
         languages = [lang for lang in parts[1::2] if lang != "None"]
         language = ",".join(dict.fromkeys(languages))
         text = "\n".join(parts[2::2])
@@ -96,7 +115,7 @@ def parse_content(raw, requested_language=None):
         language = LANGUAGE_NAMES[requested_language]
         text = raw
     else:
-        raise RuntimeError(f"Unexpected ASR protocol: {raw[:160]!r}")
+        raise InvalidASROutput(f"Unexpected ASR protocol: {raw[:160]!r}")
     return {
         "language": language,
         "language_source": "requested" if requested_language else "detected",

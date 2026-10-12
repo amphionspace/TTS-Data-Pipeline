@@ -283,6 +283,24 @@ def checkpoint_path(work, task):
     return Path(work) / "checkpoints" / task["dataset_id"] / f"{task['offset']:09d}"
 
 
+def validate_output_formats(outputs):
+    """Isolate individual malformed outputs, but stop a widespread protocol failure."""
+    invalid = 0
+    for target, result in outputs:
+        candidate = (
+            json.loads(result["language_candidate_response_json"])
+            if (result and result.get("language_candidate_response_json"))
+            else {}
+        )
+        if (
+            target["error_code"] == "asr_output_invalid_format"
+            or candidate.get("error_code") == "asr_output_invalid_format"
+        ):
+            invalid += 1
+    if invalid >= 8 and invalid * 4 >= len(outputs):
+        raise RuntimeError(f"Systemic ASR output format failures: {invalid}/{len(outputs)} targets")
+
+
 def load_checkpoint(work, task, plan_hash):
     folder = checkpoint_path(work, task)
     path = folder / "checkpoint.json"
@@ -517,6 +535,7 @@ def _run(work, workers=128):
                         ):
                             raise ValueError("Source target order changed")
                         rows = list(pool.map(lambda r: process(r, plan), table.to_pylist()))
+                        validate_output_formats(rows)
                         checkpoint = save_checkpoint(work, task, plan_hash, rows)
                     if checkpoint["counts"].get("failed"):
                         failures = pq.read_table(

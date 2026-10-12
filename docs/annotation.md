@@ -19,8 +19,7 @@ Emilia-YODAS 已完成的 16 个检查点、8,192 条经过任务/文件摘要�
 范围变更和清理结果见 `scope-migration.json`；旧任务目录只保留取消记录。
 新 run 为 `tts-ann-transcription-20261010T161238bjt-01`，北京时间 16:14 启动，128 并发并启用内部自动恢复。
 清理仅涉及取消任务的 ASR 工作产物及 Galgame 转写试验，不删除 samples、audio_stats、codec 或 speaker。
-FireRedLID 正式任务继续暂停。新任务的自动恢复和每小时监督见
-[监督说明](asr-unannotated-supervision.md)。
+FireRedLID 正式任务继续暂停。
 
 使用 `qwen3-asr-1.7b-base-v2` profile，固定 Qwen 支持的来源语言路由。
 继承 samples 发布时的 ID 唯一性验证，不对全集重新去重；prepare 流式计算有序 ID 摘要及分批任务，
@@ -136,6 +135,11 @@ publication_code_sha256 单独记录发布实现。后续新 prepare/run 默认�
 
 模型未提供可靠置信分数，不制造 score。空转写可以是成功执行，不代表训练合格，不回退原字幕。
 
+完成响应的单条正文格式异常最多尝试 3 次，耗尽后记 `asr_output_invalid_format`，保存原始证据并继续其他样本。
+每批至少 8 条且至少 25% 的样本在重试后仍有主/候选格式异常时停止，避免系统性故障造成批量误判。
+YODAS 的 2026-10-12 恢复通过独立修复代码与 implementation migration 复用原检查点；
+具体恢复命令以 `artifacts/asr-emilia-yodas-only-20261010/active-launch.json` 为准。
+
 解码失败和输出截断明确记账；临时连接故障、408/429/500/502/503/504 自动重试，
 模型变化、身份冲突、未知请求拒绝停止执行，不伪装成大量坏样本。
 已验证批次可从固定计划和冻结代码恢复。
@@ -185,8 +189,7 @@ CPU 波形统计独立执行，见 [audio_stats 运行说明](audio-stats.md)。
 兼容性说明和验证证据，正式 execution/manifest 引用该迁移；原模型、前处理、生成参数和成功结果 schema 不变。
 自动恢复针对上述临时服务异常，不覆盖机器重启或监督进程被 SIGKILL 的情况。
 
-小时级 agent supervisor 的完整交接与异常处置见 [ASR supervision](asr-unannotated-supervision.md)。
-它在当前会话后台检查新增全量任务的进度、意外退出和未知故障，检查结果自动写入
+小时级 agent supervisor 在会话后台检查全量任务的进度、意外退出和未知故障，检查结果自动写入
 `artifacts/asr-emilia-yodas-only-20261010/hourly-supervisor/`；与客户端内部的请求重试/60 秒恢复互补。
 四个游戏已经完成，相应监督已结束；历史检查记录保留在原 artifact 目录。
 该 agent 值守不是系统 cron，不承诺跨会话关闭或机器重启继续运行。
