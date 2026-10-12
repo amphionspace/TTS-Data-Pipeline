@@ -60,15 +60,16 @@ metadata 文件名对应原始 tar，结合该 tar 的 source_snapshot 与记录
 
 ## 全量执行与读取入口
 
-已启动 run：`tts-ann-transcription-20261010T171514bjt-import`，8 个 CPU worker，2,603 个基础分片。
-工作目录为 `artifacts/emilia-transcription-import-20261010/work`；进度见 `status.json`，日志见上一级 `run.log`。
-每片按计划和文件摘要恢复；全部基础 ID 顺序、逐文件覆盖与 Lance 全字段回读通过后自动发布。
+首次全量 run `tts-ann-transcription-20261010T171514bjt-import`（8 个 CPU worker，2,603 个基础分片）完成后，
+发现 run_id 后缀不符合 05 的 `bjt-NN` 规则（导入器硬编码 `-import`）。修正导入器后于 2026-10-12 以相同输入重跑，
+32 个 worker，导入约 4 分钟、发布约 6 分钟；新旧两表 40,264,231 行的 sample_id、输入指纹、status、error_code、result
+逐行完全一致，profile_id 相同。旧 run 已删除，工作目录为 `artifacts/emilia-transcription-import-20261012/`。
 
-发布后的全局入口（尚未 complete 时不可消费）：
+发布后的全局入口：
 
 ```text
-annotations/transcription/tts-ann-transcription-20261010T171514bjt-import/manifest.json
-datasets/emilia/v0.1/annotations/transcription/tts-ann-transcription-20261010T171514bjt-import/results.lance
+annotations/transcription/tts-ann-transcription-20261012T092945bjt-01/manifest.json
+datasets/emilia/v0.1/annotations/transcription/tts-ann-transcription-20261012T092945bjt-01/results.lance
 ```
 
 读取时固定 manifest 中的 table version，按 sample_id 关联。是否采用文本由新 selection 显式决定。

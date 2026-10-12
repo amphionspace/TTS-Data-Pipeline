@@ -27,6 +27,7 @@
 | [13 Text](specs/13-text-features.md) | 独立最终文本表、三表关联与独立 merged 表；不做 token 化 |
 | [类型描述](schemas/arrow-schemas.json) | 与 Python schema 一起生成的 Arrow 类型树 |
 | [示例](examples/README.md) | 仅用于理解约定，示例分数与 codes 不是模型结果 |
+| [正式发布登记](PUBLICATIONS.md) | 统一根下全部 complete 发布的 ID、行数、manifest SHA256、修正和删除记录 |
 
 训练专用数据构建、token 化、参考配对、采样及运行计划由训练仓库管理，不属于本契约的发布目录。
 

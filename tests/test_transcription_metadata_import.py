@@ -1,4 +1,5 @@
 import json
+import re
 
 import lance
 import pyarrow as pa
@@ -85,6 +86,7 @@ def fixture(tmp_path):
 
 def test_import_roundtrip_resume_and_nullable_evidence(fixture):
     root, metadata, work, plan, rows, records = fixture
+    assert re.fullmatch(r"tts-ann-transcription-\d{8}T\d{6}bjt-\d{2,}", plan["run_id"])
     imp.run(work, workers=1, publish=False)
     before = {
         p.name: (p.stat().st_mtime_ns, file_hash(p))

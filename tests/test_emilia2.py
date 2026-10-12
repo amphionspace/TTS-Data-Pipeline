@@ -10,11 +10,13 @@ from tts_data_pipeline.ingest.emilia2.metadata import scan_archive
 from tts_data_pipeline.ingest.emilia2.planning import deduplicate
 
 
-def make_source(tmp_path, name, kind="short", start=0, text="hello"):
+def make_source(
+    tmp_path, name, kind="short", start=0, text="hello", audio=b"audio", short_id="rec_001"
+):
     path = tmp_path / name
     path.parent.mkdir(parents=True, exist_ok=True)
     short = dict(
-        id="rec_001",
+        id=short_id,
         text=text,
         language="en",
         speaker="rec_spk1",
@@ -23,7 +25,7 @@ def make_source(tmp_path, name, kind="short", start=0, text="hello"):
         duration=1.0,
     )
     meta = dict(
-        id="rec_001" if kind == "short" else "carrier",
+        id=short_id if kind == "short" else "carrier",
         type=kind,
         recording_id="rec",
         frames=44100,
@@ -31,7 +33,7 @@ def make_source(tmp_path, name, kind="short", start=0, text="hello"):
         short=[short],
     )
     with tarfile.open(path, "w") as tar:
-        for member, raw in [("carrier.m4a", b"audio"), ("carrier.json", json.dumps(meta).encode())]:
+        for member, raw in [("carrier.m4a", audio), ("carrier.json", json.dumps(meta).encode())]:
             info = tarfile.TarInfo(member)
             info.size = len(raw)
             tar.addfile(info, io.BytesIO(raw))
@@ -198,3 +200,52 @@ def test_unstable_partition_readback_never_creates_checkpoint(tmp_path, monkeypa
     monkeypatch.setattr(metadata, "file_hash", real_hash)
     repaired = scan_archive((root, work, 0, source))
     assert repaired["sha256"] == real_hash(work / "metadata/00000.parquet")
+
+
+def test_published_manifest_records_audit_fields(tmp_path):
+    import subprocess
+
+    import numpy as np
+    import soundfile as sf
+
+    from tts_data_pipeline.audio_io import ffmpeg_path
+    from tts_data_pipeline.ingest.emilia2.cli import run_publication
+    from tts_data_pipeline.timestamps import parse_timestamp
+
+    try:
+        binary = ffmpeg_path()
+    except RuntimeError:
+        pytest.skip("Pinned AAC decoder not installed")
+    wav, m4a = tmp_path / "input.wav", tmp_path / "input.m4a"
+    sf.write(wav, np.sin(np.arange(44100, dtype=np.float32) * 0.02) * 0.1, 44100)
+    subprocess.run(
+        [str(binary), "-v", "error", "-i", str(wav), "-c:a", "aac", "-b:a", "128k", str(m4a)],
+        check=True,
+    )
+    audio = m4a.read_bytes()
+    root, work = tmp_path / "raw", tmp_path / "work"
+    root.mkdir()
+    work.mkdir()
+    sources = [
+        make_source(root, "data/0.tar", audio=audio, short_id="rec_001"),
+        make_source(root, "data/1.tar", audio=audio, short_id="rec_002", start=-1),
+        make_source(root, "data/ASMR/2.tar", audio=audio, short_id="rec_003"),
+    ]
+    (work / "plan.json").write_text(json.dumps(dict(root=str(root), sources=sources)))
+    for i, source in enumerate(sources):
+        scan_archive((root, work, i, source))
+    run_publication(work, tmp_path / "unified" / "v0.1", workers=1)
+    manifest = json.loads((tmp_path / "unified/v0.1/manifest.json").read_text())
+    assert manifest["rows"] == 1 and manifest["rejected_rows"] == 1
+    assert manifest["finished_at"].endswith("+08:00")
+    parse_timestamp(manifest["finished_at"])
+    assert manifest["code_sha256"] == manifest["ingest_profile"]["implementation"]
+    assert manifest["speakers"] == {"emilia2:rec:rec_spk1": 1}
+    assert [r["reason"] for r in manifest["excluded_source_records"]] == ["invalid_short_bounds"]
+    assert [f["path"] for f in manifest["excluded_source_files"]] == ["data/ASMR/2.tar"]
+    assert manifest["excluded_category_rows"] == 1
+    assert manifest["code_migration"] is None and manifest["finalization"] is None
+    assert sorted(p.name for p in (tmp_path / "unified/v0.1").iterdir()) == [
+        "manifest.json",
+        "samples.lance",
+    ]

@@ -113,4 +113,5 @@ python scripts/ingest_emilia2.py run --work /path/to/new-work --output /path/to/
 scan 和 run 可用相同参数恢复，检查已完成分区的摘要；plan 只能创建新的工作目录。
 执行代码与 FFmpeg 必须固定，改变转换配置需新建任务。只在全部回读、全局 sample_id / short ID
 唯一性及数量核对通过后发布 complete manifest。各步骤不覆盖已有发布或原始 tar。
-元数据候选和去重排除清单随新 release 保留，解码失败在 ingestion-checkpoints 中逐条记载。
+release 只含 manifest.json 与 samples.lance；全部排除记录写入 manifest 的 excluded_source_records，
+元数据候选、去重排除清单和逐归档检查点留在工作目录，由 manifest 的 dedup 摘要固定。

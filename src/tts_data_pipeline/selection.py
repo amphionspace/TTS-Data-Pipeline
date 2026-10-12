@@ -2,9 +2,9 @@
 
 All row arrays are scratch state, never a published selection representation.
 Rules without `annotation_inputs`/`text_filter` reproduce selection-v1 exactly;
-selection-v2 (rules_version "selection-filter-v1") adds pinned ASR text sources, strict
-ASR language and text-script checks, text length/repetition policy and sample-scoped
-source-timeline evidence. Reference pairing is deliberately unsupported.
+selection-v2 adds pinned ASR text sources, strict ASR language and text-script checks,
+text length/repetition policy and sample-scoped source-timeline evidence.
+Reference pairing is deliberately unsupported.
 """
 
 import csv

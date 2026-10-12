@@ -22,7 +22,8 @@ samples.lance：原音频 + 基础文字/语言/speaker/来源
 
 本契约保存长期可互操作的字段、身份、引用、缺失/失败状态、覆盖和发布/保留约束。
 具体模型/精度/数值路径属于已验证 profile；一次任务的来源范围、硬件并发和性能属于 run manifest。
-实验过程、部署路径的当前运行 ID、代码修复历史与实现进度只记录在 pipeline 文档。
+正式发布（complete manifest）的 ID、摘要、修正与删除登记在 [PUBLICATIONS](PUBLICATIONS.md)，随契约同步；
+实验过程、运行中的任务、代码修复历史与实现进度只记录在 pipeline 文档。
 规范更新不改变已有 manifest/profile 哈希，不重写已发布数据；涉及字段/身份语义演进时按第 10 章处理。
 
 ## 3. 固定决定

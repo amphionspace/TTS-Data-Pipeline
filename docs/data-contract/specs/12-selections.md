@@ -276,8 +276,6 @@ rules.json 无 rules_version 字段（发布早于命名约定）。
 
 ### selection-v2
 
-已发布的 rules.json 中 rules_version 为历史名 `selection-filter-v1`，与 selection-v2 指同一版本。
-
 面向一阶段 TTS 预训练，排除明确的音文配对问题（错语言、截断/多余文本、ASR 复读、标记垃圾），
 保留规模和多样性。原因与 flag 使用字典 version 2。
 

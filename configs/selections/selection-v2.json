@@ -95,7 +95,7 @@
     {
       "text_source": 2,
       "task": "transcription",
-      "run_id": "tts-ann-transcription-20261010T171514bjt-import",
+      "run_id": "tts-ann-transcription-20261012T092945bjt-01",
       "datasets": [
         "emilia"
       ]
@@ -110,7 +110,7 @@
     "galgame:7 reviewed >300s transcript mismatches"
   ],
   "initial_root_reason": "First selection; prior source-ingestion exclusions already excluded from pinned base manifests; published-data findings are fixed in exclusions.jsonl.",
-  "rules_version": "selection-filter-v1",
+  "rules_version": "selection-v2",
   "parent_selection": "tts-selection-supervised-tts-20260929T151539bjt-01",
   "text_sources": {
     "1": {

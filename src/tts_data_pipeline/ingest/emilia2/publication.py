@@ -6,6 +6,7 @@ import json
 import math
 import tempfile
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,7 @@ from ...contract import schema_description
 from ...convert import decode_check, file_hash
 from ...feature_runtime import write_json
 from ...schema import VERSION, base_schema, digest, make_record, validate_record
+from ...timestamps import BEIJING
 from ...writer import (
     STORAGE_FORMAT,
     STORAGE_VERSION,
@@ -350,6 +352,8 @@ def finalize(work):
     languages = Counter()
     rates = Counter()
     formats = Counter()
+    speakers = Counter()
+    excluded_files, excluded_records = [], []
     with tempfile.TemporaryDirectory(prefix="emilia2-publish-") as tmp:
         db = sqlite3.connect(str(Path(tmp) / "ids.sqlite"))
         try:
@@ -364,9 +368,21 @@ def finalize(work):
                     if not excluded(s):
                         raise ValueError("Unexpected category exclusion")
                     excluded_rows += r["excluded_rows"]
+                    excluded_files.append(
+                        dict(
+                            path=s["path"],
+                            bytes=s["bytes"],
+                            index_sha256=s["index_sha256"],
+                            rows=r["excluded_rows"],
+                            reason="excluded_category",
+                        )
+                    )
                     continue
                 rows += r["rows"]
                 failed += len(r["rejected"])
+                excluded_records.extend(
+                    dict(source_path=s["path"], stage="decode", **e) for e in r["rejected"]
+                )
                 audio_bytes += r["audio_bytes"]
                 duration += r["duration_seconds"]
                 languages.update(r["languages"])
@@ -379,8 +395,9 @@ def finalize(work):
                     if file_hash(stage / shard["path"]) != shard["sha256"]:
                         raise ValueError("Fragment changed before publication")
                     for batch in file_batches(
-                        stage / shard["path"], columns=["sample_id", "source_key"]
+                        stage / shard["path"], columns=["sample_id", "source_key", "speaker_id"]
                     ):
+                        speakers.update(x for x in batch["speaker_id"].to_pylist() if x)
                         db.executemany(
                             "INSERT INTO ids VALUES (?,?)",
                             zip(
@@ -396,6 +413,11 @@ def finalize(work):
                 raise ValueError("Global unique identity mismatch")
         finally:
             db.close()
+    with (work / "candidate-exclusions.jsonl").open() as handle:
+        excluded_records.extend(dict(stage="dedup", **json.loads(line)) for line in handle)
+    rejected_rows = failed + dedup["invalid_ids"] + dedup["conflicting_ids"]
+    if len(excluded_records) != rejected_rows:
+        raise ValueError("Excluded record evidence does not match rejected rows")
     ds = commit_fragments(stage / "samples.lance", fragments)
     if ds.count_rows() != rows:
         raise ValueError("Lance committed row count mismatch")
@@ -427,6 +449,13 @@ def finalize(work):
         storage_format=STORAGE_FORMAT,
         storage_version=STORAGE_VERSION,
         dependencies=dependencies(),
+        # Every checkpoint is bound to publication.json, which fixes this implementation.
+        code_sha256=pub["profile"]["implementation"],
+        checkpoint_code_versions={
+            digest(pub["profile"]["implementation"]): pub["profile"]["implementation"]
+        },
+        code_migration=None,
+        finalization=None,  # Bulk identity-audit metrics do not apply to this adapter.
         audio_bytes=audio_bytes,
         duration_seconds=duration,
         output_bytes=sum(s["bytes"] for s in shards),
@@ -435,7 +464,10 @@ def finalize(work):
         sample_rates=dict(rates),
         audio_formats=dict(formats),
         source_splits={"train": rows},
-        rejected_rows=failed + dedup["invalid_ids"] + dedup["conflicting_ids"],
+        speakers=dict(speakers),
+        excluded_source_files=excluded_files,
+        excluded_source_records=excluded_records,
+        rejected_rows=rejected_rows,
         validation=dict(
             unique_ids=rows,
             unique_source_keys=rows,
@@ -443,13 +475,10 @@ def finalize(work):
             fully_decoded_audio=rows,
         ),
         dedup={k: v for k, v in dedup.items() if k != "partitions"},
+        finished_at=datetime.now(BEIJING).isoformat(),
     )
-    # Publish self-contained source/dedup/error evidence alongside the base manifest.
-    import shutil
-
-    shutil.copytree(work / "metadata", stage / "ingestion-candidates", dirs_exist_ok=True)
-    shutil.copytree(work / "converted", stage / "ingestion-checkpoints", dirs_exist_ok=True)
-    shutil.copy2(work / "candidate-exclusions.jsonl", stage / "candidate-exclusions.jsonl")
+    # Candidate/checkpoint evidence stays in the work directory, pinned by the dedup hashes;
+    # the release keeps the common layout of manifest.json + samples.lance.
     write_json(stage / "manifest.json", manifest)
     stage.rename(pub["output"])
     return manifest

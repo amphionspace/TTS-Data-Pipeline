@@ -203,7 +203,15 @@ def check(target=None):
         expected = {p.relative_to(root) for p in files}
         deployed = {
             p.relative_to(target)
-            for name in ["README.md", "CONTRACT.md", "specs", "schemas", "examples", "experiments"]
+            for name in [
+                "README.md",
+                "CONTRACT.md",
+                "PUBLICATIONS.md",
+                "specs",
+                "schemas",
+                "examples",
+                "experiments",
+            ]
             for p in ([target / name] if (target / name).is_file() else (target / name).rglob("*"))
             if p.is_file()
         }

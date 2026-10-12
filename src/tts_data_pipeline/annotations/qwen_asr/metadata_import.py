@@ -151,7 +151,7 @@ def prepare(root, metadata_root, audit_path, work, *, pilot=False):
         implementation=implementation(),
         audit_sha256=file_hash(audit_path),
         pilot=pilot,
-        run_id="tts-ann-transcription-" + now.strftime("%Y%m%dT%H%M%Sbjt") + "-import",
+        run_id="tts-ann-transcription-" + now.strftime("%Y%m%dT%H%M%Sbjt") + "-01",
         created_at=now.isoformat(),
         tasks=[dict(fragment_id=f.fragment_id, rows=f.count_rows()) for f in ds.get_fragments()],
     )

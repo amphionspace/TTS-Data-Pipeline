@@ -4,18 +4,19 @@
 
 | 版本 | 规则文件 | 已发布 selection | 状态 |
 | --- | --- | --- | --- |
-| selection-v2 | configs/selections/selection-v2.json | `tts-selection-supervised-tts-20261012T045922bjt-01` | 当前，一阶段预训练 |
+| selection-v2 | configs/selections/selection-v2.json | `tts-selection-supervised-tts-20261012T095348bjt-01` | 当前，一阶段预训练 |
 | selection-v1 | configs/selections/selection-v1.json | `tts-selection-supervised-tts-20260929T151539bjt-01` | 现有训练 build 使用，保留 |
 
 规则文件与发布目录中的 rules.json 逐字节相同（SHA256 一致）；改文件名不改内容，以免与已发布摘要不符。
-selection-v2 的 rules.json 内部 rules_version 为历史名 `selection-filter-v1`。
+selection-v2 曾以 `tts-selection-supervised-tts-20261012T045922bjt-01` 发布（rules_version 为旧名 `selection-filter-v1`，
+绑定 run_id 不合规的 Emilia 导入）；改正 run_id 与 rules_version 后按相同规则重新发布，判定结果逐数据集一致，旧发布已删除。
 
 ## selection-v2 发布记录
 
 - 输入 18 个已发布 base v0.1：selection-v1 的 16 个，加 zenless_voice、emilia2（ASMR 已在接入时排除），共 235,079,775 条 / 520,518 小时。
 - 父 selection 为 selection-v1 的发布，完整继承其 8 条有效排除。audio_stats 已停用并删除，不使用；不使用 DNSMOS；不做留出划分。
 - 文本来源：genshin/starrail/wutheringwaves/zenless 用 `tts-ann-transcription-20261010T111659bjt-01` 主转写（来源码 1）；
-  emilia 用 `tts-ann-transcription-20261010T171514bjt-import` 上游 Qwen ASR 导入（来源码 2）；其余 13 个（含 emilia2 的上游 Qwen ASR 文本）用 base text。
+  emilia 用 `tts-ann-transcription-20261012T092945bjt-01` 上游 Qwen ASR 导入（来源码 2）；其余 13 个（含 emilia2 的上游 Qwen ASR 文本）用 base text。
 - 来源时长证据为 `reports/interval-audit/findings.tsv`，除 `invalid_word_timestamps` 外 14,250 条记 105：
   来源 duration 比实际音频长 0.05–1 秒（emilia 1,416、emilia_yodas 12,814、libriheavy 19、mls_sidon 1）。
   wenetspeech4tts 的 34 条只涉及词级时间戳，完整 WAV 保留。
