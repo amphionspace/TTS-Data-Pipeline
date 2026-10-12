@@ -39,5 +39,11 @@ if [[ -d "$WORK/home/.triton/cache" ]]; then
   cp -rn "$WORK/home/.triton/cache/." "$TRITON_CACHE_DIR/" 2>/dev/null || true
   rm -rf "$TRITON_CACHE_DIR"/*/tmp.pid_*  # half-written entries of an interrupted put
 fi
+# An operator can hold a launch before it touches any output (e.g. while the dev host
+# publishes a dataset this job would also publish), so queueing overlaps that work.
+while [[ -e "$WORK/hold" ]]; do
+  echo "$(date -u +%FT%TZ) held: $WORK/hold exists" | tee -a "$MONITOR"
+  sleep 30
+done
 cd "$RUNTIME"
 exec "$PYTHON_BIN" scripts/feature_pipeline.py run --work-root "$WORK" --gpus "$GPU_COUNT" "$@"
