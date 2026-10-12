@@ -106,6 +106,8 @@ class Step:
         self.name, self.work, self.plan_command, self.run_command = name, Path(work), plan, run
         self.log, self.process, self.started, self.failures = Path(log), None, False, 0
         self.failed, self.restart_at = False, None
+        # Optional callable: a start or restart waits while it returns a reason to wait.
+        self.gate = None
 
     def start(self, python):
         self.python, self.started = python, True
@@ -151,6 +153,14 @@ class Step:
             return False
         if self.restart_at is not None:
             if time.monotonic() >= self.restart_at:
+                reason = self.gate and self.gate()
+                if reason:
+                    print(
+                        f"{datetime.now(timezone.utc).isoformat()} {self.name} held: {reason}",
+                        flush=True,
+                    )
+                    self.restart_at = time.monotonic() + 30
+                    return False
                 self.restart_at = None
                 self.start(self.python)
             return False
@@ -185,6 +195,19 @@ def published_datasets(plan_path):
         for d in plan["datasets"]
         if (Path(d["final"]) / "manifest.json").exists()
     }
+
+
+def unpublished_complete(plan_path):
+    """Datasets whose every task is checkpointed but that have no final yet: publish candidates."""
+    plan = json.loads(Path(plan_path).read_text())
+    waiting = []
+    for d in plan["datasets"]:
+        checkpoints = Path(d["state"]) / "checkpoints"
+        if (Path(d["final"]) / "manifest.json").exists() or not checkpoints.exists():
+            continue
+        if len(list(checkpoints.glob("*.json"))) >= len(d["tasks"]):
+            waiting.append(d["source"]["dataset_id"])
+    return waiting
 
 
 def run(args):
@@ -230,7 +253,7 @@ def run(args):
             "--work",
             s["codec"],
             "--mode",
-            "all",
+            args.codec_mode,
             "--gpus",
             *gpus,
             "--workers-per-gpu",
@@ -244,7 +267,23 @@ def run(args):
     )
     out = ["--output-root", c["output_root"]] if c.get("output_root") else []
     codec.plan_command += out + (["--datasets", *c["datasets"]] if c.get("datasets") else [])
-    codec.start(python)
+    if args.codec_mode == "encode" and codec_plan.exists():
+        # The reuse mode runs on another host and publishes there. A codec start publishes every
+        # fully checkpointed, unpublished dataset, so every (re)start here waits until none is
+        # left: two hosts must never publish one stage.
+        def gate():
+            waiting = unpublished_complete(codec_plan)
+            write_json(
+                work / "codec-gate.json",
+                dict(at=datetime.now(timezone.utc).isoformat(), waiting=waiting),
+            )
+            return waiting and f"datasets awaiting publication by the reuse host: {waiting}"
+
+        codec.gate = gate
+        codec.python, codec.started, codec.started_at = python, True, time.monotonic()
+        codec.restart_at = time.monotonic()
+    else:
+        codec.start(python)
     if not codec_plan.exists():
         raise SystemExit(f"Codec plan failed; see {logs / 'codec.log'}")
     # Text needs only the pinned targets, which the codec plan fixes.
@@ -370,9 +409,20 @@ def run(args):
     while True:
         done = {x.name for x in steps if x.finished()}
         codec_done = published_datasets(codec_plan)
-        if speaker_early and not speaker_early.started and "codec" in done:
+        # In encode mode the codec step can end before the reuse host has published.
+        if (
+            speaker_early
+            and not speaker_early.started
+            and "codec" in done
+            and set(early) <= codec_done
+        ):
             speaker_early.start(python)
-        if speaker_late and not speaker_late.started and "codec" in done:
+        if (
+            speaker_late
+            and not speaker_late.started
+            and "codec" in done
+            and set(late) <= codec_done
+        ):
             speaker_late.start(python)
         for m, sp in ((merged_early, speaker_early), (merged_late, speaker_late)):
             if m and not m.started and sp.name in done and "text" in done:
@@ -444,6 +494,13 @@ def main():
     r.add_argument("--copy-workers", type=int, default=24)
     r.add_argument("--text-workers", type=int, default=8)
     r.add_argument("--merge-workers", type=int, default=16)
+    r.add_argument(
+        "--codec-mode",
+        choices=["all", "encode"],
+        default="all",
+        help="encode: this node only encodes; another host runs `extract_codec.py run --mode "
+        "reuse` and publishes, and codec (re)starts wait while any dataset awaits publication",
+    )
     args = parser.parse_args()
     init(args) if args.command == "init" else run(args)
 
