@@ -106,18 +106,33 @@ def test_index_must_match_tar_headers(tmp_path):
         scan_archive((root, tmp_path / "work", 0, source))
 
 
-def test_crop_encoding_does_not_clip_and_roundtrips():
+def test_crop_encoding_is_pcm16_and_attenuates_overshoot_instead_of_clipping():
     import numpy as np
     import soundfile as sf
 
     from tts_data_pipeline.ingest.emilia2.publication import encoded_crop
 
-    samples = np.array([[-1.2], [0.3], [1.1]], dtype=np.float32)
-    raw, extension, error = encoded_crop(samples, 44100)
-    assert extension == ".wav" and error == 0
-    assert np.array_equal(sf.read(io.BytesIO(raw), dtype="float32", always_2d=True)[0], samples)
-    raw, extension, error = encoded_crop(samples / 2, 44100)
-    assert extension == ".flac" and error <= 2**-24
+    samples = np.array([[-0.5], [0.3], [0.123456789], [-1.0]], dtype=np.float32)
+    raw, gain, error = encoded_crop(samples, 44100)
+    restored, _ = sf.read(io.BytesIO(raw), dtype="float64", always_2d=True)
+    assert raw[:4] == b"fLaC" and sf.info(io.BytesIO(raw)).subtype == "PCM_16"
+    assert gain == 1.0 and error <= 2**-16
+    assert np.array_equal(restored * 32768, np.round(restored * 32768))
+    over = np.array([[-1.2], [0.3], [1.1]], dtype=np.float32)
+    raw, gain, error = encoded_crop(over, 44100)
+    restored, _ = sf.read(io.BytesIO(raw), dtype="float64", always_2d=True)
+    assert gain < 1 and error <= 2**-16
+    # Linear attenuation keeps the waveform shape; nothing is pinned at the PCM16 limits.
+    assert np.max(np.abs(restored - over * gain)) <= 2**-16
+    assert restored.min() >= -1 and restored.max() <= 32767 / 32768
+    assert restored.min() == -1  # the dominant overshoot lands exactly on the PCM16 limit
+
+
+def test_asmr_category_is_excluded():
+    from tts_data_pipeline.ingest.emilia2.publication import excluded
+
+    assert excluded(dict(path="Emilia2_TTS_m4a/ASMR/asmr-00000.tar"))
+    assert not excluded(dict(path="Emilia2_TTS_m4a/data/emilia2-00000.tar"))
 
 
 def test_original_m4a_base_preserves_bytes_and_actual_length(tmp_path):

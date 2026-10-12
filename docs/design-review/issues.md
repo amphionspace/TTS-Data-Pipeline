@@ -196,11 +196,10 @@ LibriHeavy 保留 283 个（9,331,886 行）；重启后进度先统计逐片重
 
 ## Emilia2 short 基础接入（2026-10-08）
 
-按用户确认，独立 short 保留 M4A，long/dialogue 展开内部 short 后物化；三路按上游
-short ID 全局去重并保留冲突/越界记录。只发布 samples，不启动 selection 或特征。
+独立 short 与 long/dialogue 内部 short 统一解码后保存为 FLAC PCM16（2026-10-10 起，
+替换此前的 M4A 原字节 + FLAC24 方案），三路按上游 short ID 全局去重并保留冲突/越界记录；
+上游 ASMR 类别不纳入。只发布 samples，不启动 selection 或特征。
 当前代码入口 `scripts/ingest_emilia2.py`，阶段为 plan / scan / dedup / run。
 运行时通过 `TTS_FFMPEG` 固定 FFmpeg 可执行文件；版本与 SHA256 进入接入 profile。
-真实三种来源的 86 条 samples 已完成本地 Lance 发布及完整回读，证据在
-`artifacts/emilia2-ingest-integration/`；该本地样本不代表全库发布。
-全量准备状态在 `artifacts/emilia2-runs/active.json` 指向的 work/status.json。
+全量运行目录为 `artifacts/emilia2-runs/emilia2-flac16-20261010/`；早期小样本试验目录已清理。
 旧节的 AAC 和来源下载调查是历史记录，正式输入以本次固定的 tar/idx 清单为准。

@@ -77,14 +77,15 @@ v0.1 原始接入中 parent_sample_id、segment_start_frame、segment_end_frame 
 
 ## Emilia2 上游短样本接入
 
-Emilia2 的基础对象定义为上游 short，而不是承载它的长录音。`type=short` 直接保存原始
-M4A bytes；`type=long/dialogue` 按其 short 列表的原生整数半开区间生成基础音频。
-这是来源 adapter 的样本映射，不是对已发布 samples 的 selection 裁剪。
-不修改既有来源的原编码保留规则，也不要求所有音频统一为 FLAC。
+Emilia2 的基础对象定义为上游 short，而不是承载它的长录音。三种载体都先完整解码：
+`type=short` 取 `[0, 容器有效帧数)`，去掉 AAC 尾部补齐；`type=long/dialogue` 按其 short 列表的
+原生整数半开区间截取。这是来源 adapter 的样本映射，不是对已发布 samples 的 selection 裁剪。
+不修改既有来源的原编码保留规则；该例外只适用于 Emilia2。
 
-内部 short 以 FLAC PCM24 保存；每条回读校验量化误差不超过 2^-24，不能称浮点逐位无损。
-幅度超出 PCM24 可表示范围时保存 FLOAT WAV，逐位回读，禁止削波和音量归一化。
-所有输出保留原生采样率和声道。整数区间必须同时落在声明有效长度与实际解码长度内，
+Emilia2 所有样本统一保存为 FLAC PCM16，量化为 `round(x*32768)`，每条回读误差不超过 2^-16。
+上游本身是约 128 kbps 的 AAC，16 位量化噪声（约 -98 dBFS）远低于其编码误差；不能称浮点逐位无损。
+AAC 解码过冲超出 PCM16 范围时，整条线性降低增益至恰好可表示（记录于 metadata.crop_gain），
+不削波。Upstream ASMR 类别整体不纳入。所有输出保留原生采样率和声道。整数区间必须同时落在声明有效长度与实际解码长度内，
 不对负起点、越界终点作静默修正，不按秒级 duration 重新计算区间。
 
 source_key 保存上游 short ID；三种载体合并后在发布前全局去重。

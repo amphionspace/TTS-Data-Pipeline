@@ -28,15 +28,23 @@ from ...writer import (
 )
 from .metadata import check_source
 
+# Whole upstream categories left out of the release; their IDs never collide with kept ones.
+EXCLUDED_CATEGORIES = {"ASMR"}
+
+
+def excluded(source):
+    return any(f"/{c}/" in source["path"] for c in EXCLUDED_CATEGORIES)
+
 
 def ingestion_profile():
     return dict(
-        name="emilia2-short-ingest-v1",
+        name="emilia2-short-ingest-v2",
         decoder=aac_profile(),
-        standalone="original encoded bytes, complete actual decoder timeline",
+        standalone="decoded; [0, container valid frames) drops AAC end padding",
         nested="integer native [start,end) from short annotation; no resampling",
-        crop_encoding="FLAC PCM24, FLOAT WAV if peak is outside PCM24 representable range",
-        pcm24_max_quantization_error=2**-24,
+        crop_encoding="FLAC PCM16 via round(gain*x*32768); gain<1 only when the peak exceeds PCM16",
+        pcm16_max_quantization_error=2**-16,
+        excluded_source_categories=sorted(EXCLUDED_CATEGORIES),
         dedup="valid standalone > valid long > valid dialogue; 128k before 64k within type",
         identity="source-transform-v1",
         implementation={p.name: file_hash(p) for p in sorted(Path(__file__).parent.glob("*.py"))},
@@ -47,28 +55,32 @@ def ingestion_profile():
 
 
 def encoded_crop(audio, rate):
+    """16-bit FLAC with explicit rounding; AAC overshoot past full scale is attenuated, not clipped.
+
+    Returns the encoded bytes, the applied linear gain (1.0 unless attenuated) and the maximum
+    absolute difference between the decoded result and gain * audio.
+    """
     if not len(audio) or not np.isfinite(audio).all():
         raise AudioDecodeError("empty_or_nonfinite_crop")
-    peak_low, peak_high = float(audio.min()), float(audio.max())
-    as_float = peak_low < -1 or peak_high > 1 - 2**-23
+    wave = audio.astype(np.float64)
+    high, low = float(wave.max()), float(wave.min())
+    gain = 1.0
+    if round(high * 32768) > 32767 or round(low * 32768) < -32768:
+        # PCM16 spans [-32768, 32767]; scale the side that overshoots the most.
+        gain = min(32767 / (high * 32768) if high > 0 else 1.0, -1 / low if low < 0 else 1.0)
+    scaled = np.round(wave * gain * 32768)
     buf = io.BytesIO()
-    sf.write(
-        buf,
-        audio,
-        rate,
-        format="WAV" if as_float else "FLAC",
-        subtype="FLOAT" if as_float else "PCM_24",
-    )
+    sf.write(buf, scaled.astype(np.int16), rate, format="FLAC", subtype="PCM_16")
     data = buf.getvalue()
-    restored, _ = sf.read(io.BytesIO(data), dtype="float32", always_2d=True)
-    expected = audio[:, None] if audio.ndim == 1 else audio
+    restored, _ = sf.read(io.BytesIO(data), dtype="float64", always_2d=True)
+    expected = (wave[:, None] if wave.ndim == 1 else wave) * gain
     error = float(np.max(np.abs(restored - expected)))
-    if restored.shape != expected.shape or error > (0 if as_float else 2**-24):
+    if restored.shape != expected.shape or error > 2**-16:
         raise ValueError("Crop encoding verification failed")
-    return data, ".wav" if as_float else ".flac", error
+    return data, gain, error
 
 
-def sample_record(candidate, source, source_sha, profile_id, blob, extension, quantization):
+def sample_record(candidate, source, source_sha, profile_id, blob, gain, quantization):
     # The source tar contains both the carrier bytes and exact integer short annotation.
     snapshot = "source-transform-v1:sha256:" + digest(
         dict(path=source["path"], sha256=source_sha, ingest_profile_id=profile_id)
@@ -85,7 +97,7 @@ def sample_record(candidate, source, source_sha, profile_id, blob, extension, qu
         source_snapshot=snapshot,
         source_key=candidate["short_id"],
         audio_bytes=blob,
-        audio_name=candidate["short_id"] + extension,
+        audio_name=candidate["short_id"] + ".flac",
         text=text,
         text_kind="source_transcript" if text else None,
         language=language,
@@ -110,9 +122,10 @@ def sample_record(candidate, source, source_sha, profile_id, blob, extension, qu
             source_audio_sha256=candidate["source_audio_sha256"],
             ingest_profile_id=profile_id,
             source_native_valid_frames=candidate["native_frames"],
-            ingestion_operation="standalone"
+            ingestion_operation="standalone_transcode"
             if candidate["carrier_type"] == "short"
             else "short_crop",
+            crop_gain=gain,
             crop_quantization_max_abs=quantization,
             original_split=None,
             original_language=candidate["language"],
@@ -130,7 +143,6 @@ def convert_archive(job):
         raise ValueError("Pinned AAC decoder changed")
     source = plan["sources"][number]
     stage = Path(publish["stage"])
-    path = check_source(plan["root"], source)
     checkpoint = work / "converted" / f"{number:05d}.json"
     partition = work / "winners" / f"{number:05d}.parquet"
     expected = json.loads((work / "dedup.json").read_text())["partitions"][number]
@@ -146,9 +158,25 @@ def convert_archive(job):
             if file_hash(stage / shard["path"]) != shard["sha256"]:
                 raise ValueError("Checkpoint fragment changed")
         return result
+    winner_rows = pq.read_table(partition)["row_number"].to_pylist()
+    if excluded(source):
+        result = dict(
+            publication_sha256=file_hash(work / "publication.json"),
+            source=source,
+            excluded_category=True,
+            rows=0,
+            rejected=[],
+            fragments=[],
+            shards=[],
+            excluded_rows=len(winner_rows),
+            selected=len(winner_rows),
+        )
+        checkpoint.parent.mkdir(exist_ok=True)
+        write_json(checkpoint, result)
+        return result
+    path = check_source(plan["root"], source)
     source_sha = file_hash(path)
     check_source(plan["root"], source)
-    winner_rows = pq.read_table(partition)["row_number"].to_pylist()
     table = pq.read_table(metadata).take(pa.array(winner_rows, type=pa.int64()))
     selected = sorted(table.to_pylist(), key=lambda r: (r["offset"], r["start"]))
     groups = {}
@@ -160,11 +188,12 @@ def convert_archive(job):
     formats = Counter()
     rates = Counter()
     audio_bytes = 0
+    attenuated = 0
     duration = 0.0
     ordered = hashlib.sha256()
 
     def records():
-        nonlocal audio_bytes, duration
+        nonlocal audio_bytes, duration, attenuated
         with path.open("rb") as handle:
             for member, items in groups.items():
                 first = items[0]
@@ -175,40 +204,34 @@ def convert_archive(job):
                 sha = hashlib.sha256(raw).hexdigest()
                 try:
                     with tempfile.TemporaryDirectory(prefix="emilia2-crop-") as tmp:
-                        wave = None
-                        if first["carrier_type"] != "short":
-                            inp = Path(tmp) / ("input" + Path(member).suffix)
-                            inp.write_bytes(raw)
-                            wav = Path(tmp) / "decoded.wav"
-                            decode_file(inp, wav)
-                            wave = sf.SoundFile(wav)
+                        # Standalone shorts are carriers whose annotation is [0, valid frames).
+                        inp = Path(tmp) / ("input" + Path(member).suffix)
+                        inp.write_bytes(raw)
+                        wav = Path(tmp) / "decoded.wav"
+                        decode_file(inp, wav)
+                        wave = sf.SoundFile(wav)
                         try:
                             for item in items:
                                 item["source_audio_sha256"] = sha
                                 try:
-                                    if wave is None:
-                                        blob, ext, quant = raw, Path(member).suffix, 0.0
-                                    else:
-                                        if wave.samplerate != item["sample_rate"]:
-                                            raise ValueError(
-                                                "Source native rate disagrees with decode"
-                                            )
-                                        if item["end"] > len(wave):
-                                            raise AudioDecodeError("short_end_beyond_actual_decode")
-                                        wave.seek(item["start"])
-                                        crop = wave.read(
-                                            item["end"] - item["start"],
-                                            dtype="float32",
-                                            always_2d=True,
-                                        )
-                                        blob, ext, quant = encoded_crop(crop, wave.samplerate)
+                                    if wave.samplerate != item["sample_rate"]:
+                                        raise ValueError("Source native rate disagrees with decode")
+                                    if item["end"] > len(wave):
+                                        raise AudioDecodeError("short_end_beyond_actual_decode")
+                                    wave.seek(item["start"])
+                                    crop = wave.read(
+                                        item["end"] - item["start"],
+                                        dtype="float32",
+                                        always_2d=True,
+                                    )
+                                    blob, gain, quant = encoded_crop(crop, wave.samplerate)
                                     row = sample_record(
                                         item,
                                         source,
                                         source_sha,
                                         publish["profile_id"],
                                         blob,
-                                        ext,
+                                        gain,
                                         quant,
                                     )
                                     if row["sample_rate"] != item["sample_rate"]:
@@ -228,15 +251,15 @@ def convert_archive(job):
                                     continue
                                 counts["rows"] += 1
                                 languages[row["language"]] += 1
-                                formats[ext] += 1
+                                formats[".flac"] += 1
+                                attenuated += gain < 1
                                 rates[str(row["sample_rate"])] += 1
                                 audio_bytes += len(blob)
                                 duration += row["duration_seconds"]
                                 ordered.update((row["sample_id"] + row["record_revision"]).encode())
                                 yield row
                         finally:
-                            if wave is not None:
-                                wave.close()
+                            wave.close()
                 except (AudioDecodeError, sf.LibsndfileError) as exc:
                     errors.extend(
                         dict(short_id=item["short_id"], member=member, reason=str(exc))
@@ -302,6 +325,7 @@ def convert_archive(job):
         languages=dict(languages),
         sample_rates=dict(rates),
         formats=dict(formats),
+        attenuated_rows=attenuated,
         selected=len(selected),
     )
     checkpoint.parent.mkdir(exist_ok=True)
@@ -321,7 +345,7 @@ def finalize(work):
     fragments = []
     shards = []
     inputs = []
-    rows = failed = audio_bytes = 0
+    rows = failed = excluded_rows = audio_bytes = 0
     duration = 0.0
     languages = Counter()
     rates = Counter()
@@ -336,6 +360,11 @@ def finalize(work):
                 r = json.loads(cp.read_text())
                 if r["publication_sha256"] != file_hash(work / "publication.json"):
                     raise ValueError("Checkpoint publication changed")
+                if r.get("excluded_category"):
+                    if not excluded(s):
+                        raise ValueError("Unexpected category exclusion")
+                    excluded_rows += r["excluded_rows"]
+                    continue
                 rows += r["rows"]
                 failed += len(r["rejected"])
                 audio_bytes += r["audio_bytes"]
@@ -361,7 +390,7 @@ def finalize(work):
                             ),
                         )
                 db.commit()
-            if not rows or rows + failed != dedup["selected"]:
+            if not rows or rows + failed + excluded_rows != dedup["selected"]:
                 raise ValueError("Final output count mismatch or empty dataset")
             if db.execute("SELECT COUNT(*) FROM ids").fetchone()[0] != rows:
                 raise ValueError("Global unique identity mismatch")
@@ -392,7 +421,9 @@ def finalize(work):
         input_manifest_sha256=digest(inputs),
         source_selection="all listed standalone shorts and "
         "nested shorts; globally deduplicated upstream short ID, "
-        "explicit invalid/conflict exclusions",
+        "explicit invalid/conflict exclusions; excluded categories: "
+        + ", ".join(sorted(EXCLUDED_CATEGORIES)),
+        excluded_category_rows=excluded_rows,
         storage_format=STORAGE_FORMAT,
         storage_version=STORAGE_VERSION,
         dependencies=dependencies(),

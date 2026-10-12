@@ -92,10 +92,10 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python -m pytest -q
 
 ## Emilia2：仅基础 samples 接入
 
-独立 short 原字节接入；long/dialogue 按内部 short 标注裁剪；三路按上游 short ID 全局去重。
-独立 M4A 使用固定 FFmpeg 解码检查，片段使用 FLAC PCM24（幅度溢出时 FLOAT WAV）。
-保留来源区间和原标注，不重采样、不补零，不创建 selection 或任何 features。
-AAC 支持目前只接入基础样本验证；本轮不修改 codec/speaker 的音频读取实现。
+独立 short 与 long/dialogue 内部 short 统一解码后保存为 FLAC PCM16；三路按上游 short ID 全局去重。
+上游 ASMR 类别（13 个 tar）不纳入。过冲样本整条降增益而非削波。
+保留来源区间和原标注，原生 44.1 kHz，不重采样、不补零，不创建 selection 或任何 features。
+因样本全部为 FLAC，codec/speaker 可直接用 soundfile 读取，不依赖 M4A 解码。
 
 Zenless 的 `zenless_voice` adapter 也已接入，沿用原神、星铁的游戏字段映射，仅转换 samples；
 核查与运行边界见 [Zenless 接入检查](docs/design-review/zenless-ingest.md)。
