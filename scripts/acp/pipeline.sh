@@ -26,6 +26,10 @@ echo "uid=$(id -u) cores=$(nproc) gpus=$GPU_COUNT args=$*" | tee "$MONITOR"
       nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader
       # Publishing the largest dataset is memory-heavy: node RAM in kB.
       awk '/^(MemTotal|MemAvailable):/ {print "mem", $1, $2}' /proc/meminfo
+      # /proc/meminfo shows the host; the container's own usage is what its OOM killer sees.
+      for f in /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory/memory.usage_in_bytes; do
+        [[ -r $f ]] && echo "cgroup_mem_bytes $(cat "$f")" && break
+      done
       # Cumulative network bytes (rx tx) per interface: the shared filesystem is the IO path.
       awk 'NR>2 {gsub(":", "", $1); print "net", $1, $2, $10}' /proc/net/dev; } >> "$MONITOR"
   done ) &

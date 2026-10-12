@@ -8,7 +8,8 @@
                              └─ speaker (late datasets) ───┴─ merged (late datasets)
 
 Each step is a resumable subprocess with its own work directory; rerunning `run` continues.
-Speaker starts only after the whole codec run, so it never shares GPUs with encoding.
+Speaker for the early datasets starts once their codec is published, beside the late encoding;
+speaker for the late datasets starts after the whole codec run.
 Early datasets are all but the ones with the most new encoding: mostly reuse copies, so
 their speaker and merge finish while the late datasets are still extracting speaker.
 """
@@ -394,7 +395,8 @@ def run(args):
             logs / f"{name}.log",
         )
 
-    # Speaker-early runs beside speaker-late on the same GPUs: few GPU rows, so stay small.
+    # Speaker-early runs beside codec encoding and speaker-late on the same GPUs: few GPU
+    # rows, so stay small.
     speaker_early = speaker("speaker-early", early, 1, 3) if early else None
     speaker_late = (
         speaker("speaker-late", late, args.speaker_workers_per_gpu, args.speaker_decode_threads)
@@ -413,7 +415,8 @@ def run(args):
         if (
             speaker_early
             and not speaker_early.started
-            and "codec" in done
+            # Early datasets are mostly reuse copies: their speaker runs beside the late
+            # datasets' encoding, in its own process group, as soon as their codec is published.
             and set(early) <= codec_done
         ):
             speaker_early.start(python)
