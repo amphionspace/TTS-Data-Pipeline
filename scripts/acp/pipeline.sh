@@ -24,6 +24,8 @@ echo "uid=$(id -u) cores=$(nproc) gpus=$GPU_COUNT args=$*" | tee "$MONITOR"
 ( while sleep 60; do
     { date -u +%FT%TZ; cat /proc/loadavg
       nvidia-smi --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader
+      # Publishing the largest dataset is memory-heavy: node RAM in kB.
+      awk '/^(MemTotal|MemAvailable):/ {print "mem", $1, $2}' /proc/meminfo
       # Cumulative network bytes (rx tx) per interface: the shared filesystem is the IO path.
       awk 'NR>2 {gsub(":", "", $1); print "net", $1, $2, $10}' /proc/net/dev; } >> "$MONITOR"
   done ) &

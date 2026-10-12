@@ -462,3 +462,13 @@ def test_prepare_pins_codec_plan_and_reuse_then_copies(tmp_path, monkeypatch):
     assert manifest["reuse"]["rows"] == 5
     assert [i["alias"] for i in manifest["inputs"]] == ["samples", "reference_codec"]
     assert_copied(old, stored(d2), "new")
+
+
+def test_codec_sources_pins_only_planned_datasets(tmp_path):
+    """An unpublished codec of another dataset (still encoding) must not block planning."""
+    plan = tmp_path / "codec.json"
+    pending = tmp_path / "datasets/late/v0.1/features/codec/late-run"
+    write_json(plan, dict(datasets=[dict(source=dict(dataset_id="late"), final=str(pending))]))
+    assert run.codec_sources(plan, ["early"]) == {}
+    with pytest.raises(ValueError, match="Reference codec is not published"):
+        run.codec_sources(plan, ["late"])

@@ -3,14 +3,14 @@
 `init` (local) pins inputs and reusable published results into <work-root>/pipeline.json.
 `run` (on the GPU node) schedules every step by its data dependencies:
 
-    codec ─┬─ speaker (early datasets) ──┐
-           │                             ├─ merged (early datasets)
-    text ──┼─────────────────────────────┤
-           └─ speaker (late datasets) ───┴─ merged (late datasets)
+    codec ──(all published)──┬─ speaker (early datasets) ──┬─ merged (early datasets)
+    text ────────────────────┼─────────────────────────────┤
+                             └─ speaker (late datasets) ───┴─ merged (late datasets)
 
 Each step is a resumable subprocess with its own work directory; rerunning `run` continues.
-Early datasets are all but the ones with the most new encoding; their codec publishes first,
-so their speaker and merge steps overlap the long encode instead of waiting for it.
+Speaker starts only after the whole codec run, so it never shares GPUs with encoding.
+Early datasets are all but the ones with the most new encoding: mostly reuse copies, so
+their speaker and merge finish while the late datasets are still extracting speaker.
 """
 
 import argparse
@@ -96,6 +96,9 @@ class Step:
     """One resumable subprocess; started once, polled by the scheduler."""
 
     retries = 3
+    # A run this long made progress: a later crash starts a fresh retry budget, so sporadic
+    # crashes over a 13 h codec run cannot exhaust it.
+    healthy_seconds = 1800
 
     def __init__(self, name, work, plan, run, log):
         self.name, self.work, self.plan_command, self.run_command = name, Path(work), plan, run
@@ -103,19 +106,24 @@ class Step:
         self.failed, self.restart_at = False, None
 
     def start(self, python):
-        self.python = python
+        self.python, self.started = python, True
+        self.started_at = time.monotonic()
         env = dict(os.environ, PYTHONUNBUFFERED="1")
         with self.log.open("a") as handle:
             # A plan fixes run IDs; never re-plan an existing work directory.
             if not (self.work / "plan.json").exists():
-                subprocess.run(
+                code = subprocess.run(
                     [python, *self.plan_command],
                     cwd=PROJECT,
-                    check=True,
                     stdout=handle,
                     stderr=subprocess.STDOUT,
                     env=env,
-                )
+                ).returncode
+                if code:
+                    # A failed plan is this step's failure, not the scheduler's.
+                    self.process = None
+                    self.failure(handle, f"plan exit code {code}")
+                    return
             # Own process group: a restart can clean up every child (workers holding GPUs).
             self.process = subprocess.Popen(
                 [python, *self.run_command],
@@ -125,16 +133,26 @@ class Step:
                 env=env,
                 start_new_session=True,
             )
-        self.started = True
+
+    def failure(self, handle, reason):
+        self.failures += 1
+        handle.write(f"\n# {reason}; failure {self.failures}/{self.retries}\n")
+        handle.flush()
+        if self.failures > self.retries:
+            self.failed = True
+        else:
+            self.restart_at = time.monotonic() + 60
 
     def finished(self):
         """Poll; restart a crashed step after cleanup and a pause, at most `retries` times."""
-        if self.process is None or self.failed:
+        if self.failed:
             return False
         if self.restart_at is not None:
             if time.monotonic() >= self.restart_at:
                 self.restart_at = None
                 self.start(self.python)
+            return False
+        if self.process is None:
             return False
         code = self.process.poll()
         if code not in (None, 0):
@@ -144,13 +162,10 @@ class Step:
                 os.killpg(self.process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            self.failures += 1
+            if time.monotonic() - self.started_at > self.healthy_seconds:
+                self.failures = 0
             with self.log.open("a") as handle:
-                handle.write(f"\n# exit code {code}; failure {self.failures}/{self.retries}\n")
-            if self.failures > self.retries:
-                self.failed = True
-            else:
-                self.restart_at = time.monotonic() + 60
+                self.failure(handle, f"exit code {code}")
             return False
         return code == 0
 
@@ -228,6 +243,8 @@ def run(args):
     out = ["--output-root", c["output_root"]] if c.get("output_root") else []
     codec.plan_command += out + (["--datasets", *c["datasets"]] if c.get("datasets") else [])
     codec.start(python)
+    if not codec_plan.exists():
+        raise SystemExit(f"Codec plan failed; see {logs / 'codec.log'}")
     # Text needs only the pinned targets, which the codec plan fixes.
     text = Step(
         "text",
@@ -336,8 +353,7 @@ def run(args):
             logs / f"{name}.log",
         )
 
-    # While codec still encodes, speaker shares the GPUs with one worker per GPU.
-    # Speaker-early overlaps codec on the same GPUs/CPUs: few GPU rows, so stay small.
+    # Speaker-early runs beside speaker-late on the same GPUs: few GPU rows, so stay small.
     speaker_early = speaker("speaker-early", early, 1, 3) if early else None
     speaker_late = (
         speaker("speaker-late", late, args.speaker_workers_per_gpu, args.speaker_decode_threads)
@@ -352,7 +368,7 @@ def run(args):
     while True:
         done = {x.name for x in steps if x.finished()}
         codec_done = published_datasets(codec_plan)
-        if speaker_early and not speaker_early.started and set(early) <= codec_done:
+        if speaker_early and not speaker_early.started and "codec" in done:
             speaker_early.start(python)
         if speaker_late and not speaker_late.started and "codec" in done:
             speaker_late.start(python)

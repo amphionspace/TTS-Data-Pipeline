@@ -11,6 +11,9 @@ for name in ("RAYON_NUM_THREADS", "LANCE_CPU_THREADS", "LANCE_IO_THREADS", "TOKI
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ.setdefault("NUMBA_CACHE_DIR", "/tmp/tts-codec-numba-cache")
+# Without it the caching allocator fragments to ~70 GB reserved per GPU with 2 workers
+# (artifacts/codec-oom-review); the accepted actual-v2 run used it. Allocation only, no numerics.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 # ruff: noqa: E402
 import argparse

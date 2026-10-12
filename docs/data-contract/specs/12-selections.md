@@ -328,6 +328,8 @@ zh 期望汉字，ja 期望汉字或假名，ko 期望谚文，其余支持语�
 rules 的 evaluation.held_out_splits 固定字段与取值：`test`、`test.clean`、`test.other`、`test_seen`、`test_unseen`
 记 7001 held_out（flag bit 8），dev/valid 等其他划分仍参与训练。与留出成员音频完全相同的重复组成员一并记 7001，
 组处置为 held_out，不选代表，避免测试音频经由副本回到训练集合。evaluation.status=upstream_test_held_out。
+只覆盖完全相同音频（audio_sha256）的副本，近似重复（重新编码、跨数据集同源录音）不检查；
+dev 保留在训练集合，其副本也不留出，因此 dev 不能作为无泄漏的评测集。
 
 ## 写入、发布、恢复与清理
 

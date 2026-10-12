@@ -107,7 +107,7 @@ def prepare(
             for d in json.loads(Path(reference_sources_plan).read_text())["datasets"]
         }
     elif reference_codec_plan:
-        reference_sources = codec_sources(reference_codec_plan)
+        reference_sources = codec_sources(reference_codec_plan, datasets)
     profile_name = PROFILE_NAME
     if reference:
         from .reference import PROFILE_NAME as profile_name
@@ -207,10 +207,15 @@ def prepare(
     return p
 
 
-def codec_sources(plan_path):
-    """Pin each dataset's published codec table from a codec run plan."""
+def codec_sources(plan_path, datasets=None):
+    """Pin each dataset's published codec table from a codec run plan.
+
+    `datasets` limits this to the planned ones: others may still be encoding.
+    """
     sources = {}
     for d in json.loads(Path(plan_path).read_text())["datasets"]:
+        if datasets is not None and d["source"]["dataset_id"] not in datasets:
+            continue
         path = Path(d["final"]) / "manifest.json"
         if not path.exists():
             raise ValueError(f"Reference codec is not published: {path}")
