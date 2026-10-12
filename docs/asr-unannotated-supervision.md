@@ -1,17 +1,17 @@
-# 尚未转写数据集的 Qwen ASR supervisor
+# Emilia YODAS 的 Qwen ASR supervisor
 
-用户最新授权：对所有已发布且尚未完成 transcription 的数据集做全量 Qwen3-ASR-1.7B 标注，
-排除 Emilia2，并挂 supervisor 检查。范围已从 Emilia-YODAS 扩大；最新指令覆盖之前 Galgame 全量暂缓。
-本说明是本轮的执行范围；不要沿用四个游戏旧 supervisor 的任务范围、run 或入口。
+用户最新授权：只继续 Emilia-YODAS 的 Qwen3-ASR-1.7B 全量标注，保留四个游戏的已有转写。
+之前扩大到其他来源的任务全部取消，不得恢复；普通 Emilia 与 Emilia-YODAS 是不同数据集。
+本说明是当前唯一运行范围；不要沿用旧 13 数据集或四个游戏 supervisor 的 run 与入口。
 
 ## 固定任务
 
 - repo：`/workspace/workspace/yanglin/tts-data-pipeline`。
-- 工作根 ROOT：`artifacts/asr-unannotated-20261010`。
+- 工作根 ROOT：`artifacts/asr-emilia-yodas-only-20261010`。
 - 计划：`ROOT/work/plan.json`；run_id、精确输入版本及 profile 从该文件读取。
-- 范围以 `ROOT/scope.json` 和固定 plan 为准：13 个数据集，共 133,696,192 条。
-  aishell3、csemotions、emilia、emilia_yodas、galgame、hifitts、hifitts2、libriheavy、
-  libritts_r、ljspeech、mls_sidon、vctk、wenetspeech4tts。
+- 范围以 `ROOT/scope.json` 和固定 plan 为准：仅 `emilia_yodas`，共 43,964,905 条。
+- 原任务已停止，原工作目录只保留 CANCELLED.json。新计划保留已核验的 8,192 条 YODAS 检查点；
+  模型/profile 未变，计划摘要迁移证据在 ROOT/scope-migration.json，不得把迁移进度算作新推理吞吐。
 - Emilia2 排除；已完成的 genshin_voice、starrail_voice、wutheringwaves、zenless_voice 不重复跑。
 - FireRedLID 正式全量继续暂停；不要启动其 full-work。
 - `artifacts/emilia-yodas-asr-20261010` 仅留本轮启动前的 YODAS 抽样验证证据；
@@ -44,7 +44,7 @@
 | running 且持续提交检查点 | 记录，不重启 |
 | recovering，重试记录持续更新 | 让内部自动恢复继续，不启动第二个客户端 |
 | publishing | 检查发布日志和产物，不能以转写条数不增长判定卡死 |
-| complete | 校验全局 manifest 真正存在、status=complete、13 个固定输入和输出逐一对账、共覆盖 133,696,192 条、missing=0；回报并结束监督 |
+| complete | 校验全局 manifest 真正存在、status=complete、输入和输出均仅 emilia_yodas、共覆盖 43,964,905 条、missing=0；回报并结束监督 |
 | 进程已退出，最后是临时网络/服务故障或证据充分的意外退出 | 确认无同 work 进程且锁已释放，检查服务模型/root/version后，用 active-launch 的固定 command/env 断点恢复 |
 | 新 HTTP 400、协议异常、模型/源版本变化、身份冲突、检查点损坏、磁盘错误 | 保存证据并通知主 agent，停止自动重启；不跳过大批样本，不修改计划或权重校验 |
 | 进程活着但暂时无进度 | 600 秒请求超时、3 次重试及批次收尾可能较久；先结合请求/CPU/日志判断，不能凭几分钟无提交就杀进程 |

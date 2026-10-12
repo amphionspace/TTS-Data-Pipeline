@@ -130,7 +130,7 @@ sample_branch 的生产执行器与自动位置对齐验证器尚待实现；独
 不修改基础表。单张 results.lance 每个 sample 一行：sample_id、input_fingerprint、status、error_code、result。
 成功行 result 非空，失败行 result=null；成功但 text 为空字符串与失败必须区分。
 主转写及指定语言候选是同一个 result 内的字段，不为候选增加样本行。
-历史 `qwen-asr-transcription-v1` 的 targets/results 双表保留兼容，item_id 固定为 0。
+历史 `qwen-asr-transcription-v1` 为 targets/results 双表（item_id 固定为 0）；唯一发布的 v1 run 已迁移为 v2 后删除，读取器只需支持 v2。
 已发布 v1 迁移到 v2 时发布新的 run，不覆盖原版；layout_migration 固定来源 annotation manifest 路径、SHA256、
 来源 run/schema 与目标 schema。仅存储合并时复用原 profile、profile_id、输入指纹和 ASR execution，
 publication_code_sha256 单独记录迁移代码；全字段回读、ID/指纹/状态核验后再发布 complete manifest。
@@ -148,6 +148,32 @@ raw_response_json，以及可空的 language_candidate_text/language_candidate_r
 主音频一次完整提交；服务内部未提供时间戳时，不推测分块的字词或音频坐标。
 协议标记不能混入最终 text；空转写不等于执行失败，也不等于训练合格。
 文本和音频均不回退或覆盖基础值。是否采用转写由后续新 selection 明确决定。
+
+### 上游 transcription 导入
+
+Emilia Refined Metadata 导入继续使用 `qwen-asr-transcription-v2` / `sample_table`，
+Arrow 字段、类型及可空约束与本地 ASR 一致；以新的 profile/run 区分执行方式。
+`qwen3-asr-1.7b-emilia-metadata-v1` 的 `execution_kind=upstream_metadata_import`，
+模型名称由上游说明提供，未知权重版本、推理参数不继承本地服务配置。
+JSON `text` 原样写入 `result.text`，`language` 作为本批 ASR 语言规范成
+`de/en/fr/ja/ko/zh` 写入 `result.language`；`source_language` 保留固定 samples 的来源语言。
+语言字段来自上游 metadata，不额外声称其生成方式为自动检测；冲突仍只是比较证据。
+
+`audio_sha256`、`native_sample_rate`、`source_text_sha256` 来自匹配的基础样本；
+它们绑定样本，不证明上游推理波形及前处理与本地相同。
+没有提供的 `raw_response_json`、`request_audio_sha256`、`request_frames`、
+`start_frame`、`end_frame`、`language_candidate_text`、`language_candidate_response_json`
+均为 null。忽略上游 timestamps，不把 metadata duration 换算成推理范围。
+消费者按 profile 解释空值，不能要求每种 transcription 执行方式都有本地请求证据。
+
+导入指纹为 `SHA256(canonical_json(["transcription-metadata-input-v1", sample_id,
+audio_sha256, source_text_sha256, source_language, metadata_relative_path,
+metadata_file_sha256, upstream_id, profile_id]))`。
+manifest 固定 base 快照、metadata 文件清单与摘要，以及导入实现。
+以 metadata 文件对应的原始 tar/source_snapshot 和 upstream_id 关联 samples；
+不能从 ID 中的批次号推断 tar 文件。全量逐文件覆盖、固定 base 的有序 ID 和全字段回读通过后发布。
+身份冲突或缺失阻止发布；非法文本类型或语言值可记为 failed，不能回退原文。
+成功返回的空文本、纯标点文本保留，质量筛选留给 selection。
 
 全量 ASR 可覆盖任意本次明确纳入的已发布 base，范围由固定 inputs 决定，不限于游戏。
 `qwen3-asr-1.7b-base-v2` profile 固定来源语言到 Qwen 语言名的路由；主转写仍自动识别，
@@ -219,46 +245,68 @@ annotation保留测量事实；selection固定资格/原因和采用结果；训
 
 ## 独立音频统计结果
 
-`audio-stats-v2` 的 `audio_stats` 使用 sample_table，单张 results.lance 保存所有目标的状态与可空 result，
-不改变 samples main。成功和失败都各占一行；顶层字段为 sample_id/input_fingerprint/status/error_code/result。
-旧 audio-stats-v1 双表仅保留已有试验产物的兼容语义。本次全量在首次发布前迁移为 v2，复用检查点、不重算统计。
+`audio-stats-v1` 的 `audio_stats` 使用 sample_table，单张 results.lance 保存所有目标的状态与可空 result，
+不改变 samples main。成功和失败各占一行；顶层字段为 sample_id/input_fingerprint/status/error_code/result。
 运行固定所有纳入的已发布 base 快照；未发布数据不在过程中加入。
 
-`native-waveform-stats-v1` 不裁剪、不重采样、不混合声道、不补零；libsndfile 分块解码 float32，
-统计使用 float64 累加，模型依赖为空。profile 固定 libsndfile、NumPy、Arrow、Lance 和代码版本。
-result struct 保存以下逻辑字段，具体 Arrow schema 及摘要写入 manifest：
+profile `mono-mix-waveform-stats-v1` 统计模型实际读取的波形：
+
+| 项目 | 定义 |
+| --- | --- |
+| 解码 | `soundfile.read(dtype="float32", always_2d=True)` 一次读取整段，不分块、不 seek |
+| 声道 | float32 声道算术平均 `audio.mean(axis=1, dtype=np.float32)`，与 codec 前处理一致 |
+| 累计 | 在 float32 单声道波形上以 float64 累计 |
+| 处理 | 原生采样率；不重采样、不归一化、不裁剪、不补零、不限幅；1.0 为满幅基准 |
+| 窗口 | 从 0 开始，长度 `max(1, native_sample_rate // 50)`，互不重叠；末窗使用实际长度 |
+| 低能量 | 单声道窗口 RMS ≤ `10**(-50/20)`；相邻窗口合并，坐标为原生采样点半开区间 |
+
+整段读取是必需条件。分块/定位读取在部分 MP3 上产生块边界局部差异，
+并会把 Ogg/Opus 的读取长度凑成头信息长度而掩盖实际差异；因此不能以分块结果冒充本 profile。
+profile 固定 libsndfile、NumPy、soundfile、Arrow、Lance 和代码摘要；模型依赖为空。
+
+`status=ok` 时 result 包含以下 19 个字段，全部是真实测量值：
 
 | 字段 | 定义 |
 | --- | --- |
 | audio_sha256 | 实际编码音频身份；sample_id 和 input_fingerprint 位于顶层 |
-| native_sample_rate/channels/decoded_num_samples/duration_seconds | 实际解码格式、每声道采样点数及秒数 |
-| start_sample/end_sample | 完整原生时间轴 `[0, decoded_num_samples)` |
-| declared_sample_rate/declared_channels/declared_num_samples | 固定 base 中的头信息，供对照 |
-| num_samples_delta/header_format_matches | 实际采样点数减声明值；采样率与声道数是否匹配 |
-| peak/rms | 所有声道的最大绝对幅值；所有声道样本平方均值的平方根 |
-| near_full_scale_ratio | `abs(x) >= 0.999` 的声道样本比例 |
-| at_or_above_full_scale_ratio | `abs(x) >= 1.0` 的声道样本比例；不事先限幅 |
-| zero_ratio | 恰好为零的声道样本比例 |
-| channel_stats | 按从 0 开始的声道索引，分别保存上述幅度指标及均值 dc_offset |
-| low_energy_intervals | 低能量窗口的合并区间，原生采样点半开区间 |
-| low_energy_ratio | 合并区间总采样点数除实际每声道采样点数 |
-| leading/trailing/longest_low_energy_samples | 首、尾及最长低能量连续区间长度；没有则为真实的 0 |
+| native_sample_rate / source_channels | 实际解码采样率与输入声道数；分析声道数固定为 1，写入 profile |
+| decoded_num_samples / duration_seconds | 整段实际每声道采样点数 N 及 N / 采样率 |
+| num_samples_delta | N 减固定 base 的 `num_frames`；非零表示头信息长度与实际解码不同 |
+| peak / rms / dc_offset | 混声波形的最大绝对值、`sqrt(mean(x²))`、`mean(x)` |
+| near_full_scale_ratio | `abs(x) >= 0.999` 的采样点数 / N |
+| low_energy_ratio | 低能量区间覆盖的实际采样点数 / N，按采样点加权 |
+| leading / trailing_low_energy_samples | 接触起点、终点的低能量区间长度；没有为 0 |
+| longest_low_energy_samples | 全部低能量区间的最大长度；没有为 0 |
+| longest_internal_low_energy_samples | 满足 `0 < start < end < N` 的低能量区间最大长度；没有为 0 |
+| window_rms_p10 / window_rms_p90 | 全部窗口线性 RMS 的 10/90 百分位，`numpy.percentile(..., method="lower")` |
+| longest_internal_zero_run_samples | 混声波形中不接触任一端点的连续精确 0.0 最大长度；没有为 0 |
+| decoder_warnings | 解码期间 libsndfile/mpg123 写入 stderr 的行数 |
 
-低能量窗口从原点开始，长度 `max(1, native_sample_rate // 50)`，互不重叠；
-最后不足一窗按实际长度计算，不补零。所有声道窗口 RMS 都不大于 `10**(-50/20)` 才标记为低能量，
-相邻标记合并；定位精度是窗口级，不是逐采样点的语音活动判断。
-幅值以解码浮点值的 1.0 为满幅基准；比例的分母固定如上，不混用秒数、窗口数和声道样本数。
+整段低能量时首、尾、最长长度均为 N，内部最长为 0。dB 值、去直流 RMS、峰均比和头信息比较按需推导，不重复物化。
+这些是测量证据：近满幅不等于已确认削波，低能量不等于无语音，内部零值不等于已确认掉音，
+decoder_warnings 非零不等于源文件已确认损坏，正常统计也不等于训练合格。
 
-这些是测量证据：近满幅不等于已确认削波，低能量不等于无语音，正常统计不等于训练合格。
-libsndfile 可对部分编码缺陷容错，有限值解码成功不保证压缩码流无损坏；本任务不承诺定位所有解码警告。
-空音频、非有限波形、解码异常分别记为失败；身份哈希冲突停止运行。
-头信息差异单独记录，按实际解码统计，不因为少量帧差丢弃。持续性执行错误应排查后再恢复。
+失败时 result=null，error_code 为：
+
+| error_code | 条件 |
+| --- | --- |
+| audio_decode_failed | libsndfile 无法解码 |
+| audio_empty | 解码得到 0 个采样点 |
+| native_format_mismatch | 实际采样率或声道数与固定 base 不同 |
+| audio_nonfinite | 解码波形含 NaN/Inf，在混声前检查 |
+
+音频 bytes 的 SHA256 与 base 不符时停止运行，不记作单条失败。整批任务全部失败等系统性错误也应停止排查。
+头信息长度差异只记录在 num_samples_delta，不补齐、不截断，也不单独构成失败。
 
 输入指纹为 `SHA256(canonical_json(["audio-stats-input-v1", sample_id, audio_sha256,
 "full_actual_native_decode", profile_id]))`，不绑定无关文本。
-每个检查点逐条核对固定 base 范围的 ID；全量覆盖继承经过唯一性验收的固定 base 身份，
-通过固定 fragment/range 的无重复计划覆盖所有行。发布前完整回读所有结果字段，建立目标 ID 索引，
-保护固定输出版本，最后发布全局 complete manifest。私有检查点不是生产读取入口。
+私有检查点是与发布 schema 相同的单个 results.parquet，逐条核对固定 base 范围的 ID 顺序；
+全量覆盖继承经过唯一性验收的固定 base 身份，通过固定 fragment/range 的无重复计划覆盖所有行。
+发布时每个 release 写一张 results.lance，完整回读所有字段，建立 sample_id 索引并打保护 tag，
+最后发布全局 `annotations/audio_stats/<run_id>/manifest.json`。私有检查点不是生产读取入口。
+
+selection 消费时：解码失败、空波形、非有限值和 peak=0 不进入训练集合；完整实际时长按用途规则判断；
+其余字段先作诊断，未经校准不设硬阈值。具体规则由对应 selection 固定。
 
 ## FireRedLID 音频语言单表
 

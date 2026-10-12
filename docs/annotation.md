@@ -2,16 +2,23 @@
 
 本轮生成独立 transcription annotation，不修改 samples 原字幕、selection 或现有 features。
 首轮全量范围为原神、星铁、鸣潮及已完成 samples 发布的 Zenless；Galgame 不在该轮内。
-Galgame 曾单独做一万条抽样转写与原文的 WER/CER 对照；随后按用户扩大范围的指令纳入全量。
+Galgame 曾单独做一万条抽样转写与原文的 WER/CER 对照；其后扩展的全量任务已按最新指令取消。
 已完成结果见 [Galgame 一万条对比报告](design-review/galgame-transcription-comparison-2026-10-10.md)。
 整体质量模块规划仍见 [实验 contract](data-contract/experiments/annotation-v1.md)。
 四个游戏的独立音频语言检测另见 [FireRedLID 执行说明](spoken-language.md)，不覆盖 ASR 语言。
 
-## 2026-10-10 扩展范围
+## 2026-10-10 当前运行范围
 
-新增任务覆盖全部已发布且未完成 transcription 的 13 个数据集，共 133,696,192 条；
-明确排除 Emilia2，四个已完成游戏不重复执行。Galgame 包含在本次范围内。
-具体输入见 `artifacts/asr-unannotated-20261010/scope.json`，固定版本见该目录的 `work/plan.json`。
+最新用户指令收缩为只继续 Emilia-YODAS，共 43,964,905 条；四个游戏的已发布转写保留，不重复执行。
+普通 Emilia、Galgame 及其他来源均取消本轮本地 ASR，Emilia2 仍不安排 ASR。
+普通 Emilia 改为导入上游 Qwen3-ASR-1.7B 转写，见下文；不占用现有推理服务。
+原 13 数据集、133,696,192 条的任务已停止，不得恢复旧入口。
+Emilia-YODAS 已完成的 16 个检查点、8,192 条经过任务/文件摘要及输入指纹核验后迁移到新计划，
+保持模型、profile 和原始结果不变；检查点计划摘要变化有独立迁移记录，不绕过恢复校验。
+新工作根为 `artifacts/asr-emilia-yodas-only-20261010`，固定输入见 `work/plan.json`，
+范围变更和清理结果见 `scope-migration.json`；旧任务目录只保留取消记录。
+新 run 为 `tts-ann-transcription-20261010T161238bjt-01`，北京时间 16:14 启动，128 并发并启用内部自动恢复。
+清理仅涉及取消任务的 ASR 工作产物及 Galgame 转写试验，不删除 samples、audio_stats、codec 或 speaker。
 FireRedLID 正式任务继续暂停。新任务的自动恢复和每小时监督见
 [监督说明](asr-unannotated-supervision.md)。
 
@@ -20,6 +27,37 @@ FireRedLID 正式任务继续暂停。新任务的自动恢复和每小时监督
 发布按行数、ID 顺序及全字段回读验证。数据结果仍为每个数据集、每个 run 一张单表，保留失败行。
 
 ## 固定输入与执行
+
+### Emilia 上游转写导入
+
+入口为 `scripts/import_emilia_transcription.py`，实现位于现有 `annotations/qwen_asr/`
+目录的 `metadata_import.py`。沿用 v2 单表及发布器，新增 metadata import profile，
+不修改旧结果、不解码音频、不调用模型。字段映射见
+[上游 transcription 导入契约](data-contract/specs/05-annotations.md#上游-transcription-导入)。
+
+```bash
+python scripts/import_emilia_transcription.py prepare \
+  --root /workspace/data/DATA-TTS-UNIFIED \
+  --metadata-root /workspace/data/DATA-TTS/Emilia-Refined-Metadata/emilia_1.0 \
+  --audit artifacts/emilia-refined-precheck-20261010/language-report.json \
+  --work artifacts/emilia-transcription-import-20261010/work
+python scripts/import_emilia_transcription.py run \
+  --work artifacts/emilia-transcription-import-20261010/work --workers 8
+```
+
+prepare 流式固定基础 ID 顺序和 metadata 清单；run 按基础 Lance fragment 并行读取元数据列，
+生成可恢复 Parquet 检查点。每片验证来源身份、metadata SHA256 和写入回读；
+恢复时检查计划和文件摘要，已完成片不重新计算。改变 worker 数不改变采样身份或结果。
+身份错误停止任务并写入 `status.json`；修复原因后使用原 run 命令恢复，不跳过冲突记录。
+普通全量导入要求每个 metadata 文件的行数与实际匹配数一致，固定 base 有序 ID 完全一致。
+`--pilot` 仅用于 artifacts 中显式创建的抽样 fixture，允许该 fixture 不覆盖全部上游记录。
+发布过程先写 `.incomplete`，全字段回读、ID 索引及快照固定后再生成全局 complete manifest。
+入口默认 `LANCE_CPU_THREADS=2`、`LANCE_IO_THREADS=4`，BLAS/OMP 为 1；
+小测发现 Lance 12 在 CPU/IO 两个线程池均设为 1 时建立 BTree 索引停滞，不能采用该配置发布。
+测试及运行状态以实际报告和 manifest 为准，命令示例不代表任务已完成。
+本次一万条测试与全量入口见 [Emilia 导入验证报告](design-review/emilia-transcription-import-2026-10-10.md)。
+
+### 本地 ASR
 
 | dataset | 基础行数 |
 | --- | ---: |
@@ -82,7 +120,7 @@ result 为可空 struct，保存音频身份、完整输入范围、ASR 文本/�
 语言候选与主转写在同一个 result 中，主转写不会被覆盖；候选失败信息保留在候选响应内。
 manifest 每个 output 使用单个 table 引用，不再使用 tables.targets/tables.results。
 
-旧的 qwen-asr-transcription-v1 双表和私有检查点格式保留。已发布版本转成单表：
+旧的 qwen-asr-transcription-v1 双表发布已全部迁移并删除；迁移入口保留，供旧格式的私有结果转成单表：
 
 ```bash
 python scripts/annotate_transcription.py migrate-tables \
@@ -119,7 +157,7 @@ Parquet 仅作为私有检查点；全部完成后逐表回读、建立 ID 索�
 
 正式运行记录保存在对应 work；不要把 pilot 的 complete 误读为正式全量完成。
 
-原始 v1 正式 run：`tts-ann-transcription-20261009T191644bjt-01`。
+原始 v1 正式 run：`tts-ann-transcription-20261009T191644bjt-01`（已迁移为下述 v2，2026-10-10 删除）。
 冻结代码与日志：`artifacts/game-asr-20261009/`；计划和进度：该目录下 `work/plan.json`、`work/status.json`。
 源代码后续变化不影响已启动进程；恢复应使用同目录冻结代码。原始 v1 已于 2026-10-10 10:51（北京时间）完成发布，共 1,541,304 成功、1,882 失败。
 
@@ -149,7 +187,7 @@ CPU 波形统计独立执行，见 [audio_stats 运行说明](audio-stats.md)。
 
 小时级 agent supervisor 的完整交接与异常处置见 [ASR supervision](asr-unannotated-supervision.md)。
 它在当前会话后台检查新增全量任务的进度、意外退出和未知故障，检查结果自动写入
-`artifacts/asr-unannotated-20261010/hourly-supervisor/`；与客户端内部的请求重试/60 秒恢复互补。
+`artifacts/asr-emilia-yodas-only-20261010/hourly-supervisor/`；与客户端内部的请求重试/60 秒恢复互补。
 四个游戏已经完成，相应监督已结束；历史检查记录保留在原 artifact 目录。
 该 agent 值守不是系统 cron，不承诺跨会话关闭或机器重启继续运行。
 
@@ -160,5 +198,6 @@ CPU 波形统计独立执行，见 [audio_stats 运行说明](audio-stats.md)。
 `annotations/transcription/tts-ann-transcription-20261010T111659bjt-01/manifest.json`。
 每个数据集通过 `outputs[].table` 打开固定 Lance 版本；读取 `sample_id/status/error_code/result`。
 总计 1,543,186 行：1,541,304 成功，1,882 失败；失败的 result 为 null。
-原始双表版本保留，ASR 未重新计算；新表逐字段回读与原版一致，原 manifest 摘要保持不变。
+ASR 未重新计算；新表逐字段回读与原版一致后，原双表版本于 2026-10-10 删除。
+v2 manifest 的 layout_migration 仍记录原 v1 manifest 路径与摘要，仅作追溯，该路径已不存在。
 真实 1,000 条试迁移及正式全量验证在 `artifacts/transcription-single-table-20261010/`。

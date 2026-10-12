@@ -10,7 +10,7 @@
 [selection](../specs/12-selections.md) 和 [文本及 merged](../specs/13-text-features.md) 的追溯与发布规则。
 正式 05 当前仍以 samples 的 annotation 分支作为密集一对一结果的默认布局；
 **本实验使用独立结果表**：一对一任务采用 `storage_kind=sample_table` 单表，一对多采用 `result_table` 双表，不向 samples main 增列。
-当前 audio_stats-v2 和 qwen-asr-transcription-v2 均采用单表；历史 transcription-v1 双表保留兼容，已发布版本通过新 run 迁移，不覆盖原版。
+当前 audio-stats-v1 和 qwen-asr-transcription-v2 均采用单表；历史 transcription-v1 双表已通过新 run 迁移为单表，原 v1 发布已删除。
 实验通过后再协调修订正式规范、机器 schema、示例和执行器；不能只凭本稿切换生产读取方式。
 
 ## 各层职责
@@ -33,8 +33,10 @@ selection：固定采用的音频对象、文本版本、入选状态及原因
 - 语言、说话人、句长等覆盖属性单独保存。训练比例、权重、预算和 batch 由训练端管理。
 - 原始版本和三个独立特征表继续保留；merged 是额外交付，不解除上游审计依赖。
 
-通用文本过滤由 [Selection 文本过滤实验契约](selection-text-filter-v1.md) 定义，
-不通过改写 annotation 的状态或结果表达排除；四个游戏的语言一致性策略另行验证。
+文本过滤、音频条件及四游戏主 ASR 对来源语言的过滤由 [联合筛选实验契约](selection-filter-v1.md) 定义，
+不通过改写 annotation 的状态或结果表达排除；
+独立 LID 一致性检查仍另行验证，不由该筛选方案启动模型。
+audio_stats 的字段、单声道口径和失败语义以 [正式 05](../specs/05-annotations.md#独立音频统计结果) 为准。
 
 ## 范围和存储
 
@@ -101,7 +103,7 @@ annotation 的音频区间不是 codec 帧号，不能因某个 speaker referenc
 
 | task | 逻辑结果 | 实验模型或方法 |
 | --- | --- | --- |
-| `audio_stats` | 实际时长、采样率、声道、峰值、RMS、近满幅比例、低能量区间 | 确定性波形统计；阈值和声道处理固定 |
+| `audio_stats` | 实际时长与头信息差值、峰值、RMS、DC、近满幅比例、低能量长度、窗口 RMS 分位数、内部零值、解码警告 | 整段解码后声道均值的确定性波形统计；阈值固定 |
 | `audio_quality` | DNSMOS 的 SIG/BAK/OVRL、校准前后值、窗口范围、窗口均值/最低值/数量 | Microsoft DNSMOS P.835 非 personalized 版本 |
 | `spoken_language` | 音频语言、模型置信输出、分析范围、与来源语言是否一致 | FireRedLID |
 | `transcription` | 独立 ASR 文本、识别或指定语言、实际处理范围、分块信息 | Qwen3-ASR-1.7B 多语言基线；FireRedASR2-AED 中文候选 |
@@ -120,7 +122,7 @@ Whisper large-v3 作成熟基线；Fun-ASR-Nano 可用于中文/日文对照。�
 
 - DNSMOS 是预测听感，不是音文正确率。短音频的官方流程会重复自身，若采用必须记录输入延拓方式；
   重复后的窗口不能冒充真实的多个音频区间。补充 MOS 模型先做对照，不直接混合不同模型或来源分数。
-- audio_stats 的低能量区间仅表示固定阈值下的波形统计，不能解释为无语音区间。
+- audio_stats 的低能量长度仅表示固定阈值下的波形统计，不能解释为无语音区间。
   音文长度比使用当前选用音频范围的实际完整解码时长，不扣除低能量区间或首尾停顿；
   该比值不解释为有效语音时长或真实语速，是否用于过滤由 selection 的固定规则决定。
 - ASR 不使用被核验文本作为提示。来源语言和实际指定给模型的语言分别记录；语言冲突保留证据。
