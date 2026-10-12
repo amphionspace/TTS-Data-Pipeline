@@ -14,16 +14,15 @@ from pathlib import Path
 
 import lance
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import soundfile as sf
 
-from ...contract import annotation_targets_schema, schema_description
+from ...contract import schema_description
 from ...feature_runtime import event, file_hash, write_json
 from ...schema import digest
 from ...timestamps import BEIJING
 from .metrics import DEFINITION, process
-from .schema import annotation_schema, result_schema
+from .schema import SCHEMA_VERSION, annotation_schema
 
 COLUMNS = ["sample_id", "audio", "audio_sha256", "sample_rate", "channels", "num_frames"]
 
@@ -163,108 +162,63 @@ def execute_task(plan, work, task, plan_hash):
     start = time.monotonic()
     folder = checkpoint_path(work, task)
     folder.mkdir(parents=True, exist_ok=True)
-    targets, results = [], []
+    rows = []
     audio_bytes, audio_seconds = 0, 0.0
     for batch in scan(plan, task, COLUMNS):
         for row in batch.to_pylist():
-            target, result = process(row, plan["profile_id"])
-            targets.append(target)
+            rows.append(process(row, plan["profile_id"]))
             audio_bytes += len(row["audio"]["bytes"])
-            if result is not None:
-                results.append(result)
-                audio_seconds += result["duration_seconds"]
-    if len(targets) != task["rows"]:
+            if rows[-1]["result"] is not None:
+                audio_seconds += rows[-1]["result"]["duration_seconds"]
+    if len(rows) != task["rows"]:
         raise ValueError("Source coverage changed")
     expected = [v for b in scan(plan, task, ["sample_id"]) for v in b.column(0).to_pylist()]
-    actual = [t["target_id"] for t in targets]
+    actual = [r["sample_id"] for r in rows]
     if expected != actual or len(set(actual)) != len(actual):
         raise ValueError("Target identity changed or duplicated")
-    if len(targets) >= 32 and not results:
+    results = [r["result"] for r in rows if r["result"] is not None]
+    if len(rows) >= 32 and not results:
         raise RuntimeError("Entire task failed decoding; investigate before continuing")
-    tables = dict(
-        targets=pa.Table.from_pylist(targets, schema=annotation_targets_schema()),
-        results=pa.Table.from_pylist(results, schema=result_schema()),
-    )
-    files = {}
-    for kind, table in tables.items():
-        path = folder / (kind + ".parquet")
-        temp = path.with_suffix(".tmp")
-        pq.write_table(table, temp, compression="zstd")
-        if not pq.read_table(temp).equals(table):
-            raise ValueError("Checkpoint readback failed")
-        temp.replace(path)
-        files[path.name] = file_hash(path)
+    table = pa.Table.from_pylist(rows, schema=annotation_schema())
+    path = folder / "results.parquet"
+    temp = path.with_suffix(".tmp")
+    pq.write_table(table, temp, compression="zstd")
+    if not pq.read_table(temp).equals(table):
+        raise ValueError("Checkpoint readback failed")
+    temp.replace(path)
     checkpoint = dict(
         task=task,
         plan_sha256=plan_hash,
-        files=files,
-        counts=dict(Counter(t["status"] for t in targets)),
-        errors=dict(Counter(t["error_code"] for t in targets if t["error_code"])),
+        files={path.name: file_hash(path)},
+        counts=dict(Counter(r["status"] for r in rows)),
+        errors=dict(Counter(r["error_code"] for r in rows if r["error_code"])),
         ids_sha256=ids_hash(actual),
         audio_bytes=audio_bytes,
         audio_seconds=audio_seconds,
         elapsed_seconds=time.monotonic() - start,
         length_mismatches=sum(r["num_samples_delta"] != 0 for r in results),
-        format_mismatches=sum(not r["header_format_matches"] for r in results),
+        decoder_warning_samples=sum(r["decoder_warnings"] > 0 for r in results),
     )
     write_json(folder / "checkpoint.json", checkpoint)
     return checkpoint
 
 
 def annotation_batches(work, tasks):
-    """Combine verified legacy checkpoint pairs, aligning successful results by identity."""
+    """Verified checkpoint rows in plan order; status and result nullability must agree."""
     schema = annotation_schema()
     for task in tasks:
-        folder = checkpoint_path(work, task)
-        targets = pq.read_table(folder / "targets.parquet").combine_chunks()
-        results = pq.read_table(folder / "results.parquet").combine_chunks()
-        if len(targets) != task["rows"]:
-            raise ValueError("Checkpoint target coverage mismatch")
-        ok = pc.equal(targets["status"], "ok")
-        success = targets.filter(ok)
-        ids = targets["target_id"]
-        if ids.null_count or pc.count_distinct(ids).as_py() != len(ids):
-            raise ValueError("Duplicate or null checkpoint identity")
-        if not results.select(["target_id", "input_fingerprint"]).equals(
-            success.select(["target_id", "input_fingerprint"])
-        ):
-            raise ValueError("Checkpoint result identity or fingerprint mismatch")
-        if not pc.all(pc.equal(targets["target_kind"], "sample")).as_py():
-            raise ValueError("Non-sample target in audio stats")
-        if not pc.all(
-            pc.is_in(
-                targets["status"], value_set=pa.array(["ok", "failed", "unsupported", "skipped"])
-            )
-        ).as_py():
-            raise ValueError("Unknown checkpoint status")
-        if not pc.all(pc.equal(targets["item_count"], pc.cast(ok, pa.int64()))).as_py():
-            raise ValueError("Checkpoint item_count mismatch")
-        if not pc.all(pc.equal(pc.is_null(targets["error_code"]), ok)).as_py():
+        table = pq.read_table(checkpoint_path(work, task) / "results.parquet")
+        if not table.schema.equals(schema) or len(table) != task["rows"]:
+            raise ValueError("Checkpoint schema or coverage mismatch")
+        rows = table.select(["sample_id", "status", "error_code"]).to_pylist()
+        if len({r["sample_id"] for r in rows}) != len(rows):
+            raise ValueError("Duplicate checkpoint identity")
+        ok = [r["status"] == "ok" for r in rows]
+        if any(o == (r["error_code"] is not None) for o, r in zip(ok, rows, strict=True)):
             raise ValueError("Checkpoint error/status mismatch")
-        if len(results) and (
-            not pc.all(pc.equal(results["item_id"], 0)).as_py()
-            or not pc.all(pc.equal(results["target_kind"], "sample")).as_py()
-        ):
-            raise ValueError("Invalid checkpoint result item identity")
-        payload_type = schema.field("result").type
-        payload = pa.StructArray.from_arrays(
-            [results[field.name].combine_chunks() for field in payload_type],
-            fields=list(payload_type),
-        )
-        index = pc.index_in(ids, value_set=results["target_id"])
-        combined = pa.Table.from_arrays(
-            [
-                ids,
-                targets["input_fingerprint"],
-                targets["status"],
-                targets["error_code"],
-                pc.take(payload, index),
-            ],
-            schema=schema,
-        )
-        if combined["result"].null_count != len(targets) - len(success):
+        if table["result"].null_count != ok.count(False):
             raise ValueError("Result nullability does not match target status")
-        yield from combined.to_batches(max_chunksize=4096)
+        yield from table.combine_chunks().to_batches(max_chunksize=4096)
 
 
 def equal_batches(left, right):
@@ -402,7 +356,7 @@ def publish(plan, work, checkpoints):
     manifest = dict(
         artifact_kind="annotation",
         contract_version="v0.1",
-        schema_version="audio-stats-v2",
+        schema_version=SCHEMA_VERSION,
         status="complete",
         task="audio_stats",
         target_kind="sample",
@@ -425,22 +379,6 @@ def publish(plan, work, checkpoints):
     return path
 
 
-def validate_implementation(work, plan):
-    if plan["profile"]["implementation"] == code_hashes():
-        return None
-    path = Path(work) / "implementation-migration.json"
-    if path.exists():
-        migration = json.loads(path.read_text())
-        if (
-            migration["profile_id"] == plan["profile_id"]
-            and migration["from"] == plan["profile"]["implementation"]
-            and migration["to"] == code_hashes()
-            and migration["checkpoint_schema_sha256"] == digest(schema_description(result_schema()))
-        ):
-            return migration
-    raise ValueError("Implementation changed; resume using frozen code or audited migration")
-
-
 def run(work, workers=8):
     work = Path(work).resolve()
     pa.set_cpu_count(1)
@@ -450,7 +388,8 @@ def run(work, workers=8):
     with (work / "run.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         plan = json.loads((work / "plan.json").read_text())
-        migration = validate_implementation(work, plan)
+        if plan["profile"]["implementation"] != code_hashes():
+            raise ValueError("Implementation changed; resume with the frozen code of this plan")
         for name, version in plan["profile"]["dependencies"].items():
             if importlib.metadata.version(name) != version:
                 raise ValueError(f"Dependency changed: {name}")
@@ -480,8 +419,7 @@ def run(work, workers=8):
                 device="cpu",
                 multiprocessing="spawn",
                 read_batch_rows=32,
-                publication_schema_version="audio-stats-v2",
-                implementation_migration=migration,
+                publication_schema_version=SCHEMA_VERSION,
             ),
         )
         counts, errors, dataset_rows = Counter(), Counter(), Counter()

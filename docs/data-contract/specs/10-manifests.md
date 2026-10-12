@@ -34,7 +34,7 @@ annotation统一manifest位于annotations/<task>/<run_id>/；inputs/outputs内�
 文件系统绝对根从部署配置映射，不写进内容身份。
 新一对一样本标注可使用 storage_kind=sample_branch，或显式独立单表 sample_table；旧 sample_column 保留兼容读取。
 sample_table 的每个 output 使用单个 table 引用（路径/分支/版本/tag/rows/schema/schema_sha256），
-rows 包含成功与失败，coverage 完整对账；音频统计 audio-stats-v2 使用此布局。
+rows 包含成功与失败，coverage 完整对账；音频统计 audio-stats-v1 使用此布局。
 result_table 用于一对多及尚未迁移的兼容任务。
 sample_branch 不额外创建 results.lance。result_table 必须固定 targets/results 两张表；
 所有目标无事件或均失败时，results 可以是带已声明 schema 的零行表，targets 仍完整记录终态与 item_count。
