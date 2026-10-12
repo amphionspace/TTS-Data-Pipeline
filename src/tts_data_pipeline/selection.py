@@ -1,13 +1,20 @@
-"""First supervised selection: bounded fragment scans and globally consistent branches.
+"""Supervised selection: bounded fragment scans and globally consistent branches.
 
 All row arrays are scratch state, never a published selection representation.
-Production annotation inputs and reference pairing are deliberately unsupported.
+Rules without `annotation_inputs`/`text_filter` reproduce the first selection exactly;
+selection-filter-v1 adds pinned ASR text sources, strict ASR language agreement, text
+length/repetition policy and sample-scoped source-timeline evidence. Reference pairing
+is deliberately unsupported.
 """
 
+import csv
+import functools
 import hashlib
 import json
+import math
 import multiprocessing
 import os
+import unicodedata
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
@@ -42,6 +49,9 @@ ROW = np.dtype(
         ("reason", "<u2"),
         ("flags", "<u4"),
         ("duration", "<f8"),
+        ("chars", "<u4"),
+        ("repetition", "<f4"),
+        ("text_source", "u1"),
     ]
 )
 INDEX = np.dtype([("audio_sha256", "S64"), ("dataset", "<u2"), ("position", "<u8")])
@@ -51,10 +61,19 @@ REASONS = {
     102: "decode_failed",
     103: "invalid_audio",
     104: "invalid_timeline",
+    105: "source_timeline_unverified",
     1001: "missing_text",
     1002: "confirmed_mismatch",
+    1003: "text_source_unavailable",
+    1004: "text_repetition",
+    1005: "text_too_dense",
+    1006: "text_too_sparse",
+    1007: "text_markup",
+    1008: "asr_chunk_join",
     2001: "missing_language",
     2002: "unsupported_language",
+    2003: "language_evidence_conflict",
+    2004: "text_script_mismatch",
     3001: "below_duration_policy",
     3002: "above_duration_policy",
     4001: "duplicate_not_selected",
@@ -74,7 +93,104 @@ FLAGS = [
     "reference_policy",
     "held_out",
     "confirmed_exclusion",
+    "source_timeline",
+    "text_policy",
+    "language_evidence",
 ]
+ASR_COLUMNS = {
+    "sample_id": "sample_id",
+    "status": "status",
+    "error_code": "error_code",
+    "audio_sha256": "result.audio_sha256",
+    "source_language": "result.source_language",
+    "text": "result.text",
+    "language": "result.language",
+    "language_mismatch": "result.language_mismatch",
+    "candidate_text": "result.language_candidate_text",
+    "candidate_response": "result.language_candidate_response_json",
+}
+
+
+def effective_characters(text):
+    """NFC code points of Unicode category L* or N* (str.isalnum is exactly that set)."""
+    return "".join(filter(str.isalnum, unicodedata.normalize("NFC", text)))
+
+
+def ngram_coverage(units, n, min_count):
+    """Largest union coverage of any n-gram occurring >= min_count times (overlaps allowed)."""
+    starts = {}
+    key = (
+        (lambda i: units[i : i + n])
+        if isinstance(units, str)
+        else (lambda i: tuple(units[i : i + n]))
+    )
+    for i in range(len(units) - n + 1):
+        starts.setdefault(key(i), []).append(i)
+    best = 0.0
+    for positions in starts.values():
+        if len(positions) < min_count:
+            continue
+        covered, end = 0, 0
+        for s in positions:
+            covered += s + n - max(s, end)
+            end = s + n
+        best = max(best, covered / len(units))
+    return best
+
+
+def repetition(text, language, config):
+    """Return (path, coverage); path is None when the text is too short for either path."""
+    folded = unicodedata.normalize("NFC", unicodedata.normalize("NFC", text).casefold())
+    if language not in config["char_languages"]:
+        words = [w for w in (effective_characters(t) for t in folded.split()) if w]
+        if len(words) >= config["word_min_units"]:
+            return "word", ngram_coverage(words, config["word_n"], config["min_count"])
+    chars = effective_characters(folded)
+    if len(chars) >= config["char_min_units"]:
+        return "char", ngram_coverage(chars, config["char_n"], config["min_count"])
+    return None, math.nan
+
+
+@functools.lru_cache(maxsize=None)
+def script_of(char):
+    """Writing system of one letter: han, kana, hangul, latin, or the Unicode name's first word."""
+    name = unicodedata.name(char, "")
+    if name.startswith(("CJK", "IDEOGRAPHIC")):
+        return "han"
+    if name.startswith(("HIRAGANA", "KATAKANA")):
+        return "kana"
+    if name.startswith("HANGUL"):
+        return "hangul"
+    return "latin" if "LATIN" in name else name.split(" ", 1)[0]
+
+
+def script_share(text, language, config):
+    """Share of letter units in the language's expected scripts; None without letters.
+
+    Han, kana and Hangul count one unit per character, other scripts one unit per word.
+    """
+    units, previous = [], None
+    for char in unicodedata.normalize("NFC", text):
+        if not char.isalpha():
+            previous = None
+            continue
+        script = script_of(char)
+        if script in ("han", "kana", "hangul") or script != previous:
+            units.append(script)
+        previous = script
+    if not units:
+        return None
+    expected = config["expected"].get(language, config["expected"]["default"])
+    return sum(u in expected for u in units) / len(units)
+
+
+def chosen_text(raw_text, asr):
+    """Selected text before analysis: stripped base text, or stripped successful ASR text."""
+    if asr is None:
+        return raw_text.strip() if raw_text is not None else ""
+    if asr["status"] != "ok":
+        return ""
+    return (asr["text"] or "").strip()
 
 
 def now():
@@ -166,6 +282,182 @@ def known_exclusions(root, inputs, rules):
     return list({r["exclusion_id"]: r for r in rows}.values())
 
 
+def inherited_exclusions(root, parent_id):
+    """Complete parent inheritance; the effective list must match its pinned hash."""
+    folder = Path(root) / "selections" / parent_id
+    manifest = json.loads((folder / "manifest.json").read_text())
+    if manifest["status"] != "complete" or manifest["selection_id"] != parent_id:
+        raise ValueError("Parent selection is not a complete publication")
+    path = folder / manifest["exclusions"]["effective_path"]
+    if file_sha(path) != manifest["exclusions"]["effective_sha256"]:
+        raise ValueError("Parent effective exclusions changed")
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line]
+    if len(rows) != manifest["exclusions"]["effective_count"]:
+        raise ValueError("Parent effective exclusion count mismatch")
+    parent = {
+        "selection_id": parent_id,
+        "manifest_path": str(Path("selections") / parent_id / "manifest.json"),
+        "manifest_sha256": file_sha(folder / "manifest.json"),
+        "exclusions_sha256": manifest["exclusions"]["effective_sha256"],
+        "exclusions": len(rows),
+    }
+    return parent, rows
+
+
+def timeline_exclusions(rules_path, rules, inputs):
+    """Sample-scoped source-duration findings from the pinned interval audit."""
+    evidence = rules.get("source_timeline_evidence")
+    if not evidence:
+        return []
+    repository = Path(__file__).resolve().parents[2]
+    path = repository / evidence["path"]
+    if file_sha(path) != evidence["sha256"]:
+        raise ValueError("Source timeline evidence changed")
+    releases = {s["dataset_id"]: s for s in inputs}
+    ignored = set(evidence["ignore_findings"])
+    rows = []
+    with path.open(newline="") as stream:
+        for record in csv.DictReader(stream, delimiter="\t"):
+            findings = set(record["findings"].split(","))
+            if findings <= ignored:
+                continue
+            source = releases[record["dataset"]]
+            key = {
+                "dataset_id": record["dataset"],
+                "release_id": source["release_id"],
+                "sample_id": record["sample_id"],
+            }
+            rows.append(
+                {
+                    "exclusion_id": digest(["selection-exclusion-v1", key, 105]),
+                    "scope": key,
+                    "reason": 105,
+                    "evidence": {
+                        "path": evidence["path"],
+                        "sha256": evidence["sha256"],
+                        "record": record,
+                    },
+                    "purpose": "supervised_tts",
+                    "recorded_at": now(),
+                }
+            )
+    if len(rows) != evidence["expected_rows"]:
+        raise ValueError(f"Source timeline evidence scope changed: {len(rows)}")
+    return rows
+
+
+def pin_annotations(root, rules, inputs):
+    """Fix each adopted transcription run to its manifest, table snapshot and base inputs."""
+    releases = {s["dataset_id"]: s for s in inputs}
+    pinned, covered = [], set()
+    for item in rules.get("annotation_inputs", []):
+        folder = Path("annotations") / item["task"] / item["run_id"]
+        manifest = json.loads((Path(root) / folder / "manifest.json").read_text())
+        if manifest["status"] != "complete" or manifest["run_id"] != item["run_id"]:
+            raise ValueError("Annotation input is not a complete publication")
+        bases = {s["dataset_id"]: s for s in manifest["inputs"]}
+        outputs = {o["dataset_id"]: o for o in manifest["outputs"]}
+        for name in item["datasets"]:
+            if name in covered:
+                raise ValueError("Dataset has two text sources")
+            covered.add(name)
+            source, table = releases[name], outputs[name]["table"]
+            if (
+                bases[name]["manifest_sha256"] != source["manifest_sha256"]
+                or bases[name]["lance_version"] != source["lance_version"]
+                or table["rows"] != source["rows"]
+                or table["branch"] is not None
+            ):
+                raise ValueError(f"Annotation was computed on a different base: {name}")
+            pinned.append(
+                {
+                    "text_source": item["text_source"],
+                    "task": item["task"],
+                    "run_id": item["run_id"],
+                    "manifest_path": str(folder / "manifest.json"),
+                    "manifest_sha256": file_sha(Path(root) / folder / "manifest.json"),
+                    "profile_id": manifest["profile_id"],
+                    "dataset_id": name,
+                    "release_id": source["release_id"],
+                    "table_path": table["table_path"],
+                    "branch": None,
+                    "lance_version": table["lance_version"],
+                    "rows": table["rows"],
+                    "columns": sorted(ASR_COLUMNS.values()),
+                    "base_manifest_sha256": source["manifest_sha256"],
+                    "base_lance_version": source["lance_version"],
+                }
+            )
+    return pinned
+
+
+def align_annotations(work):
+    """Write each pinned annotation in base row order, sliced like the scan tasks."""
+    p = load_plan(work)
+    folder = Path(work) / "annotations"
+    folder.mkdir(exist_ok=True)
+    checkpoint = folder / "aligned.json"
+    if checkpoint.exists():
+        done = json.loads(checkpoint.read_text())
+        for item in done.values():
+            if file_sha(item["path"]) != item["sha256"]:
+                raise ValueError("Aligned annotation scratch changed")
+        return done
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    done = {}
+    for item in p["annotation_inputs"]:
+        name = item["dataset_id"]
+        source = next(s for s in p["inputs"] if s["dataset_id"] == name)
+        base = open_base(p["root"], source)
+        ids = base.to_table(columns=["sample_id"], scan_in_order=True)["sample_id"].cast(
+            pa.large_string()
+        )
+        table = lance.dataset(Path(p["root"]) / item["table_path"], version=item["lance_version"])
+        if table.count_rows() != item["rows"]:
+            raise ValueError("Annotation row count changed")
+        names = list(ASR_COLUMNS)
+        ann = table.to_table(columns=[ASR_COLUMNS[k] for k in names]).rename_columns(names)
+        # 64-bit offsets: one dataset's aligned text can exceed 2 GiB.
+        ann = ann.cast(
+            pa.schema(
+                [
+                    f.with_type(pa.large_string()) if pa.types.is_string(f.type) else f
+                    for f in ann.schema
+                ]
+            )
+        )
+        if pc.count_distinct(ann["sample_id"]).as_py() != len(ann):
+            raise ValueError("Annotation sample IDs are not unique")
+        index = pc.index_in(ids, value_set=ann["sample_id"])
+        if index.null_count:
+            raise ValueError(f"Annotation misses base rows: {name}: {index.null_count}")
+        aligned = ann.take(index)
+        if not aligned["sample_id"].equals(ids):
+            raise ValueError("Annotation alignment failed")
+        for task in (t for t in p["tasks"] if t["dataset"] == name):
+            path = folder / f"{name}-{task['offset']:012d}.parquet"
+            pq.write_table(aligned.slice(task["offset"], task["rows"]), path)
+            done[path.stem] = {"path": str(path), "sha256": file_sha(path), "rows": task["rows"]}
+        event(work, "annotation_aligned", dataset=name, rows=len(aligned))
+    write_json(checkpoint, done)
+    return done
+
+
+def asr_rows(p, task):
+    """Aligned annotation rows for one scan task, or None for base-text datasets."""
+    if not any(a["dataset_id"] == task["dataset"] for a in p["annotation_inputs"]):
+        return None
+    import pyarrow.parquet as pq
+
+    path = Path(p["work"]) / "annotations" / f"{task['dataset']}-{task['offset']:012d}.parquet"
+    done = json.loads((Path(p["work"]) / "annotations" / "aligned.json").read_text())
+    if file_sha(path) != done[path.stem]["sha256"]:
+        raise ValueError("Aligned annotation scratch changed")
+    return pq.read_table(path).to_pylist()
+
+
 def plan(root, work, rules_path, *, selection_id=None):
     root, work = Path(root).resolve(), Path(work).resolve()
     if not work.is_relative_to(Path("/tmp")):
@@ -173,14 +465,15 @@ def plan(root, work, rules_path, *, selection_id=None):
     work.mkdir(parents=True, exist_ok=True)
     if (work / "plan.json").exists():
         raise ValueError("Existing plan; resume its explicit scan/publish phases")
-    if list((root / "selections").glob("*/manifest.json")):
+    rules = json.loads(Path(rules_path).read_text())
+    parent_id = rules.get("parent_selection")
+    if not parent_id and list((root / "selections").glob("*/manifest.json")):
         raise ValueError(
             "Existing selections need explicit exclusion inheritance; "
             "first-root executor refuses reset"
         )
-    rules = json.loads(Path(rules_path).read_text())
-    if rules["annotation_inputs"] or rules["reference_policy"] != "self":
-        raise ValueError("This executor supports unannotated self-reference selection only")
+    if rules["reference_policy"] != "self":
+        raise ValueError("This executor supports self-reference selection only")
     selection_id = selection_id or datetime.now(BEIJING).strftime(
         "tts-selection-supervised-tts-%Y%m%dT%H%M%Sbjt-01"
     )
@@ -222,7 +515,13 @@ def plan(root, work, rules_path, *, selection_id=None):
             offset += size
         if offset != source["rows"]:
             raise ValueError("Fragment row counts do not cover base")
-    exclusions = known_exclusions(root, inputs, rules)
+    if parent_id:
+        parent, exclusions = inherited_exclusions(root, parent_id)
+        additions = timeline_exclusions(Path(rules_path).resolve(), rules, inputs)
+        known = {e["exclusion_id"] for e in exclusions}
+        additions = [e for e in additions if e["exclusion_id"] not in known]
+    else:
+        parent, exclusions, additions = None, known_exclusions(root, inputs, rules), []
     result = {
         "selection_id": selection_id,
         "root": str(root),
@@ -231,8 +530,11 @@ def plan(root, work, rules_path, *, selection_id=None):
         "rules": rules,
         "rules_sha256": digest(rules),
         "inputs": inputs,
+        "annotation_inputs": pin_annotations(root, rules, inputs),
+        "parent": parent,
         "tasks": tasks,
-        "exclusions": exclusions,
+        "exclusions": exclusions + additions,
+        "exclusion_additions": [e["exclusion_id"] for e in additions],
         "implementation_sha256": file_sha(__file__),
     }
     write_json(work / "plan.json", result)
@@ -248,30 +550,91 @@ def plan(root, work, rules_path, *, selection_id=None):
     return result
 
 
-def classify(row, dataset, rules, audio_exclusions, sample_exclusions):
+def asr_language_conflict(asr, language, source):
+    """Strict agreement: one mapped ASR label equal to the selected source language."""
+    if asr["language_mismatch"] or asr["candidate_text"] is not None:
+        return True
+    if asr["candidate_response"] is not None:
+        return True
+    return source["language_labels"].get(asr["language"] or "") != language
+
+
+def classify(row, dataset, rules, audio_exclusions, sample_exclusions, asr=None, evidence=None):
     reasons, flags = [], 0
     raw_text = row["text"]
-    text = raw_text.strip() if raw_text is not None else ""
+    text = chosen_text(raw_text, asr)
     language = rules["language_aliases"].get(row["language"], row["language"])
     if row["audio_sha256"] in audio_exclusions:
         reasons.append(103)
         flags |= (1 << 0) | (1 << 9)
-    entry = sample_exclusions.get((dataset, row["sample_id"]))
-    if entry:
+    entries = sample_exclusions.get((dataset, row["sample_id"])) or []
+    for entry in [entries] if isinstance(entries, dict) else entries:
+        if entry.get("reason", 1002) == 105:
+            reasons.append(105)
+            flags |= 1 << 10
+            continue
         revision = digest(["selected-text-v1", raw_text, rules["text_normalization"]])
-        if entry["scope"]["text_revision"] != revision:
+        if asr is not None or entry["scope"]["text_revision"] != revision:
             raise ValueError("Exclusion text revision mismatch")
         reasons.append(1002)
         flags |= (1 << 2) | (1 << 9)
     if not row["audio_sha256"]:
         reasons.append(101)
         flags |= 1
-    if not text:
-        reasons.append(1001)
+    source = None
+    if asr is not None:
+        source = rules["text_sources"][str(asr["text_source"])]
+        if asr["sample_id"] != row["sample_id"]:
+            raise ValueError("Annotation row is not aligned with base")
+        if asr["status"] == "ok" and (
+            asr["audio_sha256"] != row["audio_sha256"] or asr["source_language"] != row["language"]
+        ):
+            raise ValueError("Annotation identity disagrees with base")
+        if asr["status"] != "ok":
+            reasons.append(1003)
+            flags |= 1 << 1
+    chars = effective_characters(text)
+    filtering = rules.get("text_filter")
+    if not text or (filtering and len(chars) < filtering["min_effective_characters"]):
+        if 1003 not in reasons:
+            reasons.append(1001)
         flags |= 1 << 1
     if language not in rules["supported_languages"]:
         reasons.append(2001 if not language else 2002)
         flags |= 1 << 3
+    if asr is not None and asr["status"] == "ok" and asr_language_conflict(asr, language, source):
+        reasons.append(2003)
+        flags |= (1 << 3) | (1 << 12)
+    if filtering and language in rules["supported_languages"]:
+        share = script_share(text, language, filtering["script"])
+        if share is not None and share < filtering["script"]["min_share"]:
+            reasons.append(2004)
+            flags |= (1 << 3) | (1 << 12)
+    if filtering and any(c in filtering["markup_characters"] for c in text):
+        reasons.append(1007)
+        flags |= 1 << 11
+    if filtering and asr is not None and "\n" in text:
+        # vLLM joins internally chunked long audio with newlines; text breaks at each cut.
+        reasons.append(1008)
+        flags |= 1 << 11
+    path, coverage = None, math.nan
+    if filtering and chars:
+        config = filtering["repetition"]
+        path, coverage = repetition(text, language, config)
+        if path and coverage >= config["min_coverage"]:
+            reasons.append(1004)
+            flags |= 1 << 11
+        group = "dense_languages" if language in filtering["dense_languages"] else "other"
+        low, high = filtering["seconds_per_character"][group]
+        ratio = row["duration_seconds"] / len(chars)
+        if ratio < low:
+            reasons.append(1005)
+            flags |= 1 << 11
+        if ratio > high:
+            reasons.append(1006)
+            flags |= 1 << 11
+    if evidence is not None:
+        evidence.update(chars=len(chars), repetition_path=path, repetition=coverage)
     duration = row["duration_seconds"]
     if not np.isfinite(duration) or row["sample_rate"] <= 0 or row["num_frames"] <= 0:
         raise ValueError("Invalid base timeline")
@@ -311,14 +674,21 @@ def scan_part(args):
     array = np.lib.format.open_memmap(temporary, mode="w+", dtype=ROW, shape=(task["rows"],))
     rules = p["rules"]
     audio = {e["scope"]["audio_sha256"] for e in p["exclusions"] if "audio_sha256" in e["scope"]}
-    samples = {
-        (e["scope"]["dataset_id"], e["scope"]["sample_id"]): e
-        for e in p["exclusions"]
-        if "sample_id" in e["scope"]
-    }
+    samples = {}
+    for entry in p["exclusions"]:
+        if "sample_id" in entry["scope"]:
+            # One sample may carry several independent exclusions.
+            samples.setdefault((entry["scope"]["dataset_id"], entry["scope"]["sample_id"]), [])
+            samples[(entry["scope"]["dataset_id"], entry["scope"]["sample_id"])].append(entry)
+    annotation = asr_rows(p, task)
+    text_source = next(
+        (a["text_source"] for a in p["annotation_inputs"] if a["dataset_id"] == task["dataset"]),
+        0,
+    )
     languages = {lang: i + 1 for i, lang in enumerate(rules["supported_languages"])}
     counter, lang_counts, lang_seconds = Counter(), Counter(), Counter()
     raw_counts, raw_seconds = Counter(), Counter()
+    checks = Counter()
     ids = hashlib.sha256()
     position = whitespace = 0
     # Lance 12 to_batches accepts **kwargs but drops `fragments`; use scanner directly.
@@ -330,7 +700,13 @@ def scan_part(args):
         fragment_readahead=1,
     ).to_batches():
         for row in batch.to_pylist():
-            reason, flags, lang, text = classify(row, task["dataset"], rules, audio, samples)
+            asr = None
+            if annotation is not None:
+                asr = annotation[position] | {"text_source": text_source}
+            evidence = {}
+            reason, flags, lang, text = classify(
+                row, task["dataset"], rules, audio, samples, asr, evidence
+            )
             sid, sha = row["sample_id"], row["audio_sha256"]
             if len(sid) != 64 or any(c not in "0123456789abcdef" for c in sid):
                 raise ValueError("Invalid sample ID")
@@ -344,7 +720,14 @@ def scan_part(args):
                 reason,
                 flags,
                 row["duration_seconds"],
+                evidence["chars"],
+                evidence["repetition"],
+                text_source,
             )
+            checks["repetition_" + (evidence["repetition_path"] or "unchecked")] += 1
+            checks["sample_exclusions"] += len(samples.get((task["dataset"], sid), []))
+            if asr is not None:
+                checks["asr_" + str(asr["status"])] += 1
             ids.update(sid.encode() + b"\n")
             counter[str(reason)] += 1
             lang_counts[lang or "<missing>"] += 1
@@ -367,6 +750,7 @@ def scan_part(args):
         "raw_language_rows": dict(raw_counts),
         "raw_language_seconds": dict(raw_seconds),
         "outer_whitespace": whitespace,
+        "checks": dict(checks),
         "ordered_ids_sha256": ids.hexdigest(),
     }
     write_json(done, result)
@@ -382,6 +766,7 @@ def load_plan(work):
 
 def scan(work, workers=64):
     p = load_plan(work)
+    align_annotations(work)
     completed = []
     with ProcessPoolExecutor(
         max_workers=workers, mp_context=multiprocessing.get_context("spawn")
@@ -428,12 +813,15 @@ def duplicate_schema():
 def decide_group(members):
     """Return a deterministic representative and unresolved conflict, using eligible rows."""
     eligible = [(dataset, pos, row) for dataset, pos, row in members if row["reason"] == 0]
+    # Pinned ASR text was produced from these exact audio bytes, so it supersedes base text
+    # within the group; text conflicts are judged among the members carrying it.
+    preferred = [m for m in eligible if m[2]["text_source"]] or eligible
     conflict = (
-        len({bytes(row["text_hash"]) for _, _, row in eligible}) > 1
+        len({bytes(row["text_hash"]) for _, _, row in preferred}) > 1
         or len({int(row["language"]) for _, _, row in eligible}) > 1
     )
     winner = (
-        min(eligible, key=lambda item: (item[0], bytes(item[2]["sample_id"])))
+        min(preferred, key=lambda item: (item[0], bytes(item[2]["sample_id"])))
         if (eligible and not conflict)
         else None
     )
@@ -452,6 +840,9 @@ def resolve_duplicates(work):
         event(work, "duplicates_reused", groups=result["groups"])
         return result
     parts = json.loads((work / "scan.json").read_text())
+    applied = sum(t.get("checks", {}).get("sample_exclusions", 0) for t in parts)
+    if applied != sum("sample_id" in e["scope"] for e in p["exclusions"]):
+        raise ValueError("Sample-scoped exclusions do not all match a base row")
     sources = p["inputs"]
     arrays, array_paths = [], []
     total = sum(s["rows"] for s in sources)
@@ -596,10 +987,51 @@ def branch_files(ds):
     }
 
 
+def text_override(raw, asr):
+    """Only changed selected text is stored; null falls back to the base text."""
+    if asr is None:
+        return raw.strip() if raw is not None and raw != raw.strip() else None
+    chosen = chosen_text(raw, asr)
+    return chosen if chosen != raw else None
+
+
+def aligned_text(p, name):
+    """(text_source, status, text) arrays in base row order for an ASR-text dataset."""
+    item = next((a for a in p["annotation_inputs"] if a["dataset_id"] == name), None)
+    if item is None:
+        return None
+    import pyarrow.parquet as pq
+
+    done = json.loads((Path(p["work"]) / "annotations" / "aligned.json").read_text())
+    tables = []
+    for task in sorted((t for t in p["tasks"] if t["dataset"] == name), key=lambda t: t["offset"]):
+        entry = done[f"{name}-{task['offset']:012d}"]
+        if file_sha(entry["path"]) != entry["sha256"]:
+            raise ValueError("Aligned annotation scratch changed")
+        tables.append(pq.read_table(entry["path"], columns=["status", "text"]))
+    table = pa.concat_tables(tables).combine_chunks()
+    return item["text_source"], table["status"], table["text"]
+
+
+def overrides(batch_texts, positions, asr):
+    if asr is None:
+        values = [text_override(t, None) for t in batch_texts]
+        return values, [0 if v is not None else None for v in values]
+    code, status, text = asr
+    index = pa.array(positions)
+    rows = zip(status.take(index).to_pylist(), text.take(index).to_pylist(), strict=True)
+    values = [
+        text_override(raw, {"status": st, "text": t})
+        for raw, (st, t) in zip(batch_texts, rows, strict=True)
+    ]
+    return values, [code if v is not None else None for v in values]
+
+
 def publish_branch(args):
     p, source, array_info = args
     ds = open_base(p["root"], source)
     name = source["dataset_id"]
+    asr = aligned_text(p, name)
     state = Path(p["work"]) / (name + ".branch.json")
     array = np.load(array_info["path"], mmap_mode="r")
     if file_sha(array_info["path"]) != array_info["sha256"]:
@@ -643,7 +1075,7 @@ def publish_branch(args):
                 if not np.array_equal(actual_ids, expected["sample_id"]):
                     raise ValueError("Base row address / sample identity mismatch")
                 texts = batch.column("text").to_pylist()
-                overrides = [t.strip() if t is not None and t != t.strip() else None for t in texts]
+                values, codes = overrides(texts, positions, asr)
                 aliases = p["rules"]["language_aliases"]
                 languages = batch.column("language").to_pylist()
                 language_overrides = [
@@ -654,10 +1086,8 @@ def publish_branch(args):
                     [
                         pa.array(expected["reason"]),
                         pa.array(expected["flags"]),
-                        pa.array(overrides, type=pa.string()),
-                        pa.array(
-                            [0 if t is not None else None for t in overrides], type=pa.uint32()
-                        ),
+                        pa.array(values, type=pa.string()),
+                        pa.array(codes, type=pa.uint32()),
                         pa.array(language_overrides, type=pa.string()),
                     ],
                     schema=schema,
@@ -699,12 +1129,19 @@ def publish_branch(args):
         ):
             raise ValueError("Published branch differs from audited decisions")
         texts = batch.column("text").to_pylist()
-        overrides = [t.strip() if t is not None and t != t.strip() else None for t in texts]
-        if batch.column("selected_text").to_pylist() != overrides or (
-            batch.column("selected_text_source").to_pylist()
-            != [0 if t is not None else None for t in overrides]
+        values, codes = overrides(texts, list(range(position, position + len(batch))), asr)
+        if (
+            batch.column("selected_text").to_pylist() != values
+            or batch.column("selected_text_source").to_pylist() != codes
         ):
             raise ValueError("Selected text does not match normalization rule")
+        hashes = [
+            hashlib.sha256((v if v is not None else (t or "")).encode()).digest()
+            for v, t in zip(values, texts, strict=True)
+        ]
+        # Compare as S32: numpy drops trailing NUL bytes when an element is read back as bytes.
+        if not np.array_equal(np.array(hashes, dtype="S32"), expected["text_hash"]):
+            raise ValueError("Published selected text differs from audited text")
         aliases = p["rules"]["language_aliases"]
         languages = batch.column("language").to_pylist()
         expected_languages = [
@@ -786,6 +1223,32 @@ def validate_output_bindings(plan, outputs):
             raise ValueError("Selection branch binding disagrees with its fixed plan")
 
 
+def text_sources(p):
+    sources = {
+        "0": {"kind": "base_normalization", "normalization": p["rules"]["text_normalization"]}
+    }
+    for item in p.get("annotation_inputs", []):
+        code = str(item["text_source"])
+        rule = p["rules"]["text_sources"][code]
+        entry = sources.setdefault(
+            code,
+            {
+                "kind": "annotation",
+                "task": item["task"],
+                "run_id": item["run_id"],
+                "manifest_sha256": item["manifest_sha256"],
+                "column": "result.text",
+                "normalization": rule["normalization"],
+                "unavailable": rule["unavailable"],
+                "language_policy": rule["language_policy"],
+                "language_labels": rule["language_labels"],
+                "datasets": [],
+            },
+        )
+        entry["datasets"].append(item["dataset_id"])
+    return sources
+
+
 def publish(work, workers=16):
     import shutil
 
@@ -847,17 +1310,22 @@ def publish(work, workers=16):
         "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in p["exclusions"])
     )
     changes = incomplete / "exclusion_changes.jsonl"
+    parent = p.get("parent")
+    added = set(p.get("exclusion_additions", [])) if parent else None
     changes.write_text(
         "".join(
             json.dumps(
                 {
                     "action": "add",
                     "exclusion_id": e["exclusion_id"],
-                    "reason": "initial reviewed evidence",
+                    "reason": "initial reviewed evidence"
+                    if parent is None
+                    else "pinned source timeline evidence",
                 }
             )
             + "\n"
             for e in p["exclusions"]
+            if added is None or e["exclusion_id"] in added
         )
     )
     parts = json.loads((Path(work) / "scan.json").read_text())
@@ -871,29 +1339,28 @@ def publish(work, workers=16):
         "code_migration": p.get("code_migration"),
         "inputs": p["inputs"],
         "outputs": sorted(outputs, key=lambda o: o["dataset_id"]),
-        "annotation_inputs": [],
-        "text_sources": {
-            "0": {"kind": "base_normalization", "normalization": p["rules"]["text_normalization"]}
-        },
+        "annotation_inputs": p.get("annotation_inputs", []),
+        "text_sources": text_sources(p),
         "rules": {
             "path": "rules.json",
             "sha256": file_sha(incomplete / "rules.json"),
             "implementation_sha256": p["implementation_sha256"],
         },
+        # Version 2 registers 105/1003-1008/2003/2004 and flag bits 10-12; earlier codes keep meaning.
         "reason_dictionary": {
-            "version": 1,
+            "version": 2,
             "codes": REASONS,
             "priority": p["rules"]["reason_priority"],
         },
-        "flag_dictionary": {"version": 1, "bits": dict(enumerate(FLAGS))},
+        "flag_dictionary": {"version": 2, "bits": dict(enumerate(FLAGS))},
         "exclusions": {
-            "parent": None,
+            "parent": parent,
             "initial_evidence_sources": p["rules"]["initial_exclusion_evidence"],
             "effective_path": exclusions.name,
             "effective_sha256": file_sha(exclusions),
             "changes_path": changes.name,
             "changes_sha256": file_sha(changes),
-            "added": len(p["exclusions"]),
+            "added": len(p["exclusions"]) if parent is None else len(added),
             "retracted": 0,
             "effective_count": len(p["exclusions"]),
         },
@@ -904,7 +1371,10 @@ def publish(work, workers=16):
             "full_audio_decode": 0,
             "near_duplicates": "not_checked",
             "quality_scores": "not_checked",
+            "audio_statistics": "not_used",
             "audio_presence": p["rules"]["audio_presence_evidence"],
+            "text_filter": p["rules"].get("text_filter", "not_applied"),
+            "checks": sum((Counter(t.get("checks", {})) for t in parts), Counter()),
         },
         "normalization_statistics": parts,
         "evaluation": {"status": "not_assigned"},

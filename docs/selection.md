@@ -1,4 +1,10 @@
-# 首次正式 selection
+# Selection
+
+当前版本为 [selection-filter-v1](data-contract/experiments/selection-filter-v1.md)，已发布为
+`tts-selection-supervised-tts-20261012T045922bjt-01`（18 个数据集，一阶段预训练用途，
+继承下述首个 selection 的排除）。下文记录首个正式版本及共用的执行方式；执行器同时支持两版规则。
+
+## 首个正式 selection
 
 规则文件为 configs/selections/first-v0.1.json，contract/release仍为v0.1。
 输入为16个已发布基础快照，共134,832,658条；规范见 [12](data-contract/specs/12-selections.md)。

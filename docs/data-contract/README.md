@@ -33,7 +33,7 @@
 ## 版本边界
 
 实验设计见 [Annotation 实验契约](experiments/annotation-v1.md)：独立标注表、质量档案、文本修订与 Sidon 恢复音频。
-通用文本过滤见 [Selection 文本过滤实验契约](experiments/selection-text-filter-v1.md)：文本来源、复读和完整音频时长/字符比规则。
+Selection 筛选见 [selection-filter-v1](experiments/selection-filter-v1.md)：文本来源、严格语言与文字系统、复读、标记、时长/字符比、来源时长证据与重复处理。
 实验稿不替代正式 specs，不表示模型或执行器已验收；生产读取仍遵循固定发布版本。
 
 - `contract_version`、基础 `schema_version` 和首次 `release_id` 均为 `v0.1`。

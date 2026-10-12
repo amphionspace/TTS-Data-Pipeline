@@ -1,0 +1,209 @@
+{
+  "contract_version": "v0.1",
+  "purpose": "supervised_tts",
+  "reference_policy": "self",
+  "duration_seconds": {
+    "min_inclusive": 1.0,
+    "max_inclusive": 120.0
+  },
+  "text_normalization": {
+    "name": "unicode-strip-v1",
+    "implementation": "python.str.strip",
+    "python_version": "3.11"
+  },
+  "language_aliases": {
+    "en-US": "en",
+    "zh-CN": "zh",
+    "en-us": "en",
+    "zh-cn": "zh"
+  },
+  "supported_languages": [
+    "de",
+    "en",
+    "es",
+    "fr",
+    "it",
+    "ja",
+    "ko",
+    "nl",
+    "pl",
+    "pt",
+    "zh"
+  ],
+  "source_priority": [
+    "aishell3",
+    "csemotions",
+    "emilia",
+    "emilia_yodas",
+    "galgame",
+    "genshin_voice",
+    "hifitts",
+    "hifitts2",
+    "libriheavy",
+    "libritts_r",
+    "ljspeech",
+    "mls_sidon",
+    "starrail_voice",
+    "vctk",
+    "wenetspeech4tts",
+    "wutheringwaves",
+    "zenless_voice",
+    "emilia2"
+  ],
+  "representative_order": [
+    "source_priority",
+    "sample_id"
+  ],
+  "duplicate_conflict": "exclude_unresolved_group",
+  "reason_priority": [
+    103,
+    102,
+    104,
+    105,
+    1002,
+    101,
+    1001,
+    1003,
+    2001,
+    2002,
+    2003,
+    2004,
+    1007,
+    1008,
+    1004,
+    1005,
+    1006,
+    3001,
+    3002,
+    5001,
+    4002,
+    7001,
+    4001
+  ],
+  "annotation_inputs": [
+    {
+      "text_source": 1,
+      "task": "transcription",
+      "run_id": "tts-ann-transcription-20261010T111659bjt-01",
+      "datasets": [
+        "genshin_voice",
+        "starrail_voice",
+        "wutheringwaves",
+        "zenless_voice"
+      ]
+    },
+    {
+      "text_source": 2,
+      "task": "transcription",
+      "run_id": "tts-ann-transcription-20261010T171514bjt-import",
+      "datasets": [
+        "emilia"
+      ]
+    }
+  ],
+  "evaluation": {
+    "status": "not_assigned"
+  },
+  "audio_presence_evidence": "published_ingest_required_nonempty_bytes_and_full_readback; check audio_sha256 and native frame metadata again; no new full audio decode",
+  "initial_exclusion_evidence": [
+    "wutheringwaves:32 one-frame records",
+    "galgame:7 reviewed >300s transcript mismatches"
+  ],
+  "initial_root_reason": "First selection; prior source-ingestion exclusions already excluded from pinned base manifests; published-data findings are fixed in exclusions.jsonl.",
+  "rules_version": "selection-filter-v1",
+  "parent_selection": "tts-selection-supervised-tts-20260929T151539bjt-01",
+  "text_sources": {
+    "1": {
+      "normalization": "python.str.strip",
+      "unavailable": "status != ok excludes (1003); no fallback to base text",
+      "language_policy": "exclude unless the single mapped ASR label equals the selected source language; any mismatch flag or language-candidate attempt (even empty/failed) also excludes",
+      "language_labels": {
+        "Chinese": "zh",
+        "English": "en",
+        "Japanese": "ja",
+        "Korean": "ko"
+      }
+    },
+    "2": {
+      "normalization": "python.str.strip",
+      "unavailable": "status != ok excludes (1003); no fallback to base text",
+      "language_policy": "exclude unless the single mapped ASR label equals the selected source language; any mismatch flag or language-candidate attempt (even empty/failed) also excludes; labels are upstream metadata, not independent language identification",
+      "language_labels": {
+        "zh": "zh",
+        "en": "en",
+        "ja": "ja",
+        "ko": "ko",
+        "de": "de",
+        "fr": "fr"
+      }
+    }
+  },
+  "text_filter": {
+    "analysis": "NFC; effective characters are Unicode categories L*/N* (str.isalnum), counted as code points",
+    "min_effective_characters": 1,
+    "dense_languages": [
+      "zh",
+      "yue",
+      "ja",
+      "ko",
+      "th"
+    ],
+    "seconds_per_character": {
+      "dense_languages": [
+        0.04,
+        2.0
+      ],
+      "other": [
+        0.015,
+        1.0
+      ]
+    },
+    "duration_source": "base num_frames / sample_rate (published actual decode); no audio statistics",
+    "repetition": {
+      "fold": "NFC(casefold(NFC(text)))",
+      "char_languages": [
+        "zh",
+        "yue",
+        "ja",
+        "ko",
+        "th"
+      ],
+      "word_split": "str.split whitespace, each word reduced to effective characters, empty words dropped",
+      "word_n": 4,
+      "word_min_units": 18,
+      "char_n": 8,
+      "char_min_units": 30,
+      "min_count": 5,
+      "min_coverage": 0.8
+    },
+    "markup_characters": "[]{}<>\\|^#",
+    "asr_line_breaks": "exclude: line breaks in ASR text mark internal chunk joins",
+    "script": {
+      "analysis": "letters only (str.isalpha); han/kana/hangul one unit per character, other scripts one unit per word (same-script letter run); script from the Unicode character name",
+      "expected": {
+        "zh": [
+          "han"
+        ],
+        "ja": [
+          "han",
+          "kana"
+        ],
+        "ko": [
+          "hangul"
+        ],
+        "default": [
+          "latin"
+        ]
+      },
+      "min_share": 0.5
+    }
+  },
+  "source_timeline_evidence": {
+    "path": "reports/interval-audit/findings.tsv",
+    "sha256": "438c099d154e0af52348a4b1c81c97e878a183cb50330b049cd2e6922b5c7f86",
+    "ignore_findings": [
+      "invalid_word_timestamps"
+    ],
+    "expected_rows": 14250
+  }
+}
