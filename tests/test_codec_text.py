@@ -35,11 +35,14 @@ def test_selected_text_and_language_keep_raw_revision_identity():
     ]:
         with pytest.raises(ValueError):
             selected_metadata({**row, **changes}, TEXT_SOURCES)
-    with pytest.raises(ValueError, match="pinned raw revisions"):
-        selected_metadata(
-            {**row, "selected_text_source": 1},
-            {**TEXT_SOURCES, "1": {"kind": "annotation"}},
-        )
+    annotation = {**TEXT_SOURCES, "1": {"kind": "annotation", "normalization": "python.str.strip"}}
+    with pytest.raises(ValueError, match="pinned raw revision"):
+        selected_metadata({**row, "selected_text_source": 1}, annotation)
+    with pytest.raises(ValueError, match="normalized annotation revision"):
+        selected_metadata({**row, "selected_text_source": 1}, annotation, " other ")
+    asr = selected_metadata({**row, "selected_text_source": 1}, annotation, " original\n")
+    assert asr["text"] == "original" and asr["text_source"] == 1
+    assert asr["text_revision"] == digest(["selected-text-v1", " original\n", "python.str.strip"])
     fallback = selected_metadata(
         {**row, "selected_text": None, "selected_text_source": None, "selected_language": None},
         TEXT_SOURCES,

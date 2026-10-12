@@ -34,11 +34,25 @@ def main():
     plan.add_argument("--datasets", nargs="+")
     plan.add_argument("--precision", choices=["bf16", "fp32"], default="fp32")
     plan.add_argument("--task-size", type=int, default=4096)
+    plan.add_argument(
+        "--reuse",
+        type=Path,
+        nargs="+",
+        default=[],
+        help="Published codec manifests whose results are copied for the same audio",
+    )
     execute = sub.add_parser("run")
     execute.add_argument("--work", type=Path, required=True)
     execute.add_argument("--gpus", type=int, nargs="+", default=list(range(8)))
     execute.add_argument("--decode-threads", type=int, default=8)
     execute.add_argument("--workers-per-gpu", type=int, choices=[1, 2, 4], default=1)
+    execute.add_argument(
+        "--mode",
+        choices=["all", "reuse", "encode"],
+        default="all",
+        help="reuse: copy-only tasks on CPU; encode: tasks needing GPUs",
+    )
+    execute.add_argument("--cpu-workers", type=int, default=32)
     args = parser.parse_args()
     if args.command == "plan":
         if args.task_size < 1:
@@ -53,6 +67,7 @@ def main():
             task_size=args.task_size,
             output_root=args.output_root,
             datasets=args.datasets,
+            reuse=args.reuse,
         )
     else:
         if not args.gpus or len(set(args.gpus)) != len(args.gpus) or min(args.gpus) < 0:
@@ -60,7 +75,14 @@ def main():
         if args.decode_threads < 1:
             parser.error("decode-threads must be positive")
         try:
-            run(args.work, args.gpus, args.decode_threads, args.workers_per_gpu)
+            run(
+                args.work,
+                args.gpus,
+                args.decode_threads,
+                args.workers_per_gpu,
+                mode=args.mode,
+                cpu_workers=args.cpu_workers,
+            )
         except Exception as exc:
             event(args.work, "failed", error_type=type(exc).__name__, error=str(exc))
             raise

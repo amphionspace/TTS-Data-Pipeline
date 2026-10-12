@@ -215,3 +215,96 @@ def test_publish_recovery_text_and_flat_run_path(tmp_path, monkeypatch):
     assert ".tmp-abandoned" in (Path(d["final"]) / "cleanup.jsonl").read_text()
     with pytest.raises(ValueError, match="differs"):
         run.published_manifest({**p, "profile_id": "9" * 64}, d)
+
+
+def rerun(p, d, tmp_path, name, profile):
+    """A second plan over the same targets, writing to a fresh run directory."""
+    final = tmp_path / f"datasets/example/v0.1/features/codec/example-codec-test-{name}bjt-01"
+    d2 = {
+        **d,
+        "tasks": [dict(t) for t in d["tasks"]],
+        "stage": str(final) + ".incomplete",
+        "final": str(final),
+        "state": str(tmp_path / f"state-{name}"),
+        "run_id": final.name,
+    }
+    Path(d2["stage"]).mkdir(parents=True)
+    return {**p, "profile": profile, "profile_id": digest(profile)}, d2
+
+
+def stored(d, columns):
+    ds = lance.dataset(Path(d["final"]) / "features.lance")
+    return {r["target_id"]: r for r in ds.to_table(columns=["target_id", *columns]).to_pylist()}
+
+
+def test_reuse_copies_payloads_and_rebinds_identity(tmp_path, monkeypatch):
+    _, p, d = fixture(tmp_path)
+    with ThreadPoolExecutor(2) as decoders:
+        setup_worker(monkeypatch, p, d, decoders)
+        for task in d["tasks"]:
+            run.run_task(("example", task))
+    run.finalize(p, d)
+    published = Path(d["final"]) / "manifest.json"
+    old = stored(d, ["codes", "feature_key", "end_frame"])
+    with pytest.raises(ValueError, match="not accepted"):
+        run.reuse_sources(tmp_path, [published], "f" * 64, {})
+    for name, profile in [
+        ("20261012T010000", p["profile"]),
+        ("20261012T020000", {"kind": "audio_codec", "timeline_profile_id": "7" * 64}),
+    ]:
+        p2, d2 = rerun(p, d, tmp_path, name, profile)
+        [d2["reuse"]] = run.reuse_sources(
+            tmp_path, [published], p2["profile_id"], {"predecessor_profile_id": p["profile_id"]}
+        )
+        run.plan_reuse(p2, d2)
+        assert all(t["reuse_rows"] == t["rows"] for t in d2["tasks"])
+        # No encoder: every target must come from the published run.
+        setup_worker(monkeypatch, p2, d2, None)
+        monkeypatch.setattr(run, "_ENCODER", None)
+        assert sum(run.run_task(("example", t))["reused_rows"] for t in d2["tasks"]) == 5
+        manifest = run.finalize(p2, d2)
+        assert manifest["reuse"]["rows"] == 5
+        assert not (Path(d2["final"]) / "execution.json").exists()
+        new = stored(d2, ["codes", "feature_key", "profile_id", "end_frame"])
+        assert {k: v["codes"] for k, v in new.items()} == {k: v["codes"] for k, v in old.items()}
+        assert all(v["profile_id"] == p2["profile_id"] for v in new.values())
+        same_keys = all(new[k]["feature_key"] == old[k]["feature_key"] for k in old)
+        assert same_keys == (profile is p["profile"])
+
+
+def test_reuse_requires_same_audio_and_matching_timeline():
+    old = dict(status="ok", audio_sha256="x", native_sample_rate=24000, end_frame=100)
+    row = dict(audio_sha256="x", sample_rate=24000, num_frames=101)
+    # A header/actual mismatch can only be reused within the same profile.
+    assert run.reusable(old, row, same_profile=True)
+    assert not run.reusable(old, row, same_profile=False)
+    assert run.reusable(old, {**row, "num_frames": 100}, same_profile=False)
+    assert not run.reusable({**old, "status": "failed"}, row, same_profile=True)
+    assert not run.reusable(old, {**row, "audio_sha256": "y"}, same_profile=True)
+    assert not run.reusable(None, row, same_profile=True)
+
+
+def test_reuse_and_encoding_share_a_run(tmp_path, monkeypatch):
+    _, p, d = fixture(tmp_path)
+    with ThreadPoolExecutor(2) as decoders:
+        setup_worker(monkeypatch, p, d, decoders)
+        for task in d["tasks"]:
+            run.run_task(("example", task))
+        run.finalize(p, d)
+        published = Path(d["final"]) / "manifest.json"
+        manifest = json.loads(published.read_text())
+        # Drop one stored target so its task must be encoded again.
+        table = lance.dataset(Path(d["final"]) / "features.lance")
+        missing = table.to_table(columns=["target_id"])["target_id"][0].as_py()
+        table.delete(f"target_id = '{missing}'")
+        published.write_text(json.dumps({**manifest, "lance_version": table.version}))
+        p2, d2 = rerun(p, d, tmp_path, "20261012T030000", p["profile"])
+        [d2["reuse"]] = run.reuse_sources(tmp_path, [published], p2["profile_id"], {})
+        run.plan_reuse(p2, d2)
+        assert sorted(t["reuse_rows"] for t in d2["tasks"]) == [0, 1, 1, 1, 1]
+        setup_worker(monkeypatch, p2, d2, decoders)
+        checkpoints = [run.run_task(("example", t)) for t in d2["tasks"]]
+    assert sum(c["reused_rows"] for c in checkpoints) == 4
+    assert sum(c["rows"] for c in checkpoints) == 5
+    run.finalize(p2, d2)
+    assert stored(d2, ["codes"]) == stored(d, ["codes"]) | {missing: stored(d2, ["codes"])[missing]}

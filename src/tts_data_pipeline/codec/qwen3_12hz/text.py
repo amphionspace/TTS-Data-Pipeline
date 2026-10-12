@@ -23,8 +23,11 @@ def _row_hash(checksum, target_id, metadata):
     )
 
 
-def materialize_text(features, source, tasks, text_sources):
-    """Verify each destination ID before adding metadata, then audit stored columns."""
+def materialize_text(features, source, tasks, text_sources, revisions=None):
+    """Verify each destination ID before adding metadata, then audit stored columns.
+
+    `revisions(ids)` returns (text_source, {sample_id: raw text}) for annotation-sourced rows.
+    """
     schema = codec_text_schema()
     if set(schema.names) & set(features.schema.names):
         raise ValueError("Text materialization requires a fresh unpublished codec snapshot")
@@ -60,11 +63,21 @@ def materialize_text(features, source, tasks, text_sources):
                 or hashlib.sha256("".join(ids).encode()).hexdigest() != task["ordered_ids_sha256"]
             ):
                 raise ValueError("Selected metadata target set changed")
+            annotated = [r["sample_id"] for r in selected if r["selected_text_source"]]
+            raw = {}
+            if annotated:
+                if revisions is None:
+                    raise ValueError("Annotation text requires its pinned raw revision")
+                code, raw = revisions(annotated)
+                if any(
+                    r["selected_text_source"] != code for r in selected if r["sample_id"] in raw
+                ):
+                    raise ValueError("Selected text source differs from the pinned annotation")
             result = []
             for row in selected:
                 if next(actual_ids, None) != row["sample_id"]:
                     raise ValueError("Codec/text target order differs")
-                metadata = selected_metadata(row, text_sources)
+                metadata = selected_metadata(row, text_sources, raw.get(row["sample_id"]))
                 _row_hash(expected_hash, row["sample_id"], metadata)
                 result.append(metadata)
                 total += 1
