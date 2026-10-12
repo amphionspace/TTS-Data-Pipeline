@@ -1,6 +1,7 @@
 import io
 import json
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from pathlib import Path
 
 import lance
@@ -9,6 +10,7 @@ import pyarrow as pa
 import pytest
 import soundfile as sf
 
+from tts_data_pipeline import feature_runtime
 from tts_data_pipeline.codec.qwen3_12hz import run
 from tts_data_pipeline.feature_contract import target_set_sha256
 from tts_data_pipeline.schema import base_schema, digest, make_record
@@ -333,3 +335,51 @@ def test_undecodable_sample_is_a_failed_row_not_a_task_abort(tmp_path, monkeypat
     }
     assert status.pop(rows[0]["sample_id"]) == ("failed", "native_format_mismatch")
     assert set(status.values()) == {("ok", None)} and bad["rows"] == 1
+
+
+def test_lost_file_after_commit_is_redone_and_published(tmp_path, monkeypatch):
+    _, p, d = fixture(tmp_path)
+    (Path(d["stage"]) / "execution.json").write_text("{}")
+    with ThreadPoolExecutor(2) as decoders:
+        setup_worker(monkeypatch, p, d, decoders)
+        checkpoints = [run.run_task(("example", task)) for task in d["tasks"]]
+        lost = Path(d["stage"]) / "features.lance/data" / checkpoints[0]["files"][0]["name"]
+        commit = lance.LanceDataset.commit
+
+        def commit_then_lose(*args, **kwargs):
+            ds = commit(*args, **kwargs)
+            lost.unlink()  # What a lost quarkfs rename leaves behind.
+            return ds
+
+        with monkeypatch.context() as patch:
+            patch.setattr(lance.LanceDataset, "commit", staticmethod(commit_then_lose))
+            with pytest.raises(ValueError, match="Not found"):
+                run.finalize(p, d)
+        # The restart sees the task as undone, discards the stale commit and redoes it.
+        with pytest.raises(ValueError, match="Incomplete target coverage"):
+            run.finalize(p, d)
+        assert not (Path(d["stage"]) / "features.lance/_versions").exists()
+        redone = run.run_task(("example", d["tasks"][0]))
+        assert redone["files"] != checkpoints[0]["files"]
+        manifest = run.finalize(p, d)
+    ds = lance.dataset(Path(d["final"]) / "features.lance", version=manifest["lance_version"])
+    assert ds.to_table(columns=["text"])["text"].to_pylist() == ["0", "2", "4", "6", "8"]
+    assert "lost_checkpoint_file" in (Path(d["state"]) / "lost_files.jsonl").read_text()
+
+
+def test_lost_files_beyond_sporadic_loss_are_refused(tmp_path, monkeypatch):
+    _, p, d = fixture(tmp_path)
+    with ThreadPoolExecutor(2) as decoders:
+        setup_worker(monkeypatch, p, d, decoders)
+        checkpoints = [run.run_task(("example", task)) for task in d["tasks"]]
+    for c in checkpoints:
+        (Path(d["stage"]) / "features.lance/data" / c["files"][0]["name"]).unlink()
+    # Without the stage's ownership marker a missing file is never treated as a lost rename.
+    with pytest.raises(ValueError, match="outside an owned stage"):
+        run.verify_all(d)
+    (Path(d["stage"]) / "execution.json").write_text("{}")
+    # A small dataset tolerates max(8, 1% of tasks) lost files; more means a missing mount.
+    monkeypatch.setattr(feature_runtime, "_LOST", {})
+    for i in range(9):
+        with pytest.raises(ValueError, match="Too many") if i == 8 else nullcontext():
+            feature_runtime.lost_file(d, {"id": f"lost-{i}"}, "missing")

@@ -67,3 +67,41 @@ def test_text_rejects_wrong_target_order(tmp_path):
     with pytest.raises(ValueError, match="target set differs"):
         run.process_dataset(p, d)
     assert not Path(d["final"]).exists()
+
+
+def lose_file(d, checkpoint_path):
+    """What a lost quarkfs rename leaves: the checkpoint names a data file that is gone."""
+    checkpoint = json.loads(checkpoint_path.read_text())
+    (Path(d["stage"]) / "features.lance/data" / checkpoint["files"][0]["name"]).unlink()
+
+
+def test_text_redoes_task_whose_file_was_lost(tmp_path):
+    rows, p = plan(tmp_path)
+    d = p["datasets"][0]
+    run.process_dataset(p, d, max_tasks=1)
+    checkpoint = next((Path(d["state"]) / "checkpoints").glob("*.json"))
+    lose_file(d, checkpoint)
+    assert run.process_dataset(p, d)
+    manifest = json.loads((Path(d["final"]) / "manifest.json").read_text())
+    table = lance.dataset(Path(d["final"]) / "features.lance", version=manifest["lance_version"])
+    assert table.to_table()["target_id"].to_pylist() == [r["sample_id"] for r in rows[::2]]
+
+
+def test_text_republishes_after_file_lost_during_publish(tmp_path, monkeypatch):
+    rows, p = plan(tmp_path)
+    d = p["datasets"][0]
+    finalize = run.finalize
+
+    def lose_then_finalize(p, d, checkpoints):
+        lose_file(d, next((Path(d["state"]) / "checkpoints").glob("*.json")))
+        return finalize(p, d, checkpoints)
+
+    monkeypatch.setattr(run, "finalize", lose_then_finalize)
+    with pytest.raises(ValueError, match="Not found"):
+        run.process_dataset(p, d)
+    assert not Path(d["final"]).exists()
+    monkeypatch.setattr(run, "finalize", finalize)
+    assert run.process_dataset(p, d)
+    manifest = json.loads((Path(d["final"]) / "manifest.json").read_text())
+    table = lance.dataset(Path(d["final"]) / "features.lance", version=manifest["lance_version"])
+    assert table.to_table()["target_id"].to_pylist() == [r["sample_id"] for r in rows[::2]]
