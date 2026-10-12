@@ -95,7 +95,9 @@ def init(args):
 class Step:
     """One resumable subprocess; started once, polled by the scheduler."""
 
-    retries = 3
+    # On ACP nodes the quarkfs client fails or loses renames; one lost file fails a whole
+    # all-or-nothing codec publish (~22 min for 10k files), so publishes need room to retry.
+    retries = 8
     # A run this long made progress: a later crash starts a fresh retry budget, so sporadic
     # crashes over a 13 h codec run cannot exhaust it.
     healthy_seconds = 1800
