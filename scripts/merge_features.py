@@ -28,7 +28,7 @@ if __name__ == "__main__":
     plan.add_argument("--batch-rows", type=int, default=32768)
     execute = commands.add_parser("run")
     execute.add_argument("--work", required=True)
-    execute.add_argument("--workers", type=int, default=2)
+    execute.add_argument("--workers", type=int, default=16)
     args = vars(parser.parse_args())
     command = args.pop("command")
     (prepare if command == "plan" else run)(**args)

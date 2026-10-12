@@ -645,6 +645,12 @@ def classify(row, dataset, rules, audio_exclusions, sample_exclusions, asr=None,
         for k in ("parent_sample_id", "segment_start_frame", "segment_end_frame")
     ):
         raise ValueError("Derived input requires explicit view/timeline handling")
+    held = rules.get("evaluation", {}).get("held_out_splits")
+    metadata = row.get("metadata_json")
+    if held and metadata and held["field"] in metadata:
+        if json.loads(metadata).get(held["field"]) in held["values"]:
+            reasons.append(7001)
+            flags |= 1 << 8
     bounds = rules["duration_seconds"]
     if duration < bounds["min_inclusive"]:
         reasons.append(3001)
@@ -693,7 +699,7 @@ def scan_part(args):
     position = whitespace = 0
     # Lance 12 to_batches accepts **kwargs but drops `fragments`; use scanner directly.
     for batch in ds.scanner(
-        columns=COLUMNS,
+        columns=COLUMNS + (["metadata_json"] if held_out_rule(p["rules"]) else []),
         fragments=fragments,
         scan_in_order=True,
         batch_size=8192,
@@ -810,6 +816,10 @@ def duplicate_schema():
     )
 
 
+def held_out_rule(rules):
+    return rules.get("evaluation", {}).get("held_out_splits")
+
+
 def decide_group(members):
     """Return a deterministic representative and unresolved conflict, using eligible rows."""
     eligible = [(dataset, pos, row) for dataset, pos, row in members if row["reason"] == 0]
@@ -911,6 +921,10 @@ def resolve_duplicates(work):
                 for g in group
             ]
             winner, conflict = decide_group(members)
+            # Exact copies of a held-out target are held out too, so it cannot leak back.
+            held = any(int(r["reason"]) == 7001 for _, _, r in members)
+            if held:
+                winner, conflict = None, False
             raw_text = len({bytes(r["text_hash"]) for _, _, r in members if not r["flags"] & 2}) > 1
             raw_lang = len({int(r["language"]) for _, _, r in members if r["language"]}) > 1
             stats["groups"] += 1
@@ -922,7 +936,10 @@ def resolve_duplicates(work):
             for dataset, pos, row in members:
                 flags = int(row["flags"]) | (1 << 5) | ((1 << 6) if conflict else 0)
                 reason = int(row["reason"])
-                if reason == 0:
+                if reason == 0 and held:
+                    reason = 7001
+                    flags |= 1 << 8
+                elif reason == 0:
                     if conflict:
                         reason = 4002
                     elif winner is not None and (dataset, pos) != winner[:2]:
@@ -942,7 +959,9 @@ def resolve_duplicates(work):
                         "representative_sample_id": bytes(winner[2]["sample_id"]).decode()
                         if winner
                         else None,
-                        "group_disposition": "conflict"
+                        "group_disposition": "held_out"
+                        if held
+                        else "conflict"
                         if conflict
                         else ("selected" if winner else "no_eligible"),
                         "raw_text_conflict": raw_text,
@@ -1377,7 +1396,7 @@ def publish(work, workers=16):
             "checks": sum((Counter(t.get("checks", {})) for t in parts), Counter()),
         },
         "normalization_statistics": parts,
-        "evaluation": {"status": "not_assigned"},
+        "evaluation": p["rules"].get("evaluation", {"status": "not_assigned"}),
     }
     # Scratch names and hashes are operational details, not consumption dependencies.
     manifest["normalization_statistics"] = [

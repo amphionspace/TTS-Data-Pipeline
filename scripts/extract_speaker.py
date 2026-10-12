@@ -33,8 +33,16 @@ def main():
     plan.add_argument("--acceptance", type=Path, required=True)
     plan.add_argument("--output-root", type=Path)
     plan.add_argument("--datasets", nargs="+")
-    plan.add_argument("--reference-sources-plan", type=Path)
+    plan.add_argument("--reference-sources-plan", type=Path, help="existing merge plan")
+    plan.add_argument("--reference-codec-plan", type=Path, help="published codec run plan")
     plan.add_argument("--reference-seed", type=int, default=20261008)
+    plan.add_argument(
+        "--reuse",
+        type=Path,
+        nargs="+",
+        default=(),
+        help="published speaker manifests of this profile whose rows may be copied by target",
+    )
     execute = sub.add_parser("run")
     execute.add_argument("--work", type=Path, required=True)
     execute.add_argument("--gpus", type=int, nargs="+", default=list(range(1, 8)))
@@ -43,6 +51,14 @@ def main():
     execute.add_argument("--workers-per-gpu", type=int, default=1)
     execute.add_argument("--memory-fraction", type=float, default=0.25)
     execute.add_argument("--mel-frame-budget", type=int, default=90000)
+    execute.add_argument(
+        "--mode",
+        choices=("all", "reuse", "extract"),
+        default="all",
+        help="all: copy reusable tasks on CPUs while GPUs extract the rest; "
+        "reuse: CPU copying only; extract: GPU extraction of non-reusable tasks only",
+    )
+    execute.add_argument("--cpu-workers", type=int, default=8)
     args = parser.parse_args()
     if args.command == "plan":
         prepare(
@@ -53,13 +69,17 @@ def main():
             output_root=args.output_root,
             datasets=args.datasets,
             reference_sources_plan=args.reference_sources_plan,
+            reference_codec_plan=args.reference_codec_plan,
             reference_seed=args.reference_seed,
+            reuse=args.reuse,
         )
     else:
         if not args.gpus or len(set(args.gpus)) != len(args.gpus) or min(args.gpus) < 0:
             parser.error("GPU IDs must be unique nonnegative integers")
         if args.decode_threads < 1 or (args.max_tasks is not None and args.max_tasks < 1):
             parser.error("decode-threads and max-tasks must be positive")
+        if args.cpu_workers < 1:
+            parser.error("cpu-workers must be positive")
         try:
             if (
                 not 0 < args.memory_fraction <= 1
@@ -75,6 +95,8 @@ def main():
                 memory_fraction=args.memory_fraction,
                 mel_frame_budget=args.mel_frame_budget,
                 workers_per_gpu=args.workers_per_gpu,
+                mode=args.mode,
+                cpu_workers=args.cpu_workers,
             )
         except BaseException as exc:
             event(args.work, "failed", error_type=type(exc).__name__, error=str(exc))

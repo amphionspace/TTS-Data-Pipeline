@@ -85,8 +85,9 @@ validation 记录核对行数及微小区间差异数。原三张来源表继续
 `speaker_start_frame/end_frame` 是原始音频采样点，`speaker_encoder_input_num_frames` 是裁后重采样输入长度。
 完整文本和完整 codec 数组不做数值变换；尾帧仍保留。
 
-三个来源表仍覆盖同一原 selection。合并前显式检查 speaker 状态，失败行不进入新 merged。
-manifest 的 `reference_filtering` 记录输入总数、有效数及各排除原因，必须满足数量守恒。
-新 merged 的 selection 使用 subset 模式，在本 run 保存 `targets.lance`，固定其快照、有效目标数及目标集合摘要，
+三个来源表仍覆盖同一原 selection。text 必须全部成功；codec 或 speaker 状态非 ok 的行不进入新 merged
+（两种模式相同），身份与 audio_sha256 仍对全部行核对。manifest 的 `excluded_targets` 按来源与 error_code
+记录排除数，规划时固定有效目标数，发布时须满足数量守恒；reference 模式另保留 `reference_filtering`。
+有排除行或 reference 模式时，新 merged 的 selection 使用 subset 模式，在本 run 保存 `targets.lance`，固定其快照、有效目标数及目标集合摘要，
 同时保留原 selection manifest 和全部来源快照以供追溯。不以旧 merged payload 为输入。
 原子发布新 run，不覆盖或删除旧 speaker、codec、text、merged，也不切换训练配置。

@@ -232,6 +232,8 @@ def test_timeline_exclusion_combines_with_other_sample_exclusions():
 def write_base(root, name, records):
     release = root / "datasets" / name / "v0.1"
     release.mkdir(parents=True)
+    # Every published base carries metadata_json (one of the 27 base columns).
+    records = [{"metadata_json": None, **r} for r in records]
     ds = lance.write_dataset(
         pa.Table.from_pylist(records),
         release / "samples.lance",
@@ -435,3 +437,61 @@ def test_annotation_on_a_different_base_is_rejected(tmp_path):
     write_json(rules_path, configuration)
     with pytest.raises(ValueError, match="different base"):
         plan(root, tmp_path / "scratch", rules_path, selection_id="x")
+
+
+def test_upstream_test_split_and_its_copies_are_held_out(tmp_path):
+    root = tmp_path / "unified"
+
+    def split(name, value, **kw):
+        record = row(name, **kw)
+        record["metadata_json"] = json.dumps({"original_split": value})
+        return record
+
+    alpha = [
+        split("a-train", "train", text="train words"),
+        split("a-dev", "dev.clean", text="dev words"),
+        split("a-test", "test.clean", audio="leak", text="test words"),
+    ]
+    beta = [
+        dict(row("b-copy", audio="leak", text="test words"), metadata_json=None),
+        dict(row("b-other", text="other words"), metadata_json=None),
+    ]
+    write_base(root, "alpha", alpha)
+    write_base(root, "beta", beta)
+    write_parent(root, [])
+    evidence = tmp_path / "findings.tsv"
+    evidence.write_text("dataset\tsample_id\tfindings\n")
+    configuration = rules()
+    configuration.update(
+        parent_selection="parent",
+        source_priority=["alpha", "beta"],
+        annotation_inputs=[],
+        text_sources={},
+        source_timeline_evidence={
+            "path": str(evidence),
+            "sha256": file_sha(evidence),
+            "ignore_findings": [],
+            "expected_rows": 0,
+        },
+    )
+    rules_path = tmp_path / "rules.json"
+    write_json(rules_path, configuration)
+    work = tmp_path / "scratch"
+    plan(root, work, rules_path, selection_id="held")
+    scan(work, workers=2)
+    resolve_duplicates(work)
+    manifest = publish(work, workers=2)
+    reasons = {}
+    for output in manifest["outputs"]:
+        ds = lance.dataset(root / output["table_path"], version=output["base_version"])
+        branch = ds.checkout_version((output["branch"], output["lance_version"]))
+        for r in branch.to_table(columns=["sample_id", "selection_reason"]).to_pylist():
+            reasons[r["sample_id"]] = r["selection_reason"]
+    assert reasons == {
+        digest("a-train"): 0,
+        digest("a-dev"): 0,  # dev stays in training
+        digest("a-test"): 7001,
+        digest("b-copy"): 7001,  # an exact copy of a test target cannot leak back
+        digest("b-other"): 0,
+    }
+    assert manifest["evaluation"]["status"] == "upstream_test_held_out"

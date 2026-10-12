@@ -1,8 +1,10 @@
-"""Render or submit one ACP job that processes a planned codec run on one 8-GPU node.
+"""Render or submit one ACP job running a feature pipeline (scripts/feature_pipeline.py).
 
-Run from the repository root: `python -m scripts.acp.submit --work <codec work> [--submit]`.
-Default only renders the request. Submitting freezes src/scripts/configs into the work
-directory so later repository edits cannot change a running job.
+Run from the repository root:
+`python -m scripts.acp.submit --work <work root with pipeline.json> --name <job> [--submit]`.
+Arguments after `--` are passed to `feature_pipeline.py run`. Default only renders the
+request. Submitting freezes src/scripts/configs into the work root so later repository
+edits cannot change a running job.
 """
 
 import argparse
@@ -37,16 +39,8 @@ def snapshot(destination):
     return files
 
 
-def payload(platform, name, runtime, work, workers_per_gpu, decode_threads, mode):
-    command = [
-        "bash",
-        str(runtime / "scripts/acp/codec.sh"),
-        str(runtime),
-        str(work),
-        str(workers_per_gpu),
-        str(decode_threads),
-        mode,
-    ]
+def payload(platform, name, runtime, work, extra):
+    command = ["bash", str(runtime / "scripts/acp/pipeline.sh"), str(runtime), str(work), *extra]
     return {
         "display_name": name,
         "framework": "PYTORCH",
@@ -61,7 +55,6 @@ def payload(platform, name, runtime, work, workers_per_gpu, decode_threads, mode
         ],
         "env": [
             {"key": "PYTHON_BIN", "value": platform["python"]},
-            {"key": "NUMBA_CACHE_DIR", "value": str(work / "numba-cache")},
         ],
         "mount": [
             {
@@ -82,33 +75,22 @@ def payload(platform, name, runtime, work, workers_per_gpu, decode_threads, mode
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--work", type=Path, required=True, help="Planned codec work directory")
+    parser.add_argument("--work", type=Path, required=True, help="Work root with pipeline.json")
     parser.add_argument("--name", required=True, help="ACP display name")
     parser.add_argument("--config", type=Path, default=PROJECT / "configs/acp.yaml")
-    parser.add_argument("--workers-per-gpu", type=int, choices=[1, 2, 4], default=2)
-    parser.add_argument(
-        "--decode-threads", default="auto", help="Per-worker decode threads, or auto from nproc"
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["all", "encode"],
-        default="all",
-        help="all: copy reusable tasks and encode the rest on the node; encode: GPU tasks only",
-    )
     parser.add_argument("--submit", action="store_true", help="Create the job; else only render")
-    args = parser.parse_args()
+    args, extra = parser.parse_known_args()
+    extra = [x for x in extra if x != "--"]
     platform = yaml.safe_load(args.config.read_text())
     work = args.work.resolve()
-    if not (work / "plan.json").exists():
-        parser.error("work has no plan.json; plan the codec run first")
+    if not (work / "pipeline.json").exists():
+        parser.error("work has no pipeline.json; run scripts/feature_pipeline.py init first")
     if not work.is_relative_to(platform["mount_path"]):
         parser.error("work must be on the mounted ACP volume")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     submission = work / "submissions" / stamp
     runtime = submission / "runtime"
-    body = payload(
-        platform, args.name, runtime, work, args.workers_per_gpu, args.decode_threads, args.mode
-    )
+    body = payload(platform, args.name, runtime, work, extra)
     print(json.dumps({"submit": args.submit, "url": jobs_url(platform), "body": body}, indent=2))
     if not args.submit:
         return

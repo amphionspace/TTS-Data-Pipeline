@@ -1,4 +1,4 @@
-"""Show the platform state of the latest ACP job submitted for a codec work directory."""
+"""Show the platform state of the latest ACP job submitted for a work root."""
 
 import argparse
 import json

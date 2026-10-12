@@ -2,10 +2,11 @@
 
 import fcntl
 import json
-import threading
+import multiprocessing
+import os
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 
@@ -35,6 +36,12 @@ from .timestamps import BEIJING
 KINDS = ("codec", "speaker", "text")
 PROFILE_NAME = "selected-features-v1"
 NATIVE_DURATION_TOLERANCE_SECONDS = 0.02
+AUDIO_KINDS = ("codec", "speaker")
+EXCLUSION_RULE = (
+    "Targets whose codec or speaker row has status != ok are excluded from the merged table "
+    "and counted per source and error code; text sources must be complete."
+)
+VERIFY_THREADS = min(32, os.cpu_count() or 1)
 
 
 def output_schema(codec, speaker, text):
@@ -207,20 +214,20 @@ def prepare(
         datasets=[],
     )
     for name in sorted(chosen):
-        sources = {}
+        original = maps["text"][name]
+        target_count = original["target_count"]
+        sources, failures, excluded_ids = {}, {}, set()
         for kind in KINDS:
-            original = maps[kind][name]
-            path = Path(original["final"]) / "manifest.json"
+            path = Path(maps[kind][name]["final"]) / "manifest.json"
             m = json.loads(path.read_text())
             validate_feature_coverage(m)
-            if m["status"] != "complete" or (
-                m["coverage"]["ok"] != m["rows"] and not (reference and kind == "speaker")
-            ):
+            # Audio features may carry failed rows (excluded below); text must be complete.
+            if m["status"] != "complete" or (kind == "text" and m["coverage"]["ok"] != m["rows"]):
                 raise ValueError("Source features are incomplete")
             if (
                 m["selection"]["manifest_sha256"] != p["selection_sha256"]
-                or m["selection"]["target_set_sha256"] != maps["text"][name]["target_set_sha256"]
-                or m["release_id"] != maps["text"][name]["source"]["release_id"]
+                or m["selection"]["target_set_sha256"] != original["target_set_sha256"]
+                or m["release_id"] != original["source"]["release_id"]
             ):
                 raise ValueError("Source selections or releases differ")
             item = dict(
@@ -231,21 +238,29 @@ def prepare(
                 run_id=m["run_id"],
                 profile_id=m["profile_id"],
             )
-            if source_table(item).count_rows() != maps["text"][name]["target_count"]:
+            table = source_table(item)
+            if table.count_rows() != target_count:
                 raise ValueError("Source row count differs")
             sources[kind] = item
-        original = maps["text"][name]
-        output_count = json.loads(Path(sources["speaker"]["manifest_path"]).read_text())[
-            "coverage"
-        ]["ok"]
+            if kind in AUDIO_KINDS:
+                failures[kind] = m["rows"] - m["coverage"]["ok"]
+                if failures[kind]:
+                    failed = table.to_table(
+                        columns=["target_id"], filter="status IS NULL OR status != 'ok'"
+                    )["target_id"].to_pylist()
+                    if len(failed) != failures[kind]:
+                        raise ValueError("Source coverage differs from table statuses")
+                    excluded_ids.update(failed)
+        output_count = target_count - len(excluded_ids)
         if output_count == 0:
-            raise ValueError("No successful speaker references in dataset")
+            raise ValueError("No successful targets in dataset")
         definition = dict(
             kind="merged",
             sources={k: v["profile_id"] for k, v in sources.items()},
             native_duration_tolerance_seconds=NATIVE_DURATION_TOLERANCE_SECONDS,
             payload_transform="none",
             speaker_mode="codec_grid_reference" if reference else "whole_sample",
+            failed_audio_rows="excluded",
             execution_code_sha256=p["execution_code_sha256"],
         )
         run_id = make_feature_run_id(
@@ -254,18 +269,18 @@ def prepare(
         release = Path(p["output_root"]) / "datasets" / name / original["source"]["release_id"]
         final = release / "features/merged" / run_id
         tasks = []
-        for offset in range(0, original["target_count"], batch_rows):
-            t = dict(
-                dataset=name, offset=offset, rows=min(batch_rows, original["target_count"] - offset)
-            )
+        for offset in range(0, target_count, batch_rows):
+            t = dict(dataset=name, offset=offset, rows=min(batch_rows, target_count - offset))
             t["id"] = digest(t)
             tasks.append(t)
         p["datasets"].append(
             dict(
                 source=original["source"],
                 sources=sources,
-                target_count=original["target_count"],
+                target_count=target_count,
                 output_count=output_count,
+                excluded_count=len(excluded_ids),
+                source_failures=failures,
                 reference=reference,
                 target_set_sha256=original["target_set_sha256"],
                 target_tasks=original["tasks"],
@@ -275,13 +290,8 @@ def prepare(
                 run_id=run_id,
                 final=str(final),
                 stage=str(final) + ".incomplete",
-                state=str(
-                    release.parent
-                    / ".state"
-                    / original["source"]["release_id"]
-                    / "features/merged"
-                    / run_id
-                ),
+                # Work state stays outside the unified root.
+                state=str(work / "state" / name),
             )
         )
     work.mkdir(parents=True, exist_ok=False)
@@ -298,7 +308,7 @@ def validate_sources(p, d):
             raise ValueError("Source feature manifest changed")
 
 
-def write_chunk(d, task, table, differences, excluded_reasons=None):
+def write_chunk(d, task, table, differences, excluded_reasons=None, excluded_rows=0):
     destination = Path(d["stage"]) / "features.lance"
     fragments = (
         write_fragments(
@@ -329,14 +339,73 @@ def write_chunk(d, task, table, differences, excluded_reasons=None):
         payloads_validated=True,
         ordered_ids_sha256=ordered_hash(table["target_id"].to_pylist()),
         native_frame_differences=differences,
+        # Per source kind: error_code -> rows. A target failing in both sources is
+        # counted once in excluded_rows but once per source here.
         excluded_reasons=excluded_reasons or {},
+        excluded_rows=excluded_rows,
     )
     write_json(Path(d["state"]) / "checkpoints" / f"{task['id']}.json", c)
     return c
 
 
+def merge_chunk(p, d, task, tables, schema):
+    """Merge one pinned row range, drop failed audio rows, and checkpoint the result."""
+    name = d["source"]["dataset_id"]
+    text = (
+        tables["text"]
+        .scanner(
+            offset=task["offset"],
+            limit=task["rows"],
+            scan_in_order=True,
+            batch_readahead=1,
+            fragment_readahead=1,
+        )
+        .to_table()
+    )
+    ids = text["target_id"]
+    if text.num_rows != task["rows"]:
+        raise ValueError("Text source rows differ from pinned task")
+    audio = {k: align(read_aligned(tables[k], task, ids), ids) for k in AUDIO_KINDS}
+    keep = np.ones(text.num_rows, dtype=bool)
+    excluded = {}
+    for kind, t in audio.items():
+        if (
+            t["profile_id"].null_count
+            or not pc.all(pc.equal(t["profile_id"], d["sources"][kind]["profile_id"])).as_py()
+        ):
+            raise ValueError("Unexpected source profile")
+        # Identity must hold for failed rows too: they are the same selected targets.
+        require_equal(t["audio_sha256"], text["audio_sha256"], f"{kind} source identity")
+        reasons = Counter()
+        all_ok = pc.all(pc.equal(t["status"], "ok")).as_py()
+        if not (all_ok and t["error_code"].null_count == len(t)):
+            statuses = t["status"].to_pylist()
+            errors = t["error_code"].to_pylist()
+            for i, (status, error) in enumerate(zip(statuses, errors, strict=True)):
+                if status == "ok":
+                    continue
+                if status != "failed" or not error:
+                    raise ValueError(f"Invalid {kind} status")
+                reasons[error] += 1
+                keep[i] = False
+        excluded[kind] = dict(reasons)
+    if not keep.all():
+        mask = pa.array(keep)
+        audio = {k: t.filter(mask) for k, t in audio.items()}
+        text = text.filter(mask)
+    if text.num_rows:
+        merged, differences = merge_tables(
+            audio["codec"], audio["speaker"], text, name, d["source"]["release_id"]
+        )
+    else:
+        merged, differences = pa.Table.from_batches([], schema=schema), []
+    return write_chunk(d, task, merged, differences, excluded, int(np.count_nonzero(~keep)))
+
+
 def finalize(p, d, checkpoints, schema):
     validate_sources(p, d)
+    if [c["task"] for c in checkpoints] != d["tasks"]:
+        raise ValueError("Checkpoints do not cover the planned tasks in order")
     destination = Path(d["stage"]) / "features.lance"
     fragments = [
         FragmentMetadata.from_json(json.dumps(f)) for c in checkpoints for f in c["fragments"]
@@ -345,26 +414,39 @@ def finalize(p, d, checkpoints, schema):
     ds = lance.LanceDataset.commit(
         destination, lance.LanceOperation.Overwrite(schema, fragments), read_version=previous
     )
+    count = d["output_count"]
+    excluded_rows = sum(c["excluded_rows"] for c in checkpoints)
+    by_source = {
+        kind: dict(sum((Counter(c["excluded_reasons"].get(kind)) for c in checkpoints), Counter()))
+        for kind in AUDIO_KINDS
+    }
+    if (
+        sum(c["rows"] for c in checkpoints) != count
+        or count + excluded_rows != d["target_count"]
+        or excluded_rows != d["excluded_count"]
+        or any(sum(by_source[k].values()) != d["source_failures"][k] for k in AUDIO_KINDS)
+    ):
+        raise ValueError("Merged output does not account for every input target")
+    subset = d["reference"] or excluded_rows > 0
     ids = (
         sid
         for b in ds.scanner(columns=["target_id"], scan_in_order=True).to_batches()
         for sid in b["target_id"].to_pylist()
     )
-    verification_tasks = checkpoints if d.get("reference") else d["target_tasks"]
+    verification_tasks = checkpoints if subset else d["target_tasks"]
     for task in verification_tasks:
         actual = [next(ids, None) for _ in range(task["rows"])]
         if None in actual or ordered_hash(actual) != task["ordered_ids_sha256"]:
             raise ValueError("Merged targets differ from pinned selection task")
-    if next(ids, None) is not None or ds.count_rows() != d.get("output_count", d["target_count"]):
+    if next(ids, None) is not None or ds.count_rows() != count:
         raise ValueError("Merged coverage differs")
     ds.create_scalar_index("target_id", "BTREE")
     if d["run_id"] in ds.tags.list():
         ds.tags.delete(d["run_id"])
     ds.tags.create(d["run_id"], ds.version)
     text = json.loads(Path(d["sources"]["text"]["manifest_path"]).read_text())
-    count = d.get("output_count", d["target_count"])
     selection = text["selection"]
-    if d.get("reference"):
+    if subset:
         target_schema = feature_targets_schema()
 
         def target_batches():
@@ -408,7 +490,7 @@ def finalize(p, d, checkpoints, schema):
         dataset_id=d["source"]["dataset_id"],
         release_id=d["source"]["release_id"],
         run_id=d["run_id"],
-        profile_name="reference-features-v1" if d.get("reference") else PROFILE_NAME,
+        profile_name="reference-features-v1" if d["reference"] else PROFILE_NAME,
         profile_id=d["profile_id"],
         profile=d["profile"],
         target_kind="sample",
@@ -427,10 +509,17 @@ def finalize(p, d, checkpoints, schema):
         ],
         selection=selection,
         coverage=dict(total_targets=count, ok=count, failed=0, unsupported=0, skipped=0, missing=0),
+        excluded_targets=dict(
+            rule=EXCLUSION_RULE,
+            input_rows=d["target_count"],
+            retained=count,
+            total=excluded_rows,
+            by_source=by_source,
+        ),
         validation=dict(
             full_fragment_readback=True,
             id_join_rows=count,
-            audio_hashes_checked=count,
+            audio_hashes_checked=d["target_count"],
             native_ranges_checked=count,
             selected_text_checked=count,
             native_frame_difference_rows=sum(
@@ -442,136 +531,228 @@ def finalize(p, d, checkpoints, schema):
         execution=dict(code_sha256=p["execution_code_sha256"]),
         finished_at=datetime.now(BEIJING).isoformat(),
     )
-    if d.get("reference"):
-        errors = dict(sum((Counter(c.get("excluded_reasons", {})) for c in checkpoints), Counter()))
-        if count + sum(errors.values()) != d["target_count"]:
-            raise ValueError("Reference merge does not account for every input")
+    if d["reference"]:
         manifest["reference_filtering"] = dict(
-            input_rows=d["target_count"], retained=count, excluded_reasons=errors
+            input_rows=d["target_count"], retained=count, excluded_reasons=by_source["speaker"]
         )
     validate_feature_coverage(manifest)
     write_json(Path(d["stage"]) / "manifest.json", manifest)
+    # The ownership marker only guards the unpublished stage; it is not part of the release.
+    (Path(d["stage"]) / "execution.json").unlink(missing_ok=True)
     Path(d["stage"]).rename(d["final"])
     return manifest
 
 
-def merge_dataset(p, d, stop):
-    name = d["source"]["dataset_id"]
-    progress = Path(p["work"]) / "datasets" / f"{name}.json"
-    validate_sources(p, d)
-    if Path(d["final"]).exists():
-        m = json.loads((Path(d["final"]) / "manifest.json").read_text())
-        if (
-            m["profile_id"] != d["profile_id"]
-            or m["rows"] != d.get("output_count", d["target_count"])
-            or lance.dataset(
-                Path(d["final"]) / "features.lance", version=m["lance_version"]
-            ).count_rows()
-            != d.get("output_count", d["target_count"])
-        ):
-            raise ValueError("Published merged output differs")
-        write_json(progress, dict(phase="complete", rows_done=d["target_count"]))
-        return
+def published(d):
+    """True when the dataset's final output exists and matches the plan."""
+    final = Path(d["final"])
+    if not final.exists():
+        return False
+    m = json.loads((final / "manifest.json").read_text())
+    if (
+        m["profile_id"] != d["profile_id"]
+        or m["rows"] != d["output_count"]
+        or lance.dataset(final / "features.lance", version=m["lance_version"]).count_rows()
+        != d["output_count"]
+    ):
+        raise ValueError("Published merged output differs")
+    return True
+
+
+def claim_stage(p, d):
     stage = Path(d["stage"])
     owner = digest(p)
-    if stage.exists():
-        if json.loads((stage / "execution.json").read_text())["owner"] != owner:
+    marker = stage / "execution.json"
+    if marker.exists():
+        if json.loads(marker.read_text())["owner"] != owner:
             raise ValueError("Output owned by another plan")
+    elif stage.exists() and any(stage.iterdir()):
+        raise ValueError("Output owned by another plan")
     else:
-        stage.mkdir(parents=True)
-        write_json(stage / "execution.json", dict(owner=owner))
+        stage.mkdir(parents=True, exist_ok=True)
+        write_json(marker, dict(owner=owner))
+
+
+def verified_checkpoints(jobs, threads=VERIFY_THREADS):
+    """Verify checkpoints for (dataset, task) pairs in parallel; None marks missing ones."""
+    if not jobs:
+        return []
+    with ThreadPoolExecutor(max_workers=min(threads, len(jobs))) as pool:
+        results = list(pool.map(lambda job: verify_checkpoint(*job), jobs))
+    for (d, _), c in zip(jobs, results, strict=True):
+        if c is not None and c["profile_id"] != d["profile_id"]:
+            raise ValueError("Checkpoint profile changed")
+    return results
+
+
+_WORKER = {}
+
+
+def worker_plan(plan_path):
+    """Per-process cache of the plan and opened source tables."""
+    plan_path = str(plan_path)
+    if _WORKER.get("path") != plan_path:
+        _WORKER.update(path=plan_path, plan=json.loads(Path(plan_path).read_text()), datasets={})
+    return _WORKER
+
+
+def run_task(plan_path, index, task):
+    """Process-pool entry: merge one chunk and return a slim summary of its checkpoint."""
+    w = worker_plan(plan_path)
+    p = w["plan"]
+    d = p["datasets"][index]
+    opened = w["datasets"].get(index)
+    if opened is None:
+        tables = {k: source_table(v) for k, v in d["sources"].items()}
+        opened = w["datasets"][index] = (tables, output_schema(*(tables[k].schema for k in KINDS)))
+    c = merge_chunk(p, d, task, *opened)
+    return {k: c[k] for k in ("task", "rows", "input_rows", "profile_id", "excluded_rows")}
+
+
+def finalize_dataset(plan_path, index):
+    """Process-pool entry: re-verify every checkpoint from disk, then publish the dataset."""
+    p = json.loads(Path(plan_path).read_text())
+    d = p["datasets"][index]
+    checkpoints = verified_checkpoints([(d, task) for task in d["tasks"]])
+    if any(c is None for c in checkpoints):
+        raise ValueError("Checkpoint missing before publication")
     tables = {k: source_table(v) for k, v in d["sources"].items()}
     schema = output_schema(*(tables[k].schema for k in KINDS))
-    checkpoints, done = [], 0
-    for task in d["tasks"]:
-        if stop.is_set():
-            return
-        c = verify_checkpoint(d, task)
+    manifest = finalize(p, d, checkpoints, schema)
+    return dict(rows=manifest["rows"], excluded=manifest["excluded_targets"]["total"])
+
+
+def progress(work, name, phase, rows_done, rows_total):
+    write_json(
+        Path(work) / "datasets" / f"{name}.json",
+        dict(phase=phase, rows_done=rows_done, rows_total=rows_total),
+    )
+
+
+def execute(work, p, workers, started):
+    """Dispatch chunk tasks of all datasets to one process pool; publish as each completes."""
+    plan_path = str(work / "plan.json")
+    total = sum(d["target_count"] for d in p["datasets"])
+    names = {i: d["source"]["dataset_id"] for i, d in enumerate(p["datasets"])}
+    index = {name: i for i, name in names.items()}
+    rows_done, remaining, complete = {}, {}, set()
+    verify = []
+    for i, d in enumerate(p["datasets"]):
+        validate_sources(p, d)
+        rows_done[names[i]] = 0
+        if published(d):
+            complete.add(names[i])
+            rows_done[names[i]] = d["target_count"]
+            progress(work, names[i], "complete", d["target_count"], d["target_count"])
+            continue
+        claim_stage(p, d)
+        remaining[names[i]] = 0
+        verify.extend((d, task) for task in d["tasks"])
+    jobs = []
+    for (d, task), c in zip(verify, verified_checkpoints(verify), strict=True):
+        name = d["source"]["dataset_id"]
         if c is None:
-            text = (
-                tables["text"]
-                .scanner(
-                    offset=task["offset"],
-                    limit=task["rows"],
-                    scan_in_order=True,
-                    batch_readahead=1,
-                    fragment_readahead=1,
-                )
-                .to_table()
-            )
-            audio = [read_aligned(tables[k], task, text["target_id"]) for k in ("codec", "speaker")]
-            for k, t in zip(("codec", "speaker"), audio, strict=True):
-                if (
-                    t["profile_id"].null_count
-                    or not pc.all(pc.equal(t["profile_id"], d["sources"][k]["profile_id"])).as_py()
-                ):
-                    raise ValueError("Unexpected source profile")
-            excluded = Counter()
-            if d.get("reference"):
-                audio = [align(t, text["target_id"]) for t in audio]
-                require_equal(audio[1]["audio_sha256"], text["audio_sha256"], "reference source")
-                status = audio[1]["status"].to_pylist()
-                errors = audio[1]["error_code"].to_pylist()
-                for value, error in zip(status, errors, strict=True):
-                    if value not in {"ok", "failed"} or (value == "failed" and not error):
-                        raise ValueError("Invalid reference status")
-                    if value == "failed":
-                        excluded[error] += 1
-                mask = pc.equal(audio[1]["status"], "ok")
-                audio = [t.filter(mask) for t in audio]
-                text = text.filter(mask)
-            if text.num_rows:
-                merged, differences = merge_tables(*audio, text, name, d["source"]["release_id"])
-            else:
-                merged, differences = pa.Table.from_batches([], schema=schema), []
-            c = write_chunk(d, task, merged, differences, dict(excluded))
-        if c["profile_id"] != d["profile_id"]:
-            raise ValueError("Checkpoint profile changed")
-        checkpoints.append(c)
-        done += c.get("input_rows", c["rows"])
-        write_json(progress, dict(phase="merging", rows_done=done, rows_total=d["target_count"]))
-    write_json(progress, dict(phase="publishing", rows_done=done, rows_total=d["target_count"]))
-    finalize(p, d, checkpoints, schema)
-    write_json(progress, dict(phase="complete", rows_done=done, rows_total=d["target_count"]))
+            remaining[name] += 1
+            jobs.append((index[name], task))
+        else:
+            rows_done[name] += c["input_rows"]
+    # Datasets closest to completion go first so publication overlaps chunk work.
+    jobs.sort(key=lambda job: (remaining[names[job[0]]], job[0], job[1]["offset"]))
+    for name in remaining:
+        progress(work, name, "merging", rows_done[name], p["datasets"][index[name]]["target_count"])
+
+    def report():
+        event(
+            work,
+            "merging",
+            rows_done=sum(rows_done.values()),
+            rows_total=total,
+            published=len(complete),
+            datasets=len(p["datasets"]),
+            in_flight=len(in_flight),
+            publishing=len(publishing),
+            elapsed_seconds=time.monotonic() - started,
+        )
+
+    ctx = multiprocessing.get_context("spawn")
+    in_flight, publishing = {}, {}
+    # Publishing is long, memory-heavy Python: keep it out of the coordinator and the
+    # chunk pool so dispatch never stalls; at most two datasets publish at once.
+    with (
+        ProcessPoolExecutor(max_workers=2, mp_context=ctx) as publisher,
+        ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool,
+    ):
+
+        def publish(name):
+            d = p["datasets"][index[name]]
+            progress(work, name, "publishing", rows_done[name], d["target_count"])
+            publishing[publisher.submit(finalize_dataset, plan_path, index[name])] = name
+
+        iterator = iter(jobs)
+
+        def fill():
+            # Bounded submission: never queue the whole plan as futures.
+            while len(in_flight) < workers * 2:
+                job = next(iterator, None)
+                if job is None:
+                    return
+                in_flight[pool.submit(run_task, plan_path, *job)] = job
+
+        try:
+            for name in [n for n, left in remaining.items() if left == 0]:
+                publish(name)
+            fill()
+            report()
+            while in_flight or publishing:
+                done, _ = wait([*in_flight, *publishing], timeout=20, return_when=FIRST_COMPLETED)
+                for future in done:
+                    if future in in_flight:
+                        i, task = in_flight.pop(future)
+                        c = future.result()
+                        d, name = p["datasets"][i], names[i]
+                        if c["task"] != task or c["profile_id"] != d["profile_id"]:
+                            raise ValueError("Worker returned a foreign checkpoint")
+                        rows_done[name] += c["input_rows"]
+                        remaining[name] -= 1
+                        # Publish only once every dispatched chunk of the dataset has returned.
+                        if remaining[name] == 0:
+                            publish(name)
+                        else:
+                            progress(work, name, "merging", rows_done[name], d["target_count"])
+                    else:
+                        name = publishing.pop(future)
+                        result = future.result()
+                        complete.add(name)
+                        d = p["datasets"][index[name]]
+                        progress(work, name, "complete", rows_done[name], d["target_count"])
+                        event(work, "dataset_published", dataset=name, **result)
+                fill()
+                report()
+        except BaseException:
+            for future in [*in_flight, *publishing]:
+                future.cancel()
+            raise
+    if len(complete) != len(p["datasets"]):
+        raise ValueError("Not every dataset was published")
 
 
-def run(work, workers=2):
+def run(work, workers=16):
     work = Path(work)
     p = json.loads((work / "plan.json").read_text())
     if workers < 1 or file_hash(__file__) != p["execution_code_sha256"]:
         raise ValueError("Invalid worker count or execution code changed")
-    total = sum(d["target_count"] for d in p["datasets"])
-    stop = threading.Event()
     started = time.monotonic()
     with (work / "run.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(merge_dataset, p, d, stop) for d in p["datasets"]]
-            pending = set(futures)
-            try:
-                while pending:
-                    done, pending = wait(pending, timeout=20, return_when="FIRST_COMPLETED")
-                    for future in done:
-                        future.result()
-                    states = [json.loads(f.read_text()) for f in (work / "datasets").glob("*.json")]
-                    event(
-                        work,
-                        "merging",
-                        rows_done=sum(s["rows_done"] for s in states),
-                        rows_total=total,
-                        published=sum(s["phase"] == "complete" for s in states),
-                        elapsed_seconds=time.monotonic() - started,
-                    )
-            except BaseException as exc:
-                stop.set()
-                for future in pending:
-                    future.cancel()
-                event(work, "failed", error_type=type(exc).__name__, error=str(exc))
-                raise
+        try:
+            execute(work, p, workers, started)
+        except BaseException as exc:
+            event(work, "failed", error_type=type(exc).__name__, error=str(exc))
+            raise
     event(
         work,
         "complete",
-        rows=total,
+        rows=sum(d["target_count"] for d in p["datasets"]),
         datasets=len(p["datasets"]),
         elapsed_seconds=time.monotonic() - started,
     )

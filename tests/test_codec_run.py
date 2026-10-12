@@ -308,3 +308,28 @@ def test_reuse_and_encoding_share_a_run(tmp_path, monkeypatch):
     assert sum(c["rows"] for c in checkpoints) == 5
     run.finalize(p2, d2)
     assert stored(d2, ["codes"]) == stored(d, ["codes"]) | {missing: stored(d2, ["codes"])[missing]}
+
+
+def test_undecodable_sample_is_a_failed_row_not_a_task_abort(tmp_path, monkeypatch):
+    rows, p, d = fixture(tmp_path)
+    bad = d["tasks"][0]
+    real = run.decode
+
+    def decode(row):
+        if row["sample_id"] == rows[0]["sample_id"]:
+            raise ValueError("native_format_mismatch: injected")
+        return real(row)
+
+    monkeypatch.setattr(run, "decode", decode)
+    with ThreadPoolExecutor(2) as decoders:
+        setup_worker(monkeypatch, p, d, decoders)
+        for task in d["tasks"]:
+            run.run_task(("example", task))
+    run.finalize(p, d)
+    ds = lance.dataset(Path(d["final"]) / "features.lance")
+    status = {
+        r["target_id"]: (r["status"], r["error_code"])
+        for r in ds.to_table(columns=["target_id", "status", "error_code"]).to_pylist()
+    }
+    assert status.pop(rows[0]["sample_id"]) == ("failed", "native_format_mismatch")
+    assert set(status.values()) == {("ok", None)} and bad["rows"] == 1

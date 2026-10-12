@@ -102,7 +102,19 @@
     }
   ],
   "evaluation": {
-    "status": "not_assigned"
+    "status": "upstream_test_held_out",
+    "held_out_splits": {
+      "field": "original_split",
+      "values": [
+        "test",
+        "test.clean",
+        "test.other",
+        "test_seen",
+        "test_unseen"
+      ],
+      "note": "upstream test sets stay unseen; dev/valid splits remain in training"
+    },
+    "duplicate_groups": "a group containing a held-out member holds out every eligible member"
   },
   "audio_presence_evidence": "published_ingest_required_nonempty_bytes_and_full_readback; check audio_sha256 and native frame metadata again; no new full audio decode",
   "initial_exclusion_evidence": [

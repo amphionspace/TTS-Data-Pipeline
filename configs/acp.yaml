@@ -4,7 +4,7 @@ region: cnsh01
 zone: cn-sh-01a
 workspace: workspace-whai
 cluster: cluster-whai
-worker_spec: N3lS.Ii.I60.94c944g  # one node, 8 A800 GPUs
+worker_spec: N3lS.Ii.I60.80c896g  # one node: 8 A800 GPUs, 80 vCPU, 896 GiB
 image: registry.cn-sh-01.sensecore.cn/ccr-wh/amphion-base:amphion-base-20260923072955
 subscription: 01a0c34d-630a-719f-bef0-0ba5b6008878
 resource_group: default

@@ -261,7 +261,7 @@ seen_speaker 和 unseen_speaker 分开声明；目标与参考都检查隔离。
 同一版本的判定口径固定，阈值、来源或判定变化须使用新版本。
 发布的 selection 以其 rules.json 原文件和 SHA256 为准；已发布文件不因改名重写，本节说明各版本的含义。
 两版都是 purpose=supervised_tts，从固定 base 建立，不检查音质、近重复或独立语言识别；
-规则通过不等于音文逐字验收，evaluation.status=not_assigned。
+规则通过不等于音文逐字验收。selection-v1 的 evaluation.status=not_assigned。
 
 ### selection-v1
 
@@ -323,6 +323,11 @@ zh 期望汉字，ja 期望汉字或假名，ko 期望谚文，其余支持语�
 103, 102, 104, 105, 1002, 101, 1001, 1003, 2001, 2002, 2003, 2004, 1007, 1008, 1004, 1005, 1006, 3001, 3002, 5001, 4002, 7001, 4001。
 
 全部命中写入 flags：bit 10 来源时间轴，11 文本策略，12 语言证据。
+
+**上游测试集留出（7001）。** 基础记录统一为 source_split=train，上游划分保留在 metadata_json 的 `original_split`。
+rules 的 evaluation.held_out_splits 固定字段与取值：`test`、`test.clean`、`test.other`、`test_seen`、`test_unseen`
+记 7001 held_out（flag bit 8），dev/valid 等其他划分仍参与训练。与留出成员音频完全相同的重复组成员一并记 7001，
+组处置为 held_out，不选代表，避免测试音频经由副本回到训练集合。evaluation.status=upstream_test_held_out。
 
 ## 写入、发布、恢复与清理
 

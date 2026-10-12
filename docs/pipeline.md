@@ -60,7 +60,7 @@ Emilia2 当前授权的生产范围止于基础 samples；图中的下游路线�
 | `codec/qwen3_12hz/` | Qwen3 tokenizer 的前处理、packed 推理、调度、存储与发布 |
 | `speaker/qwen3_ecapa/` | FP32 ECAPA 前处理、packed 推理、reference 采样、存储与发布 |
 | `text/` | 选用文本和语言的独立物化 |
-| `merge_features.py` | 三表身份核对、区间验证、合并、reference 失败过滤和发布 |
+| `merge_features.py` | 三表身份核对、区间验证、按分块多进程合并、codec/speaker 失败过滤和发布 |
 | `feature_audio.py`、`feature_runtime.py`、`feature_contract.py` | 共用特征读取/时间轴、任务与文件摘要、profile/覆盖校验 |
 | `contract.py`、`manifests.py` | 契约类型与 manifest 读取兼容逻辑 |
 | `tests/` | 接入、身份、selection、特征、合并、恢复及契约回归 |
@@ -285,7 +285,7 @@ codec 区间： [a, b)
 
 | 模式 | 核验及保留规则 |
 | --- | --- |
-| 整条音频 merged | 要求两侧从 0 开始、原生采样率一致；终点差在 20 ms（至少容忍 2 个采样点）内可保留各自原值并记账，超过则停止；来源特征必须成功 |
+| 整条音频 merged | 要求两侧从 0 开始、原生采样率一致；终点差在 20 ms（至少容忍 2 个采样点）内可保留各自原值并记账，超过则停止；text 必须成功，codec/speaker 失败行排除并按来源记账 |
 | Reference merged | 严格验证 reference 是对应完整 codec 的合法子区间，不能套用 20 ms 容差；按 speaker 失败状态显式过滤并报告原因 |
 
 新表保留一份独立 text 的共同元数据；codec 特征列加 `codec_` 前缀，speaker 特征列加 `speaker_` 前缀。

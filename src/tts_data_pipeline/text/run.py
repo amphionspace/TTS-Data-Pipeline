@@ -27,7 +27,7 @@ from ..feature_runtime import (
 from ..schema import digest
 from ..timestamps import BEIJING
 from . import metadata
-from .metadata import SOURCE_COLUMNS, selected_metadata
+from .metadata import SOURCE_COLUMNS, annotation_revisions, selected_metadata
 
 PROFILE_NAME = "selection-text-v1"
 
@@ -95,7 +95,8 @@ def prepare(targets_plan, work, *, output_root=None, datasets=None):
             run_id=run_id,
             final=str(final),
             stage=str(final) + ".incomplete",
-            state=str(release.parent / ".state" / source["release_id"] / "features/text" / run_id),
+            # Work state stays outside the unified root.
+            state=str(work / "state" / source["dataset_id"]),
         )
         p["datasets"].append(d)
     if not p["datasets"] or (
@@ -122,7 +123,16 @@ def validate_plan(p):
             raise ValueError("Base manifest changed")
 
 
-def make_table(rows, source, text_sources):
+def make_table(rows, source, text_sources, revisions=None):
+    """`revisions(ids)` returns (text_source, {sample_id: raw text}) for annotation-sourced rows."""
+    annotated = [r["sample_id"] for r in rows if r["selected_text_source"]]
+    raw = {}
+    if annotated:
+        if revisions is None:
+            raise ValueError("Annotation text requires its pinned raw revision")
+        code, raw = revisions(annotated)
+        if any(r["selected_text_source"] != code for r in rows if r["sample_id"] in raw):
+            raise ValueError("Selected text source differs from the pinned annotation")
     result = []
     for row in rows:
         if row["dataset_id"] != source["dataset_id"]:
@@ -132,7 +142,7 @@ def make_table(rows, source, text_sources):
                 target_id=row["sample_id"],
                 release_id=source["release_id"],
                 audio_sha256=row["audio_sha256"],
-                **selected_metadata(row, text_sources),
+                **selected_metadata(row, text_sources, raw.get(row["sample_id"])),
             )
         )
     return pa.Table.from_pylist(result, schema=text_feature_schema())
@@ -247,6 +257,8 @@ def finalize(p, d, checkpoints):
     )
     validate_feature_coverage(manifest)
     write_json(stage / "manifest.json", manifest)
+    # The ownership marker only guards the unpublished stage; it is not part of the release.
+    (stage / "execution.json").unlink(missing_ok=True)
     stage.rename(final)
     return manifest
 
@@ -269,6 +281,8 @@ def process_dataset(p, d, max_tasks=None):
         raise ValueError("Staging directory belongs to another plan")
     write_json(reservation, dict(owner=owner))
     source = open_source(p["root"], d["source"])
+    selection = json.loads(Path(p["selection_path"]).read_text())
+    revisions = annotation_revisions(p["root"], selection, d["source"]["dataset_id"])
     fragment_id, fragment_rows = None, None
     checkpoints, done, written = [], 0, 0
     for task in d["tasks"]:
@@ -295,7 +309,8 @@ def process_dataset(p, d, max_tasks=None):
                 or ordered_hash([r["sample_id"] for r in rows]) != task["ordered_ids_sha256"]
             ):
                 raise ValueError("Text input target set differs")
-            c = write_task(p, d, task, make_table(rows, d["source"], p["profile"]["text_sources"]))
+            table = make_table(rows, d["source"], p["profile"]["text_sources"], revisions)
+            c = write_task(p, d, task, table)
             written += 1
         checkpoints.append(c)
         done += c["rows"]
