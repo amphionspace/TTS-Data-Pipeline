@@ -4,24 +4,27 @@
 
 | 版本 | 规则文件 | 已发布 selection | 状态 |
 | --- | --- | --- | --- |
-| selection-v2 | configs/selections/selection-v2.json | `tts-selection-supervised-tts-20261012T095348bjt-01` | 当前，一阶段预训练 |
+| selection-v2 | configs/selections/selection-v2.json | `tts-selection-supervised-tts-20261012T123927bjt-01` | 当前，一阶段预训练 |
 | selection-v1 | configs/selections/selection-v1.json | `tts-selection-supervised-tts-20260929T151539bjt-01` | 现有训练 build 使用，保留 |
 
 规则文件与发布目录中的 rules.json 逐字节相同（SHA256 一致）；改文件名不改内容，以免与已发布摘要不符。
 selection-v2 曾以 `tts-selection-supervised-tts-20261012T045922bjt-01` 发布（rules_version 为旧名 `selection-filter-v1`，
 绑定 run_id 不合规的 Emilia 导入）；改正 run_id 与 rules_version 后按相同规则重新发布，判定结果逐数据集一致，旧发布已删除。
+随后规则增加上游测试集留出，以 `tts-selection-supervised-tts-20261012T123927bjt-01` 再次发布并删除 `tts-selection-supervised-tts-20261012T095348bjt-01`；selection-v2 只保留这一份。
 
 ## selection-v2 发布记录
 
 - 输入 18 个已发布 base v0.1：selection-v1 的 16 个，加 zenless_voice、emilia2（ASMR 已在接入时排除），共 235,079,775 条 / 520,518 小时。
-- 父 selection 为 selection-v1 的发布，完整继承其 8 条有效排除。audio_stats 已停用并删除，不使用；不使用 DNSMOS；不做留出划分。
+- 父 selection 为 selection-v1 的发布，完整继承其 8 条有效排除。audio_stats 已停用并删除，不使用；不使用 DNSMOS。
+- 上游测试集留出：metadata `original_split` 为 test、test.clean、test.other、test_seen、test_unseen 的行记 7001，dev/valid 保留训练；
+  精确重复副本一并留出（本次无额外副本）。共 54,566 行：aishell3 24,751、mls_sidon 17,696、libritts_r 9,295、hifitts2 1,943、hifitts 881。
 - 文本来源：genshin/starrail/wutheringwaves/zenless 用 `tts-ann-transcription-20261010T111659bjt-01` 主转写（来源码 1）；
   emilia 用 `tts-ann-transcription-20261012T092945bjt-01` 上游 Qwen ASR 导入（来源码 2）；其余 13 个（含 emilia2 的上游 Qwen ASR 文本）用 base text。
 - 来源时长证据为 `reports/interval-audit/findings.tsv`，除 `invalid_word_timestamps` 外 14,250 条记 105：
   来源 duration 比实际音频长 0.05–1 秒（emilia 1,416、emilia_yodas 12,814、libriheavy 19、mls_sidon 1）。
   wenetspeech4tts 的 34 条只涉及词级时间戳，完整 WAV 保留。
-- 结果：入选 204,053,470 条 / 477,713 小时。主要排除：2002 不支持语言 1,606 万（emilia2）、4001 重复非代表 634 万、
-  3001 不足 1 秒 520 万、2004 文字系统不符 251 万、1007 标记 46 万、2003 语言证据 10 万、4002 冲突重复 10 万。
+- 结果：入选 203,998,904 条 / 477,596 小时。主要排除：2002 不支持语言 1,606 万（emilia2）、4001 重复非代表 634 万、
+  3001 不足 1 秒 520 万、2004 文字系统不符 251 万、1007 标记 46 万、2003 语言证据 10 万、4002 冲突重复 10 万、7001 测试集留出 5.5 万。
 - 18 个分支均经独立回读：base main 版本未变、行数一致、原因计数与 manifest 一致、入选行选用文本非空。
   检查脚本、各轮 dry-run 报告与日志在 `artifacts/selection-v2-20261012/`。
 

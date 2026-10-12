@@ -44,7 +44,7 @@
 | Annotation | `tts-ann-transcription-20261010T111659bjt-01` | transcription；genshin_voice、starrail_voice、wutheringwaves、zenless_voice；1,543,186 行 | 2026-10-10 11:17 | selection-v2 文本来源 |
 | Annotation | `tts-ann-transcription-20261012T092945bjt-01` | transcription；emilia；40,264,231 行 | 2026-10-12 09:39 | selection-v2 文本来源 |
 | Selection | `tts-selection-supervised-tts-20260929T151539bjt-01` | selection-v1；16 个数据集；入选 128,220,178 条，357,506.8 小时 | 2026-09-29 15:39 | 现有训练 build 使用 |
-| Selection | `tts-selection-supervised-tts-20261012T095348bjt-01` | selection-v2；18 个数据集；入选 204,053,470 条，477,713.3 小时 | 2026-10-12 10:52 | 当前一阶段预训练 |
+| Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
 | Features | text · `text-selection-text-v1-20260930T153654bjt-01` | 16 个数据集，128,220,178 行 | 2026-09-30 17:01 | selection-v1 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-packed-v1-20260930T130829bjt-01` | 16 个数据集，128,220,178 行 | 2026-10-01 05:34 | selection-v1 |
 | Features | codec · `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20260930T181155bjt-01` | 12 个数据集，49,918,118 行 | 2026-10-01 13:33 | selection-v1 |
@@ -264,6 +264,22 @@
 - 原因：绑定 run_id 不合规的 `tts-ann-transcription-20261010T171514bjt-import`，rules_version 为旧名
 - 替代：`tts-selection-supervised-tts-20261012T095348bjt-01`
 - 前提：没有特征或训练 build 引用；18 个分支与 selection 目录一并删除
+
+### 2026-10-12 · 发布 · tts-selection-supervised-tts-20261012T123927bjt-01
+
+- 时间：2026-10-12 13:31（北京时间）
+- manifest：`selections/tts-selection-supervised-tts-20261012T123927bjt-01/manifest.json`
+- SHA256：`f30e11b782b8da48b4848bbcb65d7567dda3452f0a0bdd020c64bc927fc803c4`
+- 内容：规则 selection-v2；18 个数据集；入选 203,998,904 / 235,079,775 条，477,595.7 小时；父 selection `tts-selection-supervised-tts-20260929T151539bjt-01`
+- 说明：selection-v2 规则增加上游测试集留出（metadata original_split 为 test 类，7001 held_out；dev 保留；精确重复副本一并留出）后重新发布，
+  替代 `tts-selection-supervised-tts-20261012T095348bjt-01`。与之相比仅 5 个数据集的测试集行由 0 改为 7001：aishell3 24,751、mls_sidon 17,696、libritts_r 9,295、hifitts2 1,943、hifitts 881，
+  其余原因计数与重复分组不变；当前一阶段预训练 selection
+
+### 2026-10-12 · 删除 · tts-selection-supervised-tts-20261012T095348bjt-01
+
+- 原因：selection-v2 规则增加上游测试集留出后重新发布；selection-v2 只保留一份发布
+- 替代：`tts-selection-supervised-tts-20261012T123927bjt-01`
+- 前提：没有特征或训练 build 引用；18 个分支、保护 tag 与 selection 目录一并删除
 
 ## Features
 
