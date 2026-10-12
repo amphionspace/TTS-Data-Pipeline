@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -24,7 +25,9 @@ def file_hash(path):
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
+    # A per-writer temp name: concurrent writers (e.g. reuse and encode modes on two
+    # machines) must never open the same temp file.
+    temp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     with temp.open("wb") as stream:
         stream.write(
             json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False).encode() + b"\n"

@@ -1,4 +1,4 @@
-"""Render or submit one ACP job that encodes the GPU tasks of a planned codec run.
+"""Render or submit one ACP job that processes a planned codec run on one 8-GPU node.
 
 Run from the repository root: `python -m scripts.acp.submit --work <codec work> [--submit]`.
 Default only renders the request. Submitting freezes src/scripts/configs into the work
@@ -37,16 +37,15 @@ def snapshot(destination):
     return files
 
 
-def payload(platform, name, runtime, work, workers_per_gpu, decode_threads):
+def payload(platform, name, runtime, work, workers_per_gpu, decode_threads, mode):
     command = [
         "bash",
         str(runtime / "scripts/acp/codec.sh"),
         str(runtime),
         str(work),
-        "--workers-per-gpu",
         str(workers_per_gpu),
-        "--decode-threads",
         str(decode_threads),
+        mode,
     ]
     return {
         "display_name": name,
@@ -87,7 +86,15 @@ def main():
     parser.add_argument("--name", required=True, help="ACP display name")
     parser.add_argument("--config", type=Path, default=PROJECT / "configs/acp.yaml")
     parser.add_argument("--workers-per-gpu", type=int, choices=[1, 2, 4], default=2)
-    parser.add_argument("--decode-threads", type=int, default=4)
+    parser.add_argument(
+        "--decode-threads", default="auto", help="Per-worker decode threads, or auto from nproc"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["all", "encode"],
+        default="all",
+        help="all: copy reusable tasks and encode the rest on the node; encode: GPU tasks only",
+    )
     parser.add_argument("--submit", action="store_true", help="Create the job; else only render")
     args = parser.parse_args()
     platform = yaml.safe_load(args.config.read_text())
@@ -99,7 +106,9 @@ def main():
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     submission = work / "submissions" / stamp
     runtime = submission / "runtime"
-    body = payload(platform, args.name, runtime, work, args.workers_per_gpu, args.decode_threads)
+    body = payload(
+        platform, args.name, runtime, work, args.workers_per_gpu, args.decode_threads, args.mode
+    )
     print(json.dumps({"submit": args.submit, "url": jobs_url(platform), "body": body}, indent=2))
     if not args.submit:
         return
