@@ -109,10 +109,17 @@ class Step:
         self.failed, self.restart_at = False, None
         # Optional callable: a start or restart waits while it returns a reason to wait.
         self.gate = None
+        # Optional status.json with rows_done events: a run that advanced it, or published a
+        # dataset, made progress, and its crash does not consume the retry budget.
+        self.progress_status = None
+        self.progressing_failures = 0
 
     def start(self, python):
         self.python, self.started = python, True
         self.started_at = time.monotonic()
+        self.started_wall = datetime.now(timezone.utc)
+        self.rows_base = self.rows_best = None
+        self.log_offset = self.log.stat().st_size if self.log.exists() else 0
         env = dict(os.environ, PYTHONUNBUFFERED="1")
         with self.log.open("a") as handle:
             # A plan fixes run IDs; never re-plan an existing work directory.
@@ -148,10 +155,35 @@ class Step:
         else:
             self.restart_at = time.monotonic() + 60
 
+    def poll_progress(self):
+        """Track rows_done of this start's own events (the first one is the baseline)."""
+        try:
+            event = json.loads(Path(self.progress_status).read_text())
+            at = datetime.fromisoformat(event["at"])
+            rows = event["rows_done"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return
+        if at < self.started_wall:
+            return
+        if self.rows_base is None:
+            self.rows_base = rows
+        self.rows_best = max(self.rows_best or rows, rows)
+
+    def progressed(self):
+        published = 0
+        if self.log.exists():
+            with self.log.open("rb") as stream:
+                stream.seek(self.log_offset)
+                published = stream.read().count(b'"phase": "dataset_published"')
+        rows = self.rows_base is not None and self.rows_best > self.rows_base
+        return rows or published > 0
+
     def finished(self):
         """Poll; restart a crashed step after cleanup and a pause, at most `retries` times."""
         if self.failed:
             return False
+        if self.progress_status and self.process is not None and self.restart_at is None:
+            self.poll_progress()
         if self.restart_at is not None:
             if time.monotonic() >= self.restart_at:
                 reason = self.gate and self.gate()
@@ -177,8 +209,17 @@ class Step:
                 pass
             if time.monotonic() - self.started_at > self.healthy_seconds:
                 self.failures = 0
+            reason = f"exit code {code}"
+            if self.progress_status and self.progressed():
+                # Lost renames fail publishes while encoding still advances: never give up on
+                # a step that keeps making progress, but say so loudly when it keeps crashing.
+                self.failures = 0
+                self.progressing_failures += 1
+                reason += f" after progress (budget reset, {self.progressing_failures} so far)"
+                if self.progressing_failures >= 20:
+                    reason += "; ALERT: still crashing after progress 20+ times"
             with self.log.open("a") as handle:
-                self.failure(handle, f"exit code {code}")
+                self.failure(handle, reason)
             return False
         return code == 0
 
@@ -268,6 +309,7 @@ def run(args):
     )
     out = ["--output-root", c["output_root"]] if c.get("output_root") else []
     codec.plan_command += out + (["--datasets", *c["datasets"]] if c.get("datasets") else [])
+    codec.progress_status = Path(s["codec"]) / "status.json"
     if args.codec_mode == "encode" and codec_plan.exists():
         # The reuse mode runs on another host and publishes there. A codec start publishes every
         # fully checkpointed, unpublished dataset, so every (re)start here waits until none is
