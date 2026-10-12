@@ -1,13 +1,44 @@
-# 05 · Annotation 分支、输入依赖与结果状态
+# 05 · Annotation 结果表、输入依赖与结果状态
 
-独立结果表与训练质量档案的新设计见 [Annotation 实验契约](../experiments/annotation-v1.md)。
-该稿用于试验，尚未替代本章默认布局或现有生产 schema。
+## 各层职责
+
+```text
+固定版本的 samples：原始音频、文本和来源
+    ↓
+独立 annotations：检测证据、候选文本修订、恢复音频引用
+    ↓
+selection：固定采用的音频对象、文本版本、入选状态及原因
+    ↓
+独立 codec / speaker embedding / text
+    ↓
+新的 merged 版本
+```
+
+- samples 保留来源事实，annotation 不覆盖原文、音频或来源语言。
+- annotation 保存测量、候选修订及版本化质量判断；一次模型输出不自动成为正确答案。
+- selection 采用固定 annotation 版本，决定训练资格和最终内容；排除不通过改写 annotation 的状态或结果表达。
+- 语言、说话人、句长等覆盖属性单独保存。训练比例、权重、预算和 batch 由训练端管理。
+- 原始版本和三个独立特征表继续保留；merged 是额外交付，不解除上游审计依赖。
 
 ## 存储边界
 
-一对一、较密集的样本标注默认写入 samples.lance 的独立 annotation 分支。
-annotation 与 selection 都直接从固定基础 main 版本 bv 建立；不把 selection 建在 annotation 上，
-也不通过继承上一份 annotation 来组合任务。基础 27 列、main 和基础 manifest 保持不变。
+一对一样本标注默认使用独立单表（storage_kind=sample_table），一对多使用 result_table 双表，
+都不向 samples main 增列；结果表归所属 dataset/release，布局见下节。基础 27 列、main 和基础 manifest 保持不变。
+
+| 结果类型 | 存储 |
+| --- | --- |
+| 每样本一条、独立保存状态与可空结果 | 单张 results.lance，storage_kind=sample_table（默认） |
+| 每样本多个事件、字词对齐、多个候选 | 独立 results.lance + targets.lance，storage_kind=result_table |
+| 每样本一个结果，需与 selection 按位置组合 | 可选：annotation 分支的任务 struct 列，storage_kind=sample_branch |
+| 文本纠错、重新转写 | 文本修订 struct，明确 keep/replace 等状态，见[文本修订](#文本修订与selection采用) |
+| 改变实际音频区间、切分 | 由 selection 产出实际片段；不能只改 annotation 来冒充新的音频输入 |
+
+sample_table 的状态和结果保存在同一行，不另外创建 targets 表。
+已有 result_table 的一对一任务保留兼容读取，迁移必须明确 schema/layout 版本；manifest 固定布局和原因。
+旧 storage_kind=sample_column 与 ann__task__run 列名只作兼容读取，新任务不继续向 main 追加这些列。
+
+选用 sample_branch 时，annotation 分支与 selection 都直接从固定基础 main 版本 bv 建立；
+不把 selection 建在 annotation 上，也不通过继承上一份 annotation 来组合任务：
 
 ```text
 samples.lance（main，固定 bv）
@@ -16,24 +47,13 @@ samples.lance（main，固定 bv）
 └── <selection_id>            # 从 bv 建立，组合固定的 annotation 结果
 ```
 
-分支名由引擎管理，不手工创建 tree 目录。task 使用小写字母/数字/下划线，不含路径分隔符。
-run_id 使用 `tts-ann-<task>-YYYYMMDDTHHMMSSbjt-NN`，首次创建的北京时间、至少两位正整数序号；
-重试沿用原名，原子占用避免重名。列名使用固定任务名或指标名，不包含 run 编号。
+分支名由引擎管理，不手工创建 tree 目录。列名使用固定任务名或指标名，不包含 run 编号。
+不强制为少量结果创建全行结果列；稀疏空列有 bitmap/元数据开销，不承诺零存储。
 分支隔离不能代替任务输入校验；sample_id 仍是业务身份，位置只是可验证的读取优化。
 
-| 结果类型 | 存储 |
-| --- | --- |
-| 每样本一个质量/识别/置信度结果 | annotation 分支的任务 struct 列，storage_kind=sample_branch |
-| 每样本一条、独立保存状态与可空结果 | 单张 results.lance，storage_kind=sample_table |
-| 每样本多个事件、字词对齐、多个候选 | 独立 results.lance + targets.lance，storage_kind=result_table |
-| 文本纠错、重新转写 | annotation 分支的文本修订 struct，明确 keep/replace 等状态 |
-| 改变实际音频区间、切分 | 由 selection 产出实际片段；不能只改 annotation 来冒充新的音频输入 |
-
-独立的一对一样本标注可显式选择 sample_table，状态和结果保存在同一行，不另外创建 targets 表。
-已有 result_table 的一对一任务保留兼容读取，迁移必须明确 schema/layout 版本；
-manifest 固定布局和原因；
-不强制为少量结果创建全行结果列。稀疏空列有 bitmap/元数据开销，不承诺零存储。
-旧 storage_kind=sample_column 与 ann__task__run 列名只作兼容读取，新任务不继续向 main 追加这些列。
+task 使用小写字母/数字/下划线，不含路径分隔符。
+run_id 使用 `tts-ann-<task>-YYYYMMDDTHHMMSSbjt-NN`，首次创建的北京时间、至少两位正整数序号；
+重试沿用原名，原子占用避免重名。
 
 ## Run 发布与多数据集
 
@@ -43,6 +63,9 @@ manifest 固定布局和原因；
 不另造一份带基础音频/文本的全局表，不要求每个 dataset 再写重复的子 manifest。
 同一跨数据集 run 在各表使用相同分支名，manifest 的 outputs 按 dataset/release 唯一列出固定版本。
 所有计划输出齐全、校验和保护 tag 完成后，才原子发布全局 manifest；中途失败不发布部分 complete。
+每个任务执行前固定 dataset/release、基础 manifest 摘要、表快照及目标集合；尚未发布或仍在变化的数据源不在运行途中加入。
+抽样可以使用固定 ID 子集；全量质量档案覆盖固定 base 的目标范围，不能默认只检查旧 merged 的入选样本。
+各任务独立写入与发布；worker 通过分片及提交协调器汇总，不要求多个模型并发修改同一张表。
 
 manifest 固定 contract/schema、task/run/profile（含完整定义与摘要）、实现/依赖、北京时间 finished_at，
 以及 inputs、outputs、检查覆盖。所有外部路径相对统一根，禁止 latest。
@@ -74,6 +97,9 @@ complete表示所选目标全部终态记账，不等于全部成功，也不等
 missing、failed、unsupported、skipped 如何影响入选，由selection逐任务显式决定；不能自动降为低分。
 上游没有分数的导入目标为skipped/upstream_missing；格式错误为failed/upstream_invalid。
 这两种均表明导入器已检查，不用外层null冒充“未处理”。
+依赖的上游任务失败时可记 skipped/upstream_failed，与之无关的任务继续；某个质量分数低不会自动终止其他计划标注。
+模型加载、身份或来源冲突等普遍性错误停止相应阶段，不能作为大量坏样本静默跳过。
+结果通过 manifest/profile 取得公共元信息，不要求每行重复模型配置和长路径。
 
 一对多结果用targets记录各目标的status/input_fingerprint/error_code/item_count，
 results仅存成功事件，(target_kind,target_id,item_id)唯一。ok且item_count=0表示检查过但无事件。
@@ -91,6 +117,17 @@ failed/unsupported/skipped 时 error_code 非空、result=null。整行缺失表
 manifest 固定 base 快照，sample_id 关联样本身份；不要求与基础表行号相同。sample_id 建 BTREE。
 一对一表不需要 target_kind/target_id/item_id/item_count，因为类型是 sample、每目标固定一行。
 任务内部可保留兼容的双 Parquet 检查点作为运行实现细节，不能对外解释为两张正式 annotation 表。
+
+## 时间和文本坐标
+
+音频证据统一映射到对应音频对象实际解码后的原生采样点坐标 `[start_sample, end_sample)`，
+满足 `0 <= start_sample < end_sample <= decoded_num_samples`，同时固定采样率和解码时间轴。
+模型分帧步长、偏移、重采样映射及边界取整写入 profile，保留真实定位精度；整数采样点不代表采样点级准确。
+annotation 的音频区间不是 codec 帧号，不能因某个 speaker reference 使用 codec 边界就共用坐标。
+
+文本差异使用明确字符串上的 Unicode code point 半开区间；词级结果另记录分词单元及其到文本的映射。
+规范化前后分别标明坐标所属文本。不具备可靠音频定位的文本差异，其音频范围为空。
+整句评分不伪装成字词评分，窗口评分不解释为窗口内每个时刻均有缺陷。
 
 ## 物理平级与逻辑依赖
 
@@ -123,6 +160,44 @@ ASR/文本修订绑定实际输入音频和被修订文本（若使用）。来�
 发布验证结果保留row_count、ordered_sample_ids_sha256、基础引用/字段核查覆盖和检查器版本。
 有序ID摘要对无过滤顺序中的每个sample_id UTF-8加换行流式SHA256，不能以排序后摘要代替。
 sample_branch 的生产执行器与自动位置对齐验证器尚待实现；独立 ASR 执行器不表示任意 annotation 任务已就绪。
+
+## 任务与结果解释
+
+task 名称及其逻辑结果如下。每个任务在生产运行前须冻结 profile：模型 ID、权重 revision/摘要、推理实现、
+数值精度、前处理、分块与拼接、语言路由和指标定义；不引用 latest 或隐式默认值。
+模型只在明确支持并经验证的语言上启用；上游转写模型已知时记录来源，同源重复识别不称为独立核验。
+已有完整定义的任务见本章对应小节，其余任务名只登记用途，实现前补齐字段与 profile。
+
+| task | 逻辑结果 |
+| --- | --- |
+| `audio_stats` | 整段解码的确定性波形统计，见[独立音频统计结果](#独立音频统计结果) |
+| `spoken_language` | 音频语言、模型置信输出、分析范围、与来源语言的冲突，见[FireRedLID 音频语言单表](#fireredlid-音频语言单表) |
+| `transcription` | 独立 ASR 文本、识别或指定语言、实际处理范围，见[独立 ASR 转写结果](#独立-asr-转写结果) |
+| `upstream_quality` | 上游提供的质量分数导入，见[上游质量导入与采样](#上游质量导入与采样) |
+| `audio_quality` | DNSMOS P.835 的 SIG/BAK/OVRL、校准前后值、窗口范围及窗口均值/最低值/数量 |
+| `text_agreement` | 原始/规范化 CER、WER、分母、增删改数量、文本差异范围 |
+| `text_alignment` | 字词单元、文本范围、音频范围、时间异常 |
+| `speaker_structure` | 样本内 speaker 区间、估计人数、重叠区间及摘要 |
+| `text_revision` | `action=keep/replace`、候选文本、修订依据，见[文本修订与selection采用](#文本修订与selection采用) |
+| `restoration` | 执行状态、派生音频引用、输入/输出哈希、采样率/长度及处理谱系，见[音频恢复](#音频恢复) |
+| `quality_summary` | 四维判断、原因、证据引用、覆盖属性，见[质量汇总](#质量汇总) |
+
+结果解释：
+
+- DNSMOS 是预测听感，不是音文正确率。短音频的官方流程会重复自身，若采用必须记录输入延拓方式；
+  重复后的窗口不能冒充真实的多个音频区间。不同 MOS 模型或来源的分数先做对照，不直接混合。
+- 低能量长度仅表示固定阈值下的波形统计，不能解释为无语音区间。音文长度比使用当前选用音频的完整实际时长，
+  不扣除低能量区间或首尾停顿，不解释为有效语音时长或真实语速；是否用于过滤由 selection 规则决定。
+- ASR 不使用被核验文本作为提示。来源语言和实际指定给模型的语言分别记录；语言冲突保留证据。
+- CER/WER 以被核验文本为 reference，ASR 为 hypothesis；保存替换/删除/插入绝对数量，允许比率大于 1。
+  reference 为空时比率为空并注明原因；不适用的 WER 不用 0 占位。比较规范化不直接改写训练文本。
+- 对齐保存时间戳，不构造模型未提供的声学支持分数；对齐成功不能证明原文正确。
+  对齐器不支持的语言明确记为 unsupported，不因此直接判样本不合格。
+- speaker 标签仅在当前音频对象内部有效，不写回全局 speaker_id；保留重叠，不强制只允许一个 speaker。
+  重叠比例为重叠区间并集时长除以实际分析音频范围的完整时长；speaker 人数是估计值。
+  未执行或失败时结果为空，不能把没有结果当作零重叠。
+- 首尾低能量和对齐异常属于完整性证据，不能单独证明音素截断或异常拼接。
+- 模型置信度不命名为经校准的正确概率。
 
 ## 独立 ASR 转写结果
 
@@ -223,6 +298,24 @@ selected_raw_text为选中的原始或修订字符串（也可null），normaliz
 重复组比较采用最终选用文本/语言，修订可能改变冲突和代表，必须重新全局裁决再发布selection。
 codec 发布物化时读 selection 的覆盖值；消费者直接读固定文本特征快照的选用文本，不逐 step 查询 annotation；这些小列的空间需实测，不假设null完全免费。
 
+## 音频恢复
+
+restoration 在档案中表现为一个结果项，但恢复音频按 [派生音频约定](02-base-schema.md#音频与派生)
+独立保存，具有独立派生身份；不能只用父 sample_id 区分两种波形，也不能把波形塞进普通质量分数或覆盖原 sample.audio。
+结果引用固定派生对象身份、产物 manifest/table/version、父音频、变换 profile 和输入输出摘要。
+派生音频的物理布局与 selection 消费 schema 在实现时冻结并补入本章。
+
+恢复前后分别绑定音频对象，保存或引用音质、ASR/音文一致性、时间关系和必要的音色保持核验。
+MOS 上升不自动证明恢复成功；不能把一次转写变化直接解释为原文或恢复音频错误。
+模型输入重采样、边界处理、输出实际长度和编码方式明确记录，不默认原生采样点一一对应。
+已存在上游恢复处理的来源记录处理谱系，不仅凭 dataset 名称决定重复恢复或跳过。
+普通 restoration 按单说话人处理；多人分离不是其隐式功能。
+失败保留状态，selection 可以明确采用已核验的原音频，但不能把回退伪装成 restoration 成功。
+
+采用恢复音频后，针对该对象重新生成 codec、speaker embedding、alignment 和相关质量结果。
+随机 reference 的区间及其到完整 codec 的映射也必须重新建立与验证，不沿用旧波形的定位。
+文本内容可经核验保留，但文本特征和 merged 必须绑定新的正确音频身份；旧产物继续保留。
+
 ## 上游质量导入与采样
 
 Emilia/YODAS：`json.loads(metadata_json)["upstream"].get("dnsmos")` → upstream_dnsmos列。
@@ -234,6 +327,43 @@ Wenet：`json.loads(metadata_json).get("upstream_dnsmos_p808")` → upstream_dns
 
 annotation保留测量事实；selection固定资格/原因和采用结果；训练端管理质量到权重的映射、语言比例与预算。
 可按需要在 selection 或下游消费表中投影少量选用分数并记录来源，避免训练反复解析JSON；不将某次实验权重变成selection默认列。
+
+## 质量汇总
+
+`quality_summary` 为每个目标物化一项轻量档案，引用详细证据，不复制音频或所有逐帧输出。
+按声学质量、音文配对、语音纯度、片段完整性分别输出：
+
+```text
+verdict: pass / fail / uncertain
+reason_codes
+evidence_refs
+assessment_profile_id
+```
+
+只有已执行且适用的证据可以支撑判断。证据缺失或冲突保留 uncertain，
+即使汇总程序成功执行，也不能把所有维度默认置为 pass。
+不生成综合 quality_score，不把多个分数相乘，不在汇总中写死 MOS/CER 的入选阈值。
+
+覆盖属性保存来源、语言、speaker 来源、句长、实际完整音频时长、音文长度比、数字/混语等可验证属性及已有重复关系引用；
+不为齐全而默认新增专名识别或全局声纹聚类。口音、低沉嗓音、情绪、长句、快速语音不天然扣分。
+去重最终裁决和资格规则归 selection；语言比例与采样权重归训练端。
+
+## 全量前验证
+
+新任务或新 profile 先固定跨数据集、语言、时长和已知问题的试验集，人工核验量按问题覆盖和误判情况调整。
+评估使用人工核对的文本或判断，不能直接把当前 base 文本当作绝对真值。
+除识别 CER/WER 外，重点检查漏词/多词、专名、误删正确样本、缺陷漏检和来源偏差。
+不同模型的相同错误不能作为独立确认，人工验证保留按原录音来源隔离的样本。全量前必须验证：
+
+1. 输入身份、文本版本和各时间轴可追溯，恢复音频与原音频不会错配。
+2. 重跑、失败重试和不同 worker 数不改变目标身份；有随机性的处理固定种子及策略。
+3. 满载分桶/批处理与单条基线对照，模型原生边界处理与 mask 经验证，不引入跨样本污染。
+4. 统计按语言和来源的成功率、unsupported/failed/skipped、质量分布及人工误判。
+5. 测量包含 Lance 读取、解码、推理和写回的吞吐、存储、显存及预计总耗时。
+6. 发布前全部计划目标终态记账、结果唯一性和引用校验通过，固定快照再发布 complete manifest。
+
+试验产物保存在 pipeline 的 artifacts，显式标明用途，生产 selection 不自动消费；
+正式运行使用上述发布布局且显式绑定通过验证的 profile。
 
 ## 生命周期与保留
 
@@ -305,8 +435,7 @@ decoder_warnings 非零不等于源文件已确认损坏，正常统计也不等
 发布时每个 release 写一张 results.lance，完整回读所有字段，建立 sample_id 索引并打保护 tag，
 最后发布全局 `annotations/audio_stats/<run_id>/manifest.json`。私有检查点不是生产读取入口。
 
-selection 消费时：解码失败、空波形、非有限值和 peak=0 不进入训练集合；完整实际时长按用途规则判断；
-其余字段先作诊断，未经校准不设硬阈值。具体规则由对应 selection 固定。
+是否及如何使用这些统计由具体 selection 规则固定；未经校准的字段只作诊断，不设硬阈值。
 
 ## FireRedLID 音频语言单表
 

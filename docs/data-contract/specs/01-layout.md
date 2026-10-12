@@ -11,7 +11,8 @@ DATA-TTS-UNIFIED/
 │   │       ├── manifest.json
 │   │       ├── samples.lance/           # Lance 自己管理 data、versions、indices 等
 │   │       ├── annotations/
-│   │       │   └── alignment/<run_id>/{results.lance/,targets.lance/}
+│   │       │   ├── transcription/<run_id>/results.lance/          # 一对一单表
+│   │       │   └── alignment/<run_id>/{results.lance/,targets.lance/}  # 一对多双表
 │   │       └── features/
 │   │           ├── codec/<run_id>/{manifest.json,features.lance/}
 │   │           ├── speaker_embedding/<run_id>/{manifest.json,features.lance/}
@@ -22,9 +23,9 @@ DATA-TTS-UNIFIED/
 └── selections/<selection_id>/{manifest.json,rules.json,exclusions.jsonl,exclusion_changes.jsonl,duplicates.lance/}
 ```
 
-示意中的 annotations/features 只在实际产生结果时创建。一对一标注在各samples.lance的
-ann/<task>/<run_id>分支，分支与选择分支都从固定基础版本建立；全局任务manifest列出全部输出，见05。
-一对多结果仍归所属dataset/release；历史sample_column只兼容读取。
+示意中的 annotations/features 只在实际产生结果时创建。annotation 结果表归所属 dataset/release，
+一对一默认单表，一对多双表；可选的 ann/<task>/<run_id> 分支与选择分支都从固定基础版本建立。
+全局任务manifest列出全部输出，见05；历史sample_column只兼容读取。
 原始来源名称与 canonical dataset_id 的映射固定在 adapter 中，例如 LibriTTS-R → libritts_r。
 同一个 dataset 的基础、标注和特征都归属相同 release，跨数据集的annotation/selection分别由其全局manifest协调；训练组合由训练仓库管理。
 
@@ -41,7 +42,7 @@ ann/<task>/<run_id>分支，分支与选择分支都从固定基础版本建立�
 
 基础接入先写 `datasets/<dataset_id>/v0.1.incomplete/`，所有验证和索引完成后原子改名为 `v0.1/`。
 一个 release 的 manifest 初次只固定基础 snapshot，后续标注/特征各有自己的不可变 manifest。
-annotation/selection 在 samples.lance 的独立分支增列，分支文件由引擎管理。
+selection（及可选的 annotation 分支）在 samples.lance 的独立分支增列，分支文件由引擎管理。
 已有 main、固定版本与已发布 manifest 不变；训练端消费固定快照，不在统一源表上写训练专用列。
 已发布的不可变边界是固定逻辑快照，不是整个目录的字节集合。分支内部文件交给引擎管理，不能手工搬动。
 来源集合增加或基础映射修正需要另一个显式批准的 release；派生任务更新只增加 run。

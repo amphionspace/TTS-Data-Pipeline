@@ -28,7 +28,7 @@ def main():
     parser.add_argument("phase", choices=["plan", "scan", "deduplicate", "publish", "run"])
     parser.add_argument("--root", default="/workspace/data/DATA-TTS-UNIFIED")
     parser.add_argument("--work", required=True)
-    parser.add_argument("--rules", default="configs/selections/first-v0.1.json")
+    parser.add_argument("--rules", default="configs/selections/selection-v2.json")
     parser.add_argument("--workers", type=int, default=256)
     args = parser.parse_args()
     if args.workers < 1:

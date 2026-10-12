@@ -17,13 +17,13 @@
 | [02 基础字段](specs/02-base-schema.md) | 27 个基础字段、音频、文本、语言、speaker 与未知值 |
 | [03 身份与版本](specs/03-identity.md) | 来源身份、内容指纹、Lance snapshot、失效与复现 |
 | [04 音频时间轴](specs/04-audio-timelines.md) | selection 裁剪职责、音频坐标与来源追溯 |
-| [05 标注与质量](specs/05-annotations.md) | 平级任务分支、结果状态、位置对齐、文本修订和依赖保护 |
+| [05 标注与质量](specs/05-annotations.md) | 独立结果表、结果状态、坐标、任务登记与解释、文本修订、恢复、质量汇总和依赖保护 |
 | [06 Codec 与特征](specs/06-codecs.md) | 公共特征身份、codec 数组、多 profile、生成/恢复/索引与覆盖验收 |
 | [08 接入与验收](specs/08-ingestion-validation.md) | adapter、完整性、全量回读、失败与断点恢复 |
 | [09 Lance 操作](specs/09-lance-operations.md) | 查询、索引、并发写、快照保留与清理 |
 | [10 Manifest 与兼容性](specs/10-manifests.md) | 发布清单、版本固定、schema 与 profile 演进 |
 | [11 Speaker embedding](specs/11-speaker-embeddings.md) | 逐片段 embedding、冻结/在线 encoder、参考配对；不强制保存 mel |
-| [12 Selection](specs/12-selections.md) | 分支原因列、音频区间核查与裁剪、新来源接入、排除继承、全局去重和发布 |
+| [12 Selection](specs/12-selections.md) | 分支原因列、音频区间核查与裁剪、排除继承、全局去重、用途规则版本（selection-v1/v2）和发布 |
 | [13 Text](specs/13-text-features.md) | 独立最终文本表、三表关联与独立 merged 表；不做 token 化 |
 | [类型描述](schemas/arrow-schemas.json) | 与 Python schema 一起生成的 Arrow 类型树 |
 | [示例](examples/README.md) | 仅用于理解约定，示例分数与 codes 不是模型结果 |
@@ -32,13 +32,10 @@
 
 ## 版本边界
 
-实验设计见 [Annotation 实验契约](experiments/annotation-v1.md)：独立标注表、质量档案、文本修订与 Sidon 恢复音频。
-Selection 筛选见 [selection-filter-v1](experiments/selection-filter-v1.md)：文本来源、严格语言与文字系统、复读、标记、时长/字符比、来源时长证据与重复处理。
-实验稿不替代正式 specs，不表示模型或执行器已验收；生产读取仍遵循固定发布版本。
-
 - `contract_version`、基础 `schema_version` 和首次 `release_id` 均为 `v0.1`。
 - `identity_scheme` 独立于发布版本：自包含文件用 source-file-v1，外部语义依赖用 source-unit-v1。
 - Lance 的整数 snapshot version、Lance 文件格式版本和 pylance 软件版本是存储实现信息，不能充当发布版本。
+- selection 用途规则按 `selection-v<N>` 顺序编号（见 [12](specs/12-selections.md#用途规则版本)），与 contract/release 版本无关。
 - 一份规范写明某项能力，不代表其执行器已实现。验收状态只看 pipeline 的测试与实现记录。
 
 文档源稿：`tts-data-pipeline/docs/data-contract/`；部署副本：`/workspace/data/DATA-TTS-UNIFIED/`。

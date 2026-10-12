@@ -7,7 +7,7 @@
     ↓ 每个来源一个 adapter
 samples.lance：原音频 + 基础文字/语言/speaker/来源
     ├─ selection 分支 → 原行 + 入选主原因/多重原因，不复制音频
-    ├─ annotation 平级分支 → 固定任务结果；一对多结果另存表
+    ├─ annotation 独立结果表 → 固定任务结果；一对一单表，一对多双表
     └─ codec / speaker embedding / text → 独立 Lance 特征表
               ↓ 已发布 manifest、固定快照、样本身份与覆盖信息
 训练仓库消费数据（训练专用构建与采样由训练端管理）
@@ -34,7 +34,7 @@ samples.lance：原音频 + 基础文字/语言/speaker/来源
    Emilia2 等按上游 short 从载体物化基础样本的专用接入例外，按 02/04 固定裁剪与编码规则。
 5. 基础列按 27 列 schema 写入；缺失文本、语言、speaker 使用 null。后续标注不覆盖基础列。
 6. 全部基础记录 `source_split=train`；上游 split/config/tier 保留在 metadata。存储的 train 不替代评估隔离。
-7. selection 在 samples 的独立分支记录入选状态；稀疏重复关系和排除证据归该 selection。一对一 annotation 默认使用从相同 base 建立的平级分支，显式独立结果表按 05 发布，大特征独立存表。
+7. selection 在 samples 的独立分支记录入选状态；稀疏重复关系和排除证据归该 selection。annotation 默认按 05 发布为独立结果表（一对一单表），也可使用从相同 base 建立的平级分支；大特征独立存表。
 8. 为 `sample_id` 建标量索引。不能把 Lance 内部行号或物理文件位置当永久 ID。
 9. 已发布 manifest、main 与固定逻辑快照不可变；允许在 samples.lance 新增 annotation/selection 分支。引用必须固定 table/branch/version，不跟随 latest。
 10. 发布前校验，失败不静默丢数据。原始全量转换、标注和特征任务都要明确处理与验证覆盖范围。

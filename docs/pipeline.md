@@ -178,12 +178,13 @@ Emilia2 会完整解码并回读验证。单条不可解码或终点越过真实
 3. 基于完整 `audio_sha256` 全局分组，检查候选文本/语言冲突，以固定来源优先级和 sample ID 选代表。
 4. 写稀疏 `selected_text/selected_language` 覆盖值，核验全部分支、基础快照保护和重复证据后发布。
 
-当前首版规则是 1–120 秒（含边界）、有效文本、支持语言、明确排除项和精确音频字节去重。
+当前规则为 selection-v2：在 selection-v1 的 1–120 秒、有效文本、支持语言、明确排除项和精确音频字节去重之上，
+采用固定转写文本来源，并加入严格语言、文字系统、复读、标记、时长/字符比和来源时长证据。
 文本仅按规则 strip；语言只做明确 alias 映射。覆盖语义为“非 null 才覆盖”，不能用 Python `or`。
 不同编码的同一句、近重复、同录音的重叠片段，不属于字节哈希去重的保证范围。
 
-当前执行器只支持首个独立 selection 和完整 sample，尚未实现新的裁剪产物发布、任意后继 selection 继承、
-或新 annotation 文本来源的完整绑定。新增数据集不能直接追加到已经发布的 selection 中。
+当前执行器支持独立根和继承父 selection 排除的后继版本，以及固定转写 annotation 作为文本来源；
+只支持完整 sample，尚未实现裁剪产物发布或 text_revision 修订来源。新增数据集不能直接追加到已经发布的 selection 中。
 规则及实现边界见 [selection.md](selection.md) 和 [契约 12](data-contract/specs/12-selections.md)。
 
 ### 三种“裁剪”不能混在一起
@@ -337,10 +338,10 @@ python scripts/ingest_emilia2.py dedup --work artifacts/new-emilia2
 python scripts/ingest_emilia2.py run --work artifacts/new-emilia2 \
   --output /path/to/unified/datasets/emilia2/v0.1 --workers 64
 
-# 首个 selection；rules 必须按实际来源及用途审核。
+# 当前 selection 规则；rules 必须按实际来源及用途审核。
 python scripts/build_selection.py plan --root /path/to/unified \
-  --work artifacts/new-selection --rules configs/selections/first-v0.1.json
-python scripts/build_selection.py run --work artifacts/new-selection --workers 32
+  --work /tmp/new-selection --rules configs/selections/selection-v2.json
+python scripts/build_selection.py run --work /tmp/new-selection --workers 80
 
 # 固定模型来源；会下载模型到 cache/feature-models。
 python scripts/prepare_feature_models.py

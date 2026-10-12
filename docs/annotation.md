@@ -4,7 +4,7 @@
 首轮全量范围为原神、星铁、鸣潮及已完成 samples 发布的 Zenless；Galgame 不在该轮内。
 Galgame 曾单独做一万条抽样转写与原文的 WER/CER 对照；其后扩展的全量任务已按最新指令取消。
 已完成结果见 [Galgame 一万条对比报告](design-review/galgame-transcription-comparison-2026-10-10.md)。
-整体质量模块规划仍见 [实验 contract](data-contract/experiments/annotation-v1.md)。
+annotation 的布局、任务登记和结果解释见 [正式 05](data-contract/specs/05-annotations.md)；质量模块规划见文末。
 四个游戏的独立音频语言检测另见 [FireRedLID 执行说明](spoken-language.md)，不覆盖 ASR 语言。
 
 ## 2026-10-10 当前运行范围
@@ -201,3 +201,43 @@ CPU 波形统计独立执行，见 [audio_stats 运行说明](audio-stats.md)。
 ASR 未重新计算；新表逐字段回读与原版一致后，原双表版本于 2026-10-10 删除。
 v2 manifest 的 layout_migration 仍记录原 v1 manifest 路径与摘要，仅作追溯，该路径已不存在。
 真实 1,000 条试迁移及正式全量验证在 `artifacts/transcription-single-table-20261010/`。
+
+## 质量模块规划与实现边界
+
+正式 05 只登记任务名与逻辑结果；下表是首轮验证的候选方法，不代表全量必须运行所有模型。
+最终模型、语言路由、精度和阈值在试验后冻结为 profile。
+
+| task | 候选模型或方法 |
+| --- | --- |
+| audio_quality | Microsoft DNSMOS P.835 非 personalized 版本 |
+| spoken_language | FireRedLID（四游戏已有执行器，见 [spoken-language.md](spoken-language.md)） |
+| transcription | Qwen3-ASR-1.7B 多语言基线（已发布）；FireRedASR2-AED 中文候选 |
+| text_agreement | 版本化归一化、分词和编辑距离算法 |
+| text_alignment | Qwen3-ForcedAligner-0.6B |
+| speaker_structure | NVIDIA Nemotron-3-Diarization 候选，pyannote Community-1 对照 |
+| restoration | sarulab-speech/sidon-v0.1，单说话人 |
+| quality_summary | 固定版本的评估规则或经校准的评估器 |
+
+ASR 补充候选：Cohere Transcribe 03-2026 对照多语言准确率，Parakeet-TDT-0.6B-v3 对照英语/MLS 吞吐，
+Whisper large-v3 作成熟基线；Fun-ASR-Nano 可用于中文/日文对照。无需把这些模型都变成全量依赖。
+FireRedASR2-AED 的 AED 是 Attention-based Encoder-Decoder，属于转写模型架构。
+
+当前实现边界：
+
+- Qwen ASR transcription（含上游 metadata 导入）、CPU audio_stats 与 FireRedLID 有专用执行器，按 05 的 sample_table 发布；
+  sample_branch 的通用生产执行器与自动位置对齐验证器尚未实现。
+- selection 执行器已能把固定转写 annotation 作为文本来源（selection-v2）；尚不支持 text_revision 修订来源。
+- text 执行器尚不支持采用 annotation 原始修订文本并完成 revision 校验。
+- 当前 merge 要求 codec 内的九个兼容文本元数据列与独立 text 完全相同。采用新文本后，
+  即使音频与 codec 数组可复用，也需要新版本的元数据绑定及 merge 验收；不能直接用新 text 拼旧 codec 表。
+- 恢复音频的派生发布、selection 音频选择和下游特征绑定尚待实现。
+
+模型资料（实际运行仍需锁定权重摘要与代码版本）：
+[DNSMOS](https://github.com/microsoft/DNS-Challenge/blob/master/DNSMOS/dnsmos_local.py)、
+[FireRedASR2 与 LID](https://github.com/FireRedTeam/FireRedASR2S)、
+[Qwen3 ASR 与 ForcedAligner](https://github.com/QwenLM/Qwen3-ASR)、
+[Nemotron Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization)、
+[pyannote Community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)、
+[Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026)、
+[Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)、[Whisper](https://github.com/openai/whisper)、
+[Fun-ASR](https://github.com/QwenAudio/Fun-ASR)、[Sidon](https://github.com/sarulab-speech/Sidon)。

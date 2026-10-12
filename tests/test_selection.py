@@ -22,7 +22,7 @@ from tts_data_pipeline.selection import (
 
 def rules():
     root = Path(__file__).resolve().parents[1]
-    return json.loads((root / "configs/selections/first-v0.1.json").read_text())
+    return json.loads((root / "configs/selections/selection-v1.json").read_text())
 
 
 def row(name, audio, text="hello", language="en", duration=2.0):

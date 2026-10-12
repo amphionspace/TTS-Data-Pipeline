@@ -1,10 +1,10 @@
 """Supervised selection: bounded fragment scans and globally consistent branches.
 
 All row arrays are scratch state, never a published selection representation.
-Rules without `annotation_inputs`/`text_filter` reproduce the first selection exactly;
-selection-filter-v1 adds pinned ASR text sources, strict ASR language agreement, text
-length/repetition policy and sample-scoped source-timeline evidence. Reference pairing
-is deliberately unsupported.
+Rules without `annotation_inputs`/`text_filter` reproduce selection-v1 exactly;
+selection-v2 (rules_version "selection-filter-v1") adds pinned ASR text sources, strict
+ASR language and text-script checks, text length/repetition policy and sample-scoped
+source-timeline evidence. Reference pairing is deliberately unsupported.
 """
 
 import csv
@@ -1346,7 +1346,7 @@ def publish(work, workers=16):
             "sha256": file_sha(incomplete / "rules.json"),
             "implementation_sha256": p["implementation_sha256"],
         },
-        # Version 2 registers 105/1003-1008/2003/2004 and flag bits 10-12; earlier codes keep meaning.
+        # Version 2 adds 105/1003-1008/2003/2004 and flag bits 10-12; old codes keep meaning.
         "reason_dictionary": {
             "version": 2,
             "codes": REASONS,

@@ -1,4 +1,4 @@
-"""selection-filter-v1 rules: ASR text sources, strict language, text policy, timeline evidence."""
+"""selection-v2 rules: ASR text sources, strict language, text policy, timeline evidence."""
 
 import copy
 import csv
@@ -29,7 +29,7 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 
 
 def rules():
-    return json.loads((REPOSITORY / "configs/selections/filter-v1.json").read_text())
+    return json.loads((REPOSITORY / "configs/selections/selection-v2.json").read_text())
 
 
 def row(name, audio=None, text="hello world", language="en", duration=2.0):
@@ -150,7 +150,12 @@ def test_asr_failure_never_falls_back_to_base_text():
 
 @pytest.mark.parametrize(
     "text,language",
-    [("おはよう<ハ>", "ja"), ("inquir}^ more", "en"), ("[Sidenote: x] text", "en"), ("g {\\displaystyle g", "en")],
+    [
+        ("おはよう<ハ>", "ja"),
+        ("inquir}^ more", "en"),
+        ("[Sidenote: x] text", "en"),
+        ("g {\\displaystyle g", "en"),
+    ],
 )
 def test_markup_characters_exclude(text, language):
     assert decide(row("m", text=text, language=language, duration=1.5)) == 1007

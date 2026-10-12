@@ -77,7 +77,7 @@ selection仍从base建立，绝不以annotation分支为父。采样权重由训
 | 7001 | held_out | 有明确评估划分时不属于训练侧 |
 | 65535 | pending | 仅未完成计算内部使用，complete 中禁止出现 |
 
-字典 version 2（selection-filter-v1 起）新增以下码，旧码含义不变：
+字典 version 2（selection-v2 起）新增以下码，旧码含义不变：
 
 | 码 | 名称 | 含义 |
 | --- | --- | --- |
@@ -239,22 +239,92 @@ duplicates.lance 保存所有组大小 >1 的成员，含 dataset_id/release_id/
 
 ## 规范化、用途与评估
 
-原始文本的首尾空白保留；首版训练采用 `unicode-strip-v1` 的选用文本变换，由 rules 固定具体实现，
-去重比较也使用它。这是selection中的稀疏派生覆盖值，不往base写新text；不声称上游空白是转换错误。
+原始文本的首尾空白保留；选用文本变换由 rules 固定具体实现，去重比较也使用它。
+这是selection中的稀疏派生覆盖值，不往base写新text；不声称上游空白是转换错误。
 语言采用明确 alias 表，将 en-US→en、zh-CN→zh；其他标签只按完整列明的映射处理，
 禁止通用 split('-')[0] 丢失需要区分的信息。统计原值与选用值的条数/时长，speaker_id 保持原样。
-首版训练 selection 发布前必须固定上述规则与支持语言集合；本规范更新不等于生产规则已经执行。
+训练 selection 发布前必须固定上述规则与支持语言集合；本规范更新不等于生产规则已经执行。
 
-首次正式supervised_tts选择采用用户确认的闭区间1–120秒；区间外为时长策略排除，不等同于损坏。
 purpose=supervised_tts 要有音频、有效文本、适用语言与明确时长策略；参考协议 self 不要求 speaker 标签。
 purpose=audio_features 可以独立定义纯音频范围，不默认套用文本规则，也不得拿其 reason=0 当可训练结论。
 首轮 codec 面向首版训练，复用 supervised_tts selection 的入选范围，避免为已知无文本样本额外算特征。
 两种用途的分支不能隐式互换；功能允许不等于这轮要发布两份。
 
-首版 evaluation.status=not_assigned，不声称已经隔离评估集；正式训练必须明确 no_holdout 或生成并验收划分。
+evaluation.status=not_assigned 表示没有隔离评估集；正式训练必须明确 no_holdout 或生成并验收划分。
 需要划分时，以精确重复组、已验证 group_id/recording_id 的连通关系作为不可拆分单位。
 未知录音不伪造 group；原神/星铁/AISHELL-3 等缺分组来源只能承诺已覆盖的重复/样本隔离。
 seen_speaker 和 unseen_speaker 分开声明；目标与参考都检查隔离。不证明近重复隔离，不把上游 train 当评估方案。
+
+## 用途规则版本
+
+规则版本按 `selection-v<N>` 顺序命名，下一套规则为 selection-v3，在 rules.json 中写 rules_version。
+同一版本的判定口径固定，阈值、来源或判定变化须使用新版本。
+发布的 selection 以其 rules.json 原文件和 SHA256 为准；已发布文件不因改名重写，本节说明各版本的含义。
+两版都是 purpose=supervised_tts，从固定 base 建立，不检查音质、近重复或独立语言识别；
+规则通过不等于音文逐字验收，evaluation.status=not_assigned。
+
+### selection-v1
+
+rules.json 无 rules_version 字段（发布早于命名约定）。
+
+- 首个独立根：parent=null，固定当时全部已发布 base；不使用 annotation，annotation_inputs=[]。
+- 文本为 base text 经 `unicode-strip-v1`（Python str.strip）；去空白后为空记 1001。
+- 支持语言 de/en/es/fr/it/ja/ko/nl/pl/pt/zh，alias en-US/en-us→en、zh-CN/zh-cn→zh，不在集合内记 2001/2002。
+- 完整时长闭区间 1–120 秒，区间外为时长策略排除（3001/3002），不等同于损坏。
+- 已确认排除：鸣潮 32 条一帧完整台词音频（103，相同 audio_sha256 合并为一个作用键）与 Galgame 7 条已审阅的长音文错配（1002）。
+- 重复按本章首版比较规则裁决；原因与 flag 使用字典 version 1。
+
+### selection-v2
+
+已发布的 rules.json 中 rules_version 为历史名 `selection-filter-v1`，与 selection-v2 指同一版本。
+
+面向一阶段 TTS 预训练，排除明确的音文配对问题（错语言、截断/多余文本、ASR 复读、标记垃圾），
+保留规模和多样性。原因与 flag 使用字典 version 2。
+
+**输入。** 固定规划时全部已发布 base（上游类别排除已在接入时完成），全部从 base 建立，不以父 selection 的入选集合为上限。
+rules 固定父 selection，完整继承其有效排除。不使用音频统计和质量分数；
+时长取 base 的 `num_frames / sample_rate`，即接入时完整实际解码帧数，闭区间 1–120 秒（3001/3002）。
+
+**文本来源。** rules 的 text_sources 为每个整数来源码固定一个转写 annotation（`qwen-asr-transcription-v2` 单表）、
+适用数据集、ASR 语言标签映射和语言策略；未列入的数据集使用 base text（来源码 0）。
+选用文本只去首尾空白。annotation 按 sample_id 与 base 对齐，ok 行须核对 audio_sha256、来源语言
+及其计算所用 base manifest/版本，任一不符停止发布。annotation 非 ok 记 1003，不回退基础文本。
+分支只在选用文本与 base text 不同时写 selected_text 及其来源码。
+
+**语言。** 支持集合与 alias 同 selection-v1；不在集合内记 2001/2002。
+有转写来源的数据集严格要求 ASR 语言标签经映射后恰为一种且等于来源语言；
+标签为空、多标签、不一致、`language_mismatch=true`、曾尝试指定语言候选（含空/失败）均记 2003。
+上游 metadata 导入的转写，其语言标签来自上游元数据，与 base 一致只是记账核对，不是独立语言识别。
+
+**文字系统（2004）。** 适用于全部数据集。只计字母（str.isalpha），文字系统取自 Unicode 字符名：
+汉字（含 IDEOGRAPHIC）、假名、谚文每字一个单位，其他文字每个同文字连续字母串一个单位。
+zh 期望汉字，ja 期望汉字或假名，ko 期望谚文，其余支持语言期望拉丁字母；期望单位占比 < 0.5 记 2004，没有字母不判。
+代码混用的句子在期望文字占多数时保留；该规则只排除，不改写语言标签。
+
+**文本规则。** 有效字符为 NFC 后 Unicode 类别 L*/N* 的 code point（str.isalnum）。
+
+| 码 | 判定 |
+| --- | --- |
+| 1001 | 选用文本为空或有效字符为 0 |
+| 1007 | 含 `[ ] { } < > \ \| ^ #` 任一字符（OCR、排版、标签） |
+| 1008 | 转写来源的文本含换行：服务端对长音频分块后拼接，断点处文本错位；base text 不适用 |
+| 1004 | 单个 n-gram 出现 ≥5 次且其出现区间并集覆盖全文 ≥80% |
+| 1005 / 1006 | 秒/有效字符低于下限 / 高于上限，包含边界：zh/yue/ja/ko/th 为 0.04–2.0，其他 0.015–1.0 |
+
+复读检查先做 NFC、casefold、NFC：zh/yue/ja/ko/th 用有效字符 8-gram（至少 30 个有效字符）；
+其他语言按空白分词、每词只取有效字符后用词 4-gram（至少 18 词），词数不足时回退字符路径。
+两条路径都不满足时记为未检查并计入 coverage，不声称通过。
+
+**来源时长证据（105）。** rules 固定区间核查发现文件的路径、原文件 SHA256、忽略的发现类型和期望条数，
+规划时校验；每条非忽略发现按 (dataset_id, sample_id) 排除，发布前须全部匹配到 base 行。
+适用发现是来源声明时长比实际音频长且缺口位置未知；只涉及字词时间戳的发现不排除完整音频。
+
+**重复与优先级。** 全部输入按完整 audio_sha256 一次分组，转写来源成员优先按本章重复规则第 3 步处理。
+来源优先级为 rules 列出的数据集顺序：沿用 selection-v1 的顺序，其后为 zenless_voice、emilia2。主原因优先级：
+
+103, 102, 104, 105, 1002, 101, 1001, 1003, 2001, 2002, 2003, 2004, 1007, 1008, 1004, 1005, 1006, 3001, 3002, 5001, 4002, 7001, 4001。
+
+全部命中写入 flags：bit 10 来源时间轴，11 文本策略，12 语言证据。
 
 ## 写入、发布、恢复与清理
 
