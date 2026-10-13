@@ -29,6 +29,7 @@ selection：固定采用的音频对象、文本版本、入选状态及原因
 | --- | --- |
 | 每样本一条、独立保存状态与可空结果 | 单张 results.lance，storage_kind=sample_table（默认） |
 | 每样本多个事件、字词对齐、多个候选 | 独立 results.lance + targets.lance，storage_kind=result_table |
+| 每样本有界的区间列表，总与样本摘要一起读取、不按条目编号引用（如说话人结构） | sample_table，result 内含列表；manifest 记 layout_reason |
 | 每样本一个结果，需与 selection 按位置组合 | 可选：annotation 分支的任务 struct 列，storage_kind=sample_branch |
 | 文本纠错、重新转写 | 文本修订 struct，明确 keep/replace 等状态，见[文本修订](#文本修订与selection采用) |
 | 改变实际音频区间、切分 | 由 selection 产出实际片段；不能只改 annotation 来冒充新的音频输入 |
@@ -177,7 +178,7 @@ task 名称及其逻辑结果如下。每个任务在生产运行前须冻结 pr
 | `audio_quality` | DNSMOS P.835 的 SIG/BAK/OVRL、校准前后值、窗口范围及窗口均值/最低值/数量 |
 | `text_agreement` | 原始/规范化 CER、WER、分母、增删改数量、文本差异范围 |
 | `text_alignment` | 字词单元、文本范围、音频范围、时间异常 |
-| `speaker_structure` | 样本内 speaker 区间、估计人数、重叠区间及摘要 |
+| `speaker_structure` | 样本内 speaker 区间、估计人数、重叠区间及摘要，见[MOSS 说话人结构单表](#moss-说话人结构单表) |
 | `text_revision` | `action=keep/replace`、候选文本、修订依据，见[文本修订与selection采用](#文本修订与selection采用) |
 | `restoration` | 执行状态、派生音频引用、输入/输出哈希、采样率/长度及处理谱系，见[音频恢复](#音频恢复) |
 | `quality_summary` | 四维判断、原因、证据引用、覆盖属性，见[质量汇总](#质量汇总) |
@@ -524,3 +525,62 @@ input_fingerprint 为规范 JSON 的 SHA256，包含 sample_id、audio_sha256、
 先固定完整任务计划，检查点核对每条 ID、结果 schema 和完整回读；恢复时核验输入、模型、代码及检查点摘要。
 对外只发布一张 results.lance，不创建 targets.lance。所有数据集完成覆盖、全字段回读、索引和版本 tag 后，
 最后发布全局 complete manifest，训练/selection 不得把私有检查点当成已发布结果。
+
+## MOSS 说话人结构单表
+
+`speaker_structure` 的 `moss-transcribe-diarize-v1` profile 使用 sample_table：每个固定 base 样本恰好一行，
+顶层 `sample_id, input_fingerprint, status, error_code, result`。范围为 emilia、emilia_yodas、emilia2 已发布固定版本的
+全部样本（all_base_samples）。说话人区间在单个样本内有界、总与摘要一起读取，按[存储边界](#存储边界)放在 result 的列表中，
+不建 targets/results 双表。不修改 base 的 speaker_id、text 或 language，也不覆盖已有 annotation。
+
+推理由外部服务完成：OpenMOSS `MOSS-Transcribe-Diarize`，由 SGLang Omni 部署的 OpenAI 兼容
+`/v1/audio/transcriptions` 接口（`response_format=verbose_json`）。本仓库是客户端，本地不解码音频。profile 固定：
+- 模型 ID、服务方提供的权重 revision 或摘要（未提供为 null，不推断）、SGLang Omni 版本与启动参数（服务方提供）；
+- 请求协议与生成参数（温度、最大输出长度等），不提供 prompt 或热词，不指定语言，不使用 base 文本或其他 annotation；
+- 提交方式：每个样本一次完整提交 base 原始编码音频字节（不重新编码、不裁剪，请求音频即 audio_sha256 所指字节）；
+- 时间映射、取整、按音频格式的越界容差（含服务端解码器与 base 读取器的起点偏移，如 MP3 编码延迟），标签规范化与排序规则；
+- 模型可表示的说话人上限（未知为 null），以及是否输出相互重叠的区间（`overlap_representation`）；
+- 判为"拒绝该样本"的 HTTP 状态与错误类别、重试策略、并发数，以及结果是否随服务端批处理变化。
+
+具体响应字段、各格式的起点偏移与容差、服务端是否接受三个 base 中的全部音频格式，以试点对该服务的实际探测为准，
+冻结进 profile 后才能全量运行；协议或服务变更视为新 profile。
+
+| result 字段 | 含义 |
+| --- | --- |
+| audio_sha256、sample_rate、num_frames | 提交的音频身份；base 固定的原生采样率与读取器帧数，作为坐标范围 |
+| speaker_count | 至少有一个区间的本地说话人标签数；估计值 |
+| turn_union_samples | 全部模型区间的并集长度（原生采样点）；区间来自端到端转写，不等同 VAD 语音时长 |
+| overlap_samples、overlap_ratio | 区间两两重叠部分的并集长度及其 / num_frames；模型不输出重叠区间时为 null |
+| dominant_speaker_ratio | 并集最长的说话人的并集长度 / turn_union_samples；没有区间时为 null |
+| turns | list<struct{speaker, start_sample, end_sample, text}>，按 (start_sample, end_sample, speaker) 排序 |
+| overlaps | list<struct{start_sample, end_sample}>，由 turns 推导的重叠并集；模型不输出重叠区间时为 null |
+| response_sha256、response_bytes | 服务原始响应的摘要与字节数 |
+| raw_response_json | 仅非 ok 行作为证据保存；ok 行为 null |
+
+解释：
+- speaker 按 profile 的规范化规则得到（如按首次出现记为 spk0、spk1…，并保留模型原始标签映射），只在该样本内有效，
+  不写回全局 speaker_id，不与上游说话人比对。
+- turns.text 是模型随区间输出的文本，只是证据，不是可采用的转写，也不参与本任务的任何判断。
+- 时间：响应秒数映射为原生采样点 `start_sample = floor(start × sr)`、`end_sample = ceil(end × sr)`，再裁到 `[0, num_frames]`；
+  超出范围在 profile 固定的格式容差内裁剪；超出容差、起点不小于终点、无法解析的响应记 `failed/model_invalid_output`。
+- 模型只输出串行不重叠区间时，重叠没有被测量：overlap_samples、overlap_ratio、overlaps 为 null，不能当作零重叠。
+  只有模型能表示重叠且未给出重叠时才为 0 和空列表。
+- 没有任何区间仍为 ok：speaker_count=0、turns 为空、turn_union_samples=0、dominant_speaker_ratio=null。
+- speaker_count 达到 profile 记录的模型上限只是事实，不能证明遗漏了说话人。
+
+状态：
+- 服务按 profile 固定的类别明确拒绝该样本（如音频无法解码）记 `failed/server_rejected_input`；
+  响应不合规记 `failed/model_invalid_output`；生成达到最大输出长度（服务给出的结束原因，或无结束原因时最后区间远早于音频结束等
+  profile 固定的判据）记 `failed/output_truncated`，不当作完整结果。
+- 连接、超时、5xx、限流及未归类的 4xx 先按 profile 重试，仍失败时停止阶段，不能记成坏样本；
+  服务拒绝某一音频格式的全部样本属于系统性问题，停止阶段。
+- 运行中定期核对模型身份（模型列表响应摘要与服务版本），变化即停止；整段连续多条失败等系统性异常停止阶段。
+
+原始响应很大（全部样本约数百 GB）且与解析字段重复，与 `qwen-asr-transcription-v2` 不同，ok 行不发布原文：
+完整原始响应保存在任务私有检查点中，压缩归档为审计证据，不是发布产物。
+
+input_fingerprint 为规范 JSON 的 SHA256：`speaker-structure-input-v1`、sample_id、audio_sha256、
+`full_original_bytes`、profile_id。全量前试点须核验：同一样本重复请求、不同并发下结果是否一致，实际吞吐与预计总时长；
+结果随服务端批处理变化时在 profile 记录并固定并发，不能让恢复混入两种行为。
+先固定完整任务计划，原始响应按样本写入可恢复的检查点，恢复时核验输入、profile、代码与检查点摘要；
+所有数据集完成覆盖、全字段回读、sample_id 索引和版本 tag 后，最后发布全局 complete manifest。
