@@ -331,6 +331,42 @@ Wenet：`json.loads(metadata_json).get("upstream_dnsmos_p808")` → upstream_dns
 这属于导入，不声称本地重算；未经校准不混用阈值。初版selection不依赖质量时无需先导入。
 按投影批次读取metadata，不加载audio；空间统计包含struct/指纹/索引，不能只按一个float估算。
 
+### Emilia 系列上游 DNSMOS（upstream-dnsmos-p835-ovrl-v1）
+
+`upstream_quality` 任务的 `upstream-dnsmos-p835-ovrl-v1` profile 导入 emilia、emilia_yodas、emilia2 上游自带的
+DNSMOS，使用 `sample_table`：每个固定 base 样本恰好一行，顶层 `sample_id, input_fingerprint, status, error_code, result`。
+范围为三者已发布固定版本的全部样本（all_base_samples）。同一任务以后可以用其他 profile 导入别的上游分数
+（如 Wenet 的 P.808），各自独立 run，不与本 profile 混用。
+
+| 数据集 | 源字段（metadata_json） | 粒度 |
+| --- | --- | --- |
+| emilia、emilia_yodas | `upstream.dnsmos` | 每条 utterance |
+| emilia2 | `upstream.short.dnsmos` | 每个 short 片段（每个 base 样本即一个片段） |
+
+| result 字段 | 含义 |
+| --- | --- |
+| audio_sha256 | 该样本 base 编码音频身份 |
+| upstream_dnsmos | 上游分数，按解析结果原样保存为 float64，不四舍五入、不重算、不截断 |
+
+profile 固定：
+- 指标：DNSMOS P.835（`sig_bak_ovr.onnx`，ONNX Runtime）多项式校准后的 OVRL，非 personalized，只有 OVRL（没有 SIG/BAK）；
+  越高越好，预期范围 [1, 5]；
+- 三个数据集使用同一模型（Emilia-Pipe 与 Emilia2-pipe 均为 microsoft/DNS-Challenge 的 `DNSMOS/sig_bak_ovr.onnx`），
+  由数据负责人提供（model_attribution=user_provided）；上游实际模型文件的 SHA256 未提供时记为 null，不推断；
+- 输入延拓：官方 DNSMOS 对短于 9 秒的音频重复拼接，属于上游处理，无法逐条核验；
+- 各数据集的上游过滤阈值只作说明，记录在 profile 中，不是本导入或 selection 的规则：
+  Emilia 3.0，Emilia-YODAS 2.4，Emilia2 英文、中文 3.0，其余语言 2.4；依据为数据负责人说明与数据中的硬截断。
+
+解析规则：用 orjson 解析整段 `metadata_json`（不接受 NaN/Infinity 字面量；记录 orjson 版本），再按上表取字段。
+- 字段不存在或为 null：`skipped/upstream_missing`；
+- `metadata_json` 无法解析、字段路径的中间层不是对象，或值不是有限数值（bool 先于数字判断）：`failed/upstream_invalid`；
+- 其余为 ok。超出 [1, 5] 的有限值仍为 ok，由 manifest 按数据集统计 `out_of_expected_range`，是否使用由 selection 决定。
+
+input_fingerprint 为规范 JSON 的 SHA256：`upstream-quality-input-v1`、sample_id、audio_sha256、dataset、源字段路径、
+`metadata_json` 原文 UTF-8 的 SHA256、profile_id。只读取投影列，不读取音频。
+固定计划与实现摘要后按 fragment 写检查点，恢复时核验；发布前要求每个数据集的状态计数之和等于 base 行数，
+全部输出完成回读、`sample_id` BTREE 索引和版本 tag 后，最后发布全局 manifest。
+
 annotation保留测量事实；selection固定资格/原因和采用结果；训练端管理质量到权重的映射、语言比例与预算。
 可按需要在 selection 或下游消费表中投影少量选用分数并记录来源，避免训练反复解析JSON；不将某次实验权重变成selection默认列。
 
