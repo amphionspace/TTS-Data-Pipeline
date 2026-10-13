@@ -6,6 +6,7 @@ verified checkpoint, then publishes one results.lance per dataset and the global
 
 import fcntl
 import hashlib
+import importlib.metadata
 import json
 import math
 import multiprocessing
@@ -27,7 +28,7 @@ from .publication import TASK, publish_output
 from .schema import annotation_schema
 
 PROFILE = "upstream-dnsmos-p835-ovrl-v1"
-COLUMNS = ["sample_id", "audio_sha256", "language", "metadata_json"]
+COLUMNS = ["sample_id", "audio_sha256", "metadata_json"]
 EXPECTED_RANGE = (1.0, 5.0)
 SOURCES = {
     "emilia": dict(
@@ -53,6 +54,10 @@ _TABLES = None
 def implementation():
     folder = Path(__file__).parent
     return {name: file_hash(folder / name) for name in ("run.py", "schema.py", "publication.py")}
+
+
+def dependencies():
+    return {name: importlib.metadata.version(name) for name in ("pylance", "pyarrow", "orjson")}
 
 
 def profile(datasets):
@@ -107,8 +112,8 @@ def check_inputs(plan):
             raise ValueError(f"Base manifest changed: {source['dataset_id']}")
     if implementation() != plan["implementation"]:
         raise ValueError("Importer implementation changed; do not mix checkpoint implementations")
-    if orjson.__version__ != plan["profile"]["parsing"]["parser_version"]:
-        raise ValueError("Parser version changed")
+    if dependencies() != plan["dependencies"]:
+        raise ValueError("Dependency versions changed")
 
 
 def pin_source(root, name):
@@ -170,6 +175,7 @@ def prepare(root, work, datasets=tuple(SOURCES)):
         profile=prof,
         profile_id=digest(prof),
         implementation=implementation(),
+        dependencies=dependencies(),
         run_id=f"tts-ann-{TASK}-" + now.strftime("%Y%m%dT%H%M%Sbjt") + "-01",
         created_at=now.isoformat(),
         tasks=tasks,
@@ -443,6 +449,7 @@ def _run(work, workers, publish, allow_non_ok):
         outputs=outputs,
         finished_at=datetime.now(BEIJING).isoformat(),
         code_sha256=plan["implementation"],
+        dependencies=plan["dependencies"],
         execution=dict(
             kind="upstream_metadata_import",
             workers=workers,

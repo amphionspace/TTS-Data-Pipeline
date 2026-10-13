@@ -99,3 +99,17 @@ def test_prepare_run_publish_and_gate(tmp_path):
     assert output["coverage"]["skipped"] == 1 and output["statistics"]["error_codes"] == {
         "upstream_missing": 1
     }
+
+
+def test_publish_discards_a_stale_unreceipted_stage(tmp_path):
+    root = tmp_path / "root"
+    make_base(root, "emilia", [{"upstream": {"dnsmos": 3.1}}, {"upstream": {"dnsmos": 3.2}}])
+    plan = upstream.prepare(root, tmp_path / "work", ("emilia",))
+    stage = root / f"datasets/emilia/v0.1/annotations/upstream_quality/{plan['run_id']}.incomplete"
+    lance.write_dataset(pa.table({"x": [1]}), stage / "results.lance")  # A crashed attempt.
+    path = upstream.run(tmp_path / "work", workers=1)
+    output = json.loads(path.read_text())["outputs"][0]
+    ds = lance.dataset(root / output["table"]["table_path"])
+    # A clean publish is one write plus one index commit; stale files would add versions.
+    assert [v["version"] for v in ds.versions()] == [1, 2] == [1, output["table"]["lance_version"]]
+    assert ds.schema.names == ["sample_id", "input_fingerprint", "status", "error_code", "result"]

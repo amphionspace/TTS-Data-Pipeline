@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import lance
@@ -44,7 +45,11 @@ def publish_output(root, source, run_id, work, batches, counts, stats):
     else:
         if final.exists():
             raise FileExistsError("Unrecognized existing annotation output")
-        stage.mkdir(parents=True, exist_ok=True)
+        if stage.exists():
+            # An earlier attempt crashed before its receipt: this run-owned stage was never
+            # published, so start clean rather than stacking versions onto stale files.
+            shutil.rmtree(stage)
+        stage.mkdir(parents=True)
         schema = annotation_schema()
 
         def write_batches():
