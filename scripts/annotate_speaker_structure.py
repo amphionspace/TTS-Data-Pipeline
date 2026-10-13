@@ -1,7 +1,7 @@
-"""MOSS speaker_structure (diarization) for emilia, emilia_yodas and emilia2 via an external service.
+"""MOSS speaker_structure (diarization) of emilia, emilia_yodas and emilia2 via a MOSS service.
 
     annotate_speaker_structure.py prepare --work W [--base-url http://127.0.0.1:18000]
-    annotate_speaker_structure.py run --work W        # a new round: requests every sample not ok yet
+    annotate_speaker_structure.py run --work W        # a new round over every sample not ok yet
     annotate_speaker_structure.py publish --work W    # publishes the last round's results
 
 Datasets run one at a time with the profile's concurrency. A request is resent on timeouts,
