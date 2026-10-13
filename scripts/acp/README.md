@@ -21,3 +21,5 @@ ACP 节点只挂载 `/workspace`，工作目录、模型缓存和 Python 环境
 请求与返回的 job 信息保存在同一目录。容器以 root 启动，`pipeline.sh` 先切换为工作目录所有者再运行，
 输出文件因此归该用户所有；每分钟把 GPU 利用率、显存和 CPU 负载写入 `<work>/acp-monitor/`。
 中断后重新提交同一工作目录即可：各步骤从检查点继续。
+
+运维问题（ACP 节点上 rename 丢失、发布失败重试、丢失文件恢复、审计）见 [docs/acp-operations.md](../../docs/acp-operations.md)。

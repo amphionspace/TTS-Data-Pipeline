@@ -52,6 +52,12 @@
 | Features | merged · `merged-selected-features-v1-20261001T161244bjt-01` | 16 个数据集，128,220,178 行 | 2026-10-01 18:09 | selection-v1 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261008T131631bjt-01` | 16 个数据集，128,220,178 行 | 2026-10-09 00:01 | selection-v1 |
 | Features | merged · `merged-reference-features-v1-20261009T000157bjt-01` | 16 个数据集，128,094,617 行 | 2026-10-09 02:32 | selection-v1 |
+| Features | codec · `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20261012T134948bjt-01` | 18 个数据集，203,998,904 行 | 2026-10-13 02:50 | selection-v2 |
+| Features | text · `text-selection-text-v1-20261012T140653bjt-01` | 18 个数据集，203,998,904 行 | 2026-10-12 18:31 | selection-v2 |
+| Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261012T193900bjt-01` | 17 个数据集，125,601,114 行 | 2026-10-13 00:39 | selection-v2 |
+| Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261013T025148bjt-01` | 1 个数据集（emilia2），78,397,790 行 | 2026-10-13 06:35 | selection-v2 |
+| Features | merged · `merged-reference-features-v1-20261013T004007bjt-01` | 17 个数据集，125,485,003 行 | 2026-10-13 01:24 | selection-v2 |
+| Features | merged · `merged-reference-features-v1-20261013T063612bjt-01` | 1 个数据集（emilia2），76,684,408 行 | 2026-10-13 07:00 | selection-v2 |
 
 ## 基础数据集
 
@@ -326,6 +332,47 @@
 - manifest：`datasets/<dataset_id>/v0.1/features/merged/<dataset_id>-merged-reference-features-v1-20261009T000157bjt-01/manifest.json`
 - 内容：16 个数据集，128,094,617 行；绑定 selection `tts-selection-supervised-tts-20260929T151539bjt-01`
 
+### 2026-10-12 · 发布 · text · text-selection-text-v1-20261012T140653bjt-01
+
+- 时间：最后一个数据集完成于 2026-10-12 18:31（北京时间）
+- manifest：`datasets/<dataset_id>/v0.1/features/text/<dataset_id>-text-selection-text-v1-20261012T140653bjt-01/manifest.json`
+- 内容：18 个数据集，203,998,904 行；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`
+
+### 2026-10-13 · 发布 · speaker_embedding · speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261012T193900bjt-01
+
+- 时间：最后一个数据集完成于 2026-10-13 00:39（北京时间）
+- manifest：`datasets/<dataset_id>/v0.1/features/speaker_embedding/<dataset_id>-speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261012T193900bjt-01/manifest.json`
+- 内容：17 个数据集，125,601,114 行；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`
+- 说明：early 批次（除 emilia2 外的 17 个数据集），与 emilia2 的 codec 编码并行；失败 1 类 no_legal_reference
+
+### 2026-10-13 · 发布 · merged · merged-reference-features-v1-20261013T004007bjt-01
+
+- 时间：最后一个数据集完成于 2026-10-13 01:24（北京时间）
+- manifest：`datasets/<dataset_id>/v0.1/features/merged/<dataset_id>-merged-reference-features-v1-20261013T004007bjt-01/manifest.json`
+- 内容：17 个数据集，125,485,003 行；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`
+- 说明：排除 codec/speaker 非 ok 行 116,111 行
+
+### 2026-10-13 · 发布 · codec · codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20261012T134948bjt-01
+
+- 时间：最后一个数据集完成于 2026-10-13 02:50（北京时间）
+- manifest：`datasets/<dataset_id>/v0.1/features/codec/<dataset_id>-codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20261012T134948bjt-01/manifest.json`
+- 内容：18 个数据集，203,998,904 行；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`
+- 说明：125.2M 行由已发布 codec 结果按 audio_sha256 复用；emilia、mls_sidon 的发布在 ACP 节点上因共享文件系统丢失 rename 失败重试多次后成功，失败尝试留下的旧版本已于 2026-10-13 清理（见统一根维护）
+
+### 2026-10-13 · 发布 · speaker_embedding · speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261013T025148bjt-01
+
+- 时间：最后一个数据集完成于 2026-10-13 06:35（北京时间）
+- manifest：`datasets/<dataset_id>/v0.1/features/speaker_embedding/<dataset_id>-speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261013T025148bjt-01/manifest.json`
+- 内容：1 个数据集（emilia2），78,397,790 行；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`
+- 说明：late 批次（emilia2），全部新提取；no_legal_reference 1,713,382 行（2.19%）
+
+### 2026-10-13 · 发布 · merged · merged-reference-features-v1-20261013T063612bjt-01
+
+- 时间：最后一个数据集完成于 2026-10-13 07:00（北京时间）
+- manifest：`datasets/<dataset_id>/v0.1/features/merged/<dataset_id>-merged-reference-features-v1-20261013T063612bjt-01/manifest.json`
+- 内容：1 个数据集（emilia2），76,684,408 行；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`
+- 说明：排除 speaker no_legal_reference 1,713,382 行；最终全量审计在核对本数据集时按用户要求暂停，核对完成前视为待确认
+
 ## 统一根维护
 
 ### 2026-09-29 · 清理 · 已发布 release 的孤儿临时文件
@@ -338,3 +385,10 @@
 
 - 内容：17 个数据集的 `.state/` 与 `v0.1.lock`（已完成转换的恢复状态，约 25 GB）；12 个未发布的 codec packed-v1 `.incomplete` 目录；未发布 audio_stats run 留下的空 `annotations/audio_stats/`
 - 核验：没有 manifest 引用被删路径；统一根下不再有 `.incomplete`、`.state`、`.lock`
+
+### 2026-10-13 · 清理 · codec emilia、mls_sidon 失败发布遗留的旧版本
+
+- 内容：`emilia`、`mls_sidon` 的 codec `…-packed-actual-v2-20261012T134948bjt-01` 在 ACP 节点上发布失败时提交过的旧 Lance 版本（emilia v1–v11，31,145 个文件，15.71 GB；mls_sidon v1–v7，7,700 个文件，2.15 GB），只保留 manifest 与 run_id 标签所指的当前版本（emilia v12、mls_sidon v8）
+- 核验：清理前枚举统一根全部 manifest 与本次各步 plan，6 处引用均指向当前版本；清理后各剩一个版本，标签、行数不变，当前版本引用的文件全部存在
+- 说明：[12](specs/12-selections.md) 规定回收机制实现前生产数据不运行 `cleanup_old_versions`；本次为用户明确决定的一次性例外，回收工具未纳入 pipeline
+- 证据：selection-v2 feature run 工作目录的 `final_cleanup.log` 与 `OVERNIGHT.md`
