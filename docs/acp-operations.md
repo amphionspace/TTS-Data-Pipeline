@@ -57,6 +57,27 @@ python scripts/audit_features.py --work <work> --threads 32 --require-all --out 
 逐个已发布 final 检查 manifest、版本与标签、全部引用文件、全量读取每一行、索引、输入 manifest 摘要、
 merged 账目（= text − codec/speaker 非 ok 行）与 targets.lance、跨步骤行数。selection-v2 规模（约 3.8 TB）约 30–60 分钟。
 
+**任务监控**（只读，出事才写 WAKE）：
+
+```bash
+setsid nohup python scripts/acp/overseer.py --work <work> --watch repair_lost_files.py supervise.sh > /dev/null 2>&1 &
+tail -F <work>/overseer.log | grep --line-buffered ' WAKE '
+```
+
+任务状态不再是 QUEUEING/STARTING/RUNNING（含 SUCCEEDED）、`logs/*.log` 新出现失败行
+（Traceback、`"phase": "failed"`、`publish_failed`、`# exit code`、ALERT）、被看守的进程不在、
+某个 step 的 rows_done 长时间不动（运行中且没有 `hold`）、容器内存过高时各写一条 WAKE，同类去重。
+
+**dev host 发布（最后手段）**：
+
+```bash
+python scripts/devhost_publish.py --work <work> --step codec --dataset <dataset_id>
+```
+
+用任务最新快照的固定代码（校验代码摘要）在本机完成一个 codec/text 数据集的发布并核验结果。
+任务处于 QUEUEING/STARTING/RUNNING/SUSPENDED 时拒绝执行，并在 work root 加排他锁。
+只在节点上同一数据集反复发布失败、且 dev host 负载不高时使用。
+
 ## 4. 操作要点
 
 - 停止任务用 API 删除（`DELETE trainingJobs/<name>`）并确认 404，不要只挂起：挂起的任务仍可能占用唯一节点配额或被恢复。
