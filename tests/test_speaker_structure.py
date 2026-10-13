@@ -88,6 +88,7 @@ def service_with(handler, **kwargs):
     profile = make_profile(**kwargs)
     service = Service(profile, lambda phase, **f: events.append(phase))
     service.client = httpx.Client(transport=httpx.MockTransport(handler))
+    service.probe = httpx.Client(transport=httpx.MockTransport(handler))
     models = service.client.get("http://moss/v1/models").content
     import hashlib
 
@@ -213,5 +214,20 @@ def _patched_init(original, transport):
     def init(self, profile, log):
         original(self, profile, log)
         self.client = httpx.Client(transport=transport)
+        self.probe = httpx.Client(transport=transport)
 
     return init
+
+
+def test_failed_identity_probe_pauses_instead_of_stopping():
+    calls = dict(models=0)
+
+    def handler(request):
+        calls["models"] += 1
+        if calls["models"] in (2, 3):  # The identity probe and the outage check both fail.
+            return httpx.Response(503)
+        return httpx.Response(200, json=dict(data=[dict(id="m")]))
+
+    service, events = service_with(handler)
+    service.check_identity(force=True)
+    assert events == ["outage", "service_back"]

@@ -135,8 +135,15 @@ def prepare(root, work, base_url, server_config, datasets=DATASETS):
     server = json.loads(Path(server_config).read_text())
     import httpx
 
-    models = httpx.get(base_url + "/v1/models", timeout=60)
-    models.raise_for_status()
+    for attempt in range(5):  # A transient reset must not abort planning.
+        try:
+            models = httpx.get(base_url + "/v1/models", timeout=60)
+            models.raise_for_status()
+            break
+        except httpx.HTTPError:
+            if attempt == 4:
+                raise
+            time.sleep(10)
     served = [m["id"] for m in models.json()["data"]]
     if served != [server["served_name"]]:
         raise ValueError(f"Service serves {served}, expected {server['served_name']}")
@@ -275,39 +282,22 @@ def _run(work):
             name = source["dataset_id"]
             ds = lance.dataset(root / source["table_path"], version=source["lance_version"])
             tasks = [t for t in plan["tasks"] if t["dataset_id"] == name]
-            started, requested, dataset_counts = time.time(), 0, Counter()
+            progress = dict(started=time.time(), requested=0, counts=Counter())
             log("dataset_started", dataset=name, fragments=len(tasks))
-            for task in tasks:
-                previous = load_checkpoint(work, task, plan_hash)
-                kept = {}
-                if previous is not None:
-                    for row in previous.to_pylist():
-                        if row["status"] == "ok":
-                            kept[row["sample_id"]] = row
-                if previous is not None and len(kept) == task["rows"]:
-                    dataset_counts["ok"] += task["rows"]
-                    continue
-                service.check_identity()
-                order, pending, results = [], {}, {}
-                for sample_id, row in fragment_rows(ds, task, kept):
-                    order.append(sample_id)
-                    if row is None:
-                        continue
-                    while len(pending) >= 2 * concurrency:
-                        done, _ = wait(pending, return_when=FIRST_COMPLETED)
-                        for future in done:
-                            sid, sent = pending.pop(future)
-                            results[sid] = (future.result(), sent["audio_sha256"])
-                    pending[pool.submit(service.request, row)] = (sample_id, row)
-                for future in list(pending):
-                    sid, sent = pending.pop(future)
-                    results[sid] = (future.result(), sent["audio_sha256"])
+            # Requests stream across fragment boundaries; a fragment's checkpoint is written as
+            # soon as its last request returns, so a slow request never idles the pool.
+            open_fragments, pending = {}, {}
+
+            def finish(fragment):
+                state = open_fragments.pop(fragment)
                 rows = []
-                for sample_id in order:
-                    if sample_id in kept:
-                        rows.append(kept[sample_id])
+                for sample_id in state["order"]:
+                    if sample_id in state["kept"]:
+                        rows.append(state["kept"][sample_id])
                         continue
-                    (status, code, result, raw, attempts), audio_sha256 = results[sample_id]
+                    (status, code, result, raw, attempts), audio_sha256 = state["results"][
+                        sample_id
+                    ]
                     rows.append(
                         dict(
                             sample_id=sample_id,
@@ -323,19 +313,64 @@ def _run(work):
                             raw_response=raw,
                         )
                     )
-                requested += len(results)
-                dataset_counts.update(write_checkpoint(work, task, rows, plan_hash, round_number))
-                elapsed = time.time() - started
+                counts = write_checkpoint(work, state["task"], rows, plan_hash, round_number)
+                progress["counts"].update(counts)
+                progress["requested"] += len(state["results"])
+                elapsed = time.time() - progress["started"]
                 log(
                     "progress",
                     dataset=name,
-                    fragment=task["fragment_id"],
-                    requested=requested,
-                    requests_per_second=round(requested / max(elapsed, 0.001), 2),
-                    counts=dict(dataset_counts),
+                    fragment=fragment,
+                    requested=progress["requested"],
+                    requests_per_second=round(progress["requested"] / max(elapsed, 0.001), 2),
+                    counts=dict(progress["counts"]),
                 )
-            totals.update(dataset_counts)
-            log("dataset_round_complete", dataset=name, counts=dict(dataset_counts))
+
+            def collect(futures):
+                for future in futures:
+                    fragment, sample_id, audio_sha256 = pending.pop(future)
+                    state = open_fragments[fragment]
+                    state["results"][sample_id] = (future.result(), audio_sha256)
+                    state["remaining"] -= 1
+                    if state["remaining"] == 0 and state["submitted"]:
+                        finish(fragment)
+
+            for task in tasks:
+                previous = load_checkpoint(work, task, plan_hash)
+                kept = {}
+                if previous is not None:
+                    for row in previous.to_pylist():
+                        if row["status"] == "ok":
+                            kept[row["sample_id"]] = row
+                if previous is not None and len(kept) == task["rows"]:
+                    progress["counts"]["ok"] += task["rows"]
+                    continue
+                service.check_identity()
+                fragment = task["fragment_id"]
+                state = dict(
+                    task=task, order=[], kept=kept, results={}, remaining=0, submitted=False
+                )
+                open_fragments[fragment] = state
+                for sample_id, row in fragment_rows(ds, task, kept):
+                    state["order"].append(sample_id)
+                    if row is None:
+                        continue
+                    while len(pending) >= 2 * concurrency:
+                        done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                        collect(done)
+                    future = pool.submit(service.request, row)
+                    pending[future] = (fragment, sample_id, row["audio_sha256"])
+                    state["remaining"] += 1
+                state["submitted"] = True
+                if state["remaining"] == 0:
+                    finish(fragment)
+            while pending:
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                collect(done)
+            if open_fragments:
+                raise RuntimeError(f"Fragments left unfinished: {sorted(open_fragments)}")
+            totals.update(progress["counts"])
+            log("dataset_round_complete", dataset=name, counts=dict(progress["counts"]))
     history[-1].update(finished_at=datetime.now(BEIJING).isoformat(), counts=dict(totals))
     write_json(rounds, history)
     log("round_complete", counts=dict(totals))

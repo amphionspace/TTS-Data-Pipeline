@@ -4,7 +4,8 @@ A sample's request is resent on a timeout, a server error while the service is h
 unusable response or suspected truncation, up to `resend_attempts`; then it stays unfinished
 for this round. When the health check fails, every worker pauses; the check repeats every
 `outage_wait_seconds` up to `outage_checks` times before the stage stops. Time spent while
-the service is down never counts against a sample.
+the service is down never counts against a sample. Health and identity probes use their own
+connection, so a stalled request pool cannot make the service look down or stop the run.
 """
 
 import hashlib
@@ -33,26 +34,36 @@ class Service:
             timeout=profile["request"]["timeout_seconds"],
             limits=httpx.Limits(max_connections=profile["request"]["concurrency"]),
         )
+        self.probe = httpx.Client(timeout=60)
         self.lock, self.healthy = threading.Lock(), threading.Event()
         self.healthy.set()
         self.dead = None  # Set when the stage must stop; wakes every waiting worker.
         self.last_identity_check = 0.0
 
     def models_digest(self):
-        r = self.client.get(self.p["service"]["base_url"] + "/v1/models", timeout=60)
+        r = self.probe.get(self.p["service"]["base_url"] + "/v1/models")
         r.raise_for_status()
         return hashlib.sha256(r.content).hexdigest()
 
-    def check_identity(self, force=False):
-        if (
-            not force
-            and time.time() - self.last_identity_check < self.p["service"]["identity_check_seconds"]
-        ):
-            return
-        digest = self.models_digest()
+    def verify(self, digest):
         if digest != self.p["service"]["models_response_sha256"]:
-            raise ModelChanged(f"/v1/models changed: {digest}")
+            self.stop(ModelChanged(f"/v1/models changed: {digest}"))
         self.last_identity_check = time.time()
+
+    def check_identity(self, force=False):
+        """Stop on a different model; a failed probe pauses like any outage, then retries."""
+        interval = self.p["service"]["identity_check_seconds"]
+        if not force and time.time() - self.last_identity_check < interval:
+            return
+        while True:
+            self.wait_healthy()
+            try:
+                digest = self.models_digest()
+            except httpx.HTTPError:
+                self.outage()
+                continue
+            self.verify(digest)
+            return
 
     def outage(self):
         """After a transport or server error: True if the service was down (and is back now),
@@ -75,14 +86,14 @@ class Service:
         for check in range(1, checks + 1):
             time.sleep(wait)
             try:
-                self.check_identity(force=True)
-                self.log("service_back", check=check)
-                self.healthy.set()
-                return True
-            except ModelChanged as error:
-                self.stop(error)
+                digest = self.models_digest()
             except Exception as error:
                 self.log("still_down", check=check, of=checks, error=str(error)[:300])
+                continue
+            self.verify(digest)
+            self.log("service_back", check=check)
+            self.healthy.set()
+            return True
         self.stop(ServiceDown(f"service unavailable after {checks} checks every {wait}s"))
 
     def stop(self, error):
