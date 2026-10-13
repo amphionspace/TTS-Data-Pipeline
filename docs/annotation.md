@@ -227,7 +227,9 @@ FireRedASR2-AED 的 AED 是 Attention-based Encoder-Decoder，属于转写模型
 
 当前实现边界：
 
-- Qwen ASR transcription（含上游 metadata 导入）、CPU audio_stats 与 FireRedLID 有专用执行器，按 05 的 sample_table 发布；
+- Qwen ASR transcription（含上游 metadata 导入）、CPU audio_stats、FireRedLID 与上游 DNSMOS 导入
+  （`upstream_quality` 的 `upstream-dnsmos-p835-ovrl-v1`，`scripts/import_upstream_quality.py`，分布见
+  [upstream-dnsmos-report.md](upstream-dnsmos-report.md)）有专用执行器，按 05 的 sample_table 发布；
   sample_branch 的通用生产执行器与自动位置对齐验证器尚未实现。
 - selection 执行器已能把固定转写 annotation 作为文本来源（selection-v2）；尚不支持 text_revision 修订来源。
 - text 执行器尚不支持采用 annotation 原始修订文本并完成 revision 校验。

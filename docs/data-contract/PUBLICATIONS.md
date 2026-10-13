@@ -43,6 +43,7 @@
 | 基础数据集 | zenless_voice/v0.1 | 406,720 条，554.4 小时 | 2026-10-09 18:53 | |
 | Annotation | `tts-ann-transcription-20261010T111659bjt-01` | transcription；genshin_voice、starrail_voice、wutheringwaves、zenless_voice；1,543,186 行 | 2026-10-10 11:17 | selection-v2 文本来源 |
 | Annotation | `tts-ann-transcription-20261012T092945bjt-01` | transcription；emilia；40,264,231 行 | 2026-10-12 09:39 | selection-v2 文本来源 |
+| Annotation | `tts-ann-upstream_quality-20261013T143341bjt-01` | upstream_quality（upstream-dnsmos-p835-ovrl-v1）；emilia、emilia_yodas、emilia2；184,069,533 行 | 2026-10-13 16:38 | |
 | Selection | `tts-selection-supervised-tts-20260929T151539bjt-01` | selection-v1；16 个数据集；入选 128,220,178 条，357,506.8 小时 | 2026-09-29 15:39 | 现有训练 build 使用 |
 | Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
 | Features | text · `text-selection-text-v1-20260930T153654bjt-01` | 16 个数据集，128,220,178 行 | 2026-09-30 17:01 | selection-v1 |
@@ -238,6 +239,15 @@
 - 原因：run_id 不符合 05 的 `bjt-NN` 规则（导入器硬编码 `-import`）
 - 替代：`tts-ann-transcription-20261012T092945bjt-01`
 - 前提：引用它的 selection `tts-selection-supervised-tts-20261012T045922bjt-01` 已先删除；无其他引用
+
+### 2026-10-13 · 发布 · tts-ann-upstream_quality-20261013T143341bjt-01
+
+- 时间：2026-10-13 16:38（北京时间）
+- manifest：`annotations/upstream_quality/tts-ann-upstream_quality-20261013T143341bjt-01/manifest.json`
+- SHA256：`be2058a65959dddbab1b8ef68b922ce2e796c014bf9e75983f864058ad45cde0`
+- 内容：upstream_quality，upstream-dnsmos-p835-ovrl-v1；emilia 40,264,231 行、emilia_yodas 43,964,905 行、emilia2 99,840,397 行，
+  共 184,069,533 行，全部 ok；上游 DNSMOS P.835 校准后 OVRL 原样导入（emilia/yodas `upstream.dnsmos`，emilia2 `upstream.short.dnsmos`）
+- 说明：只是导入上游分数，不是本地重算；分布与各数据集上游阈值见 pipeline 仓库 docs/upstream-dnsmos-report.md
 
 ## Selection
 
