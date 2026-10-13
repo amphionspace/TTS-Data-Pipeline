@@ -14,6 +14,7 @@
     "nvidia-nvvm": "13.0.88",
     "nvidia-cuda-runtime": "13.0.96"
   },
-  "endpoint": null,
-  "launch_arguments": null
+  "endpoint": "http://127.0.0.1:18000",
+  "launch_arguments": null,
+  "served_name": "/119010446/moss-diarization/models/MOSS-Transcribe-Diarize"
 }

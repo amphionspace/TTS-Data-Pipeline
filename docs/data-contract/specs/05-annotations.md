@@ -555,7 +555,6 @@ input_fingerprint 为规范 JSON 的 SHA256，包含 sample_id、audio_sha256、
 | turns | list<struct{speaker, start_sample, end_sample, text}>，按 (start_sample, end_sample, speaker) 排序 |
 | overlaps | list<struct{start_sample, end_sample}>，由 turns 推导的重叠并集；模型不输出重叠区间时为 null |
 | response_sha256、response_bytes | 服务原始响应的摘要与字节数 |
-| raw_response_json | 仅非 ok 行作为证据保存；ok 行为 null |
 
 解释：
 - speaker 按 profile 的规范化规则得到（如按首次出现记为 spk0、spk1…，并保留模型原始标签映射），只在该样本内有效，
@@ -580,8 +579,14 @@ input_fingerprint 为规范 JSON 的 SHA256，包含 sample_id、audio_sha256、
 - 运行中定期核对模型身份（模型列表响应摘要与服务版本），变化即停止；整段连续多条失败等系统性异常停止阶段。
 - 数据集逐个处理，不跨数据集并发；单个数据集内的并发数固定在 profile。
 
-原始响应很大（全部样本约数百 GB）且与解析字段重复，与 `qwen-asr-transcription-v2` 不同，ok 行不发布原文：
-完整原始响应保存在任务私有检查点中，压缩归档为审计证据，不是发布产物。
+原始响应很大（全部样本约数百 GB）且与解析字段重复，与 `qwen-asr-transcription-v2` 不同，不发布原文；
+failed 行的 result 按规则为 null，其原始响应也只在私有检查点中。完整原始响应压缩归档为审计证据，不是发布产物。
+
+试点（2026-10-13，每个数据集 10,000 条）固定的取值：`temperature=0`、单数据集并发 256、请求超时 600 秒、
+每条最多发送 3 次；结束时间超出音频不超过 1.0 秒时裁到音频末尾，超过则无效；最后区间结束距音频结束超过
+max(3 秒, 音频时长 30%) 视为疑似截断；标签沿用模型输出（`[S01]` → `S01`，按首次出现编号）；模型会输出不同说话人相互
+重叠的区间，overlap 字段为测量值；同一样本在不同并发下 speaker_count 一致率约 99.8%，结果随服务端批处理轻微变化，
+并发固定。服务端版本见 pipeline 仓库 `configs/moss-transcribe-diarize-v1.server.json`。
 
 input_fingerprint 为规范 JSON 的 SHA256：`speaker-structure-input-v1`、sample_id、audio_sha256、
 `full_original_bytes`、profile_id。全量前试点须核验：同一样本重复请求、不同并发下结果是否一致，实际吞吐与预计总时长；
