@@ -5,7 +5,7 @@
 When a node keeps failing a publish on lost renames, the same pinned finalize can run on a host
 whose renames are reliable, with the run's frozen runtime (validate_plan checks the code hash).
 Two finalizes of one stage destroy each other's files, so this refuses unless the run's ACP job
-is gone or finished (not QUEUEING, STARTING, RUNNING or SUSPENDED: a suspended job can resume)
+is gone or terminal (FAILED, SUCCEEDED, STOPPED, DELETED; a suspended or stopping job can still run)
 and holds an exclusive lock in the work root. The shared dev host can be slow when other users
 load it; check its load first. Afterwards the final is verified and a verdict printed.
 """
@@ -20,7 +20,8 @@ import time
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
-BUSY = {"QUEUEING", "STARTING", "RUNNING", "SUSPENDED"}
+# Only a gone or terminal job is safe; any other state (incl. unknown or stopping) may still run.
+DONE = {None, "FAILED", "SUCCEEDED", "STOPPED", "DELETED"}
 STEP_MODULES = {
     "codec": "tts_data_pipeline.codec.qwen3_12hz.run",
     "text": "tts_data_pipeline.text.run",
@@ -67,7 +68,7 @@ def verify(run, p, d):
 def publish(work, step, dataset, *, state=job_state, gpus=8, workers_per_gpu=2):
     work = Path(work).resolve()
     current = state(work)
-    if current in BUSY:
+    if current not in DONE:
         raise SystemExit(f"The run's ACP job is {current}; delete it (and confirm 404) first")
     runtime = sorted((work / "submissions").glob("*/runtime"))
     src = runtime[-1] / "src" if runtime else PROJECT / "src"

@@ -19,7 +19,9 @@ def work_root(tmp_path):
     return p["datasets"][0]
 
 
-@pytest.mark.parametrize("state", ["QUEUEING", "STARTING", "RUNNING", "SUSPENDED"])
+@pytest.mark.parametrize(
+    "state", ["QUEUEING", "STARTING", "RUNNING", "SUSPENDED", "STOPPING", "SOMETHING_NEW"]
+)
 def test_refuses_while_the_run_has_a_live_job(tmp_path, state):
     work_root(tmp_path)
     with pytest.raises(SystemExit, match=state):
