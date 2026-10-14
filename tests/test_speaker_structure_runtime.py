@@ -1,5 +1,6 @@
 import copy
 import runpy
+import threading
 from pathlib import Path
 
 import pytest
@@ -81,3 +82,26 @@ def test_runtime_recovery_still_rejects_model_change(runtime, monkeypatch):
     with pytest.raises(ModelChanged):
         service.outage()
     assert "service_back" not in [phase for phase, _ in events]
+
+
+def test_thread_clients_keep_one_client_per_thread(monkeypatch):
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    entry = runpy.run_path(str(scripts / "annotate_speaker_structure.py"))
+    httpx = entry["httpx"]
+    real = httpx.Client
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=request.url.path))
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: real(transport=transport, **kwargs))
+    clients, results = entry["ThreadClients"](5), []
+
+    def work():
+        results.extend(clients.post(f"http://moss/{p}").text for p in "ab")
+
+    threads = [threading.Thread(target=work) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(results) == ["/a"] * 3 + ["/b"] * 3
+    assert len(clients.clients) == 3
+    clients.close()

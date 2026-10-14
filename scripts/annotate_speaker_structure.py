@@ -7,19 +7,63 @@
 Datasets run one at a time with the profile's concurrency. A request is resent on timeouts,
 unusable output or suspected truncation; service outages pause all requests (checked every
 30 minutes, 8 times by default) and never mark samples failed. Runtime outage timing can be
-overridden without changing inference settings or checkpoints. Spec: data contract 05.
+overridden without changing inference settings or checkpoints. Each worker thread keeps its
+own connection (see ThreadClients). Spec: data contract 05.
 """
 
 import argparse
 import copy
 import hashlib
 import math
+import threading
 import time
 
 import _bootstrap  # noqa: F401
+import httpx
 
 from tts_data_pipeline.annotations.speaker_structure import run as diar
 from tts_data_pipeline.annotations.speaker_structure.service import ServiceDown
+
+
+class ThreadClients:
+    """One keep-alive connection per worker thread, used as `service.client`. httpcore 1.0.9's
+    shared pool counts all connections (not idle ones) against max_keepalive on every request:
+    with 256 connections that rescan held the GIL for ~10 ms per request, and every finished
+    connection was closed, so each request opened a new connection through the tunnel."""
+
+    def __init__(self, timeout):
+        self.timeout, self.local = timeout, threading.local()
+        self.lock, self.clients = threading.Lock(), []
+
+    def post(self, *args, **kwargs):
+        client = getattr(self.local, "client", None)
+        if client is None:
+            client = self.local.client = httpx.Client(
+                timeout=self.timeout,
+                limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
+            )
+            with self.lock:
+                self.clients.append(client)
+        return client.post(*args, **kwargs)
+
+    def close(self):
+        with self.lock:
+            for client in self.clients:
+                client.close()
+
+
+def per_thread_connections():
+    """Swap the shared request pool for ThreadClients; requests and results are unchanged."""
+    pinned = diar.Service
+
+    class Service(pinned):
+        def __init__(self, profile, log):
+            super().__init__(profile, log)
+            self.client.close()
+            self.client = ThreadClients(profile["request"]["timeout_seconds"])
+            log("transport_override", connections="per_worker_thread")
+
+    diar.Service = Service
 
 
 def override_endpoint(base_url=None, outage_wait_seconds=None, outage_max_seconds=None):
@@ -128,6 +172,7 @@ def main():
                 parser.error("Supply both positive outage wait and maximum seconds")
             if args.outage_wait_seconds >= args.outage_max_seconds:
                 parser.error("Outage wait must be shorter than maximum outage duration")
+        per_thread_connections()
         if args.base_url or args.outage_wait_seconds is not None:
             override_endpoint(args.base_url.rstrip("/") if args.base_url else None, *timing)
         print(diar.run(args.work))
