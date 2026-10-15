@@ -465,7 +465,7 @@ def test_auto_resume_and_permanent_errors(tmp_path, monkeypatch):
 
     calls, sleeps = [], []
 
-    def temporary_failure(work, workers):
+    def temporary_failure(work, workers, *_):
         calls.append(work)
         if len(calls) == 1:
             run.write_json(work / "status.json", dict(verified_rows=512, counts={"ok": 512}))
@@ -478,7 +478,7 @@ def test_auto_resume_and_permanent_errors(tmp_path, monkeypatch):
     assert len(calls) == 2 and sleeps == [60]
     assert json.loads((tmp_path / "recovery-events.jsonl").read_text())["recovery_count"] == 1
 
-    def permanent_failure(work, workers):
+    def permanent_failure(work, workers, *_):
         raise ValueError("Base manifest changed")
 
     monkeypatch.setattr(run, "_run", permanent_failure)

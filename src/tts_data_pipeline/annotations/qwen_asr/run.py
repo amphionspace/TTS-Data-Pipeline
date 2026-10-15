@@ -1,12 +1,14 @@
 """Resumable base-snapshot transcription; one coordinator publishes independent tables."""
 
+import contextlib
 import fcntl
 import hashlib
 import importlib.metadata
 import json
+import multiprocessing
 import time
-from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from collections import Counter, deque
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +27,8 @@ from .languages import SOURCE_LANGUAGES as LANGUAGES
 from .schema import result_schema
 
 COLUMNS = ["sample_id", "audio", "audio_sha256", "sample_rate", "channels", "language", "text"]
+# Batches in flight: the next batch's requests start while the previous batch's slowest finish.
+PIPELINE_BATCHES = 2
 
 
 def code_hashes():
@@ -270,6 +274,23 @@ def segments(plan):
     ]
 
 
+def prepare_audio(encoded):
+    """Decode and resample, in a worker process when the run has an audio pool."""
+    try:
+        wave, rate, channels = audio.decode(encoded)
+    except (ValueError, sf.LibsndfileError) as exc:
+        return dict(error=str(exc))
+    request, frames = audio.encode_request(wave, rate)
+    return dict(
+        rate=rate,
+        channels=channels,
+        length=len(wave),
+        silent=not wave.any(),
+        request=request,
+        frames=frames,
+    )
+
+
 def process(row, plan):
     encoded = row["audio"]["bytes"]
     if hashlib.sha256(encoded).hexdigest() != row["audio_sha256"]:
@@ -292,14 +313,14 @@ def process(row, plan):
         error_code=None,
         item_count=1,
     )
-    try:
-        wave, rate, channels = audio.decode(encoded)
-    except (ValueError, sf.LibsndfileError) as exc:
-        return journal.failed(plan, target, "audio_decode_failed", details=str(exc))
-    if rate != row["sample_rate"] or channels != row["channels"]:
+    pool = plan.get("_audio_pool")
+    decoded = pool.submit(prepare_audio, encoded).result() if pool else prepare_audio(encoded)
+    if "error" in decoded:
+        return journal.failed(plan, target, "audio_decode_failed", details=decoded["error"])
+    rate, request, frames = decoded["rate"], decoded["request"], decoded["frames"]
+    if rate != row["sample_rate"] or decoded["channels"] != row["channels"]:
         raise RuntimeError("Source audio format conflict")
     expected_language = LANGUAGES.get(row["language"])
-    request, frames = audio.encode_request(wave, rate)
     try:
         reply = transcribe(plan)(plan["endpoint"], plan["model"], request)
     except transport.RequestRejected as exc:
@@ -307,8 +328,8 @@ def process(row, plan):
         if (
             exc.status == 400
             # Resampling rounds frame counts up: 439 / 44100 s becomes 160 / 16000 s.
-            and len(wave) * 100 < rate
-            and not wave.any()
+            and decoded["length"] * 100 < rate
+            and decoded["silent"]
             and "Failed to apply Qwen3ASRProcessor" in exc.body
         ):
             return journal.failed(
@@ -358,7 +379,7 @@ def process(row, plan):
         source_text_sha256=digest(row["text"]),
         native_sample_rate=rate,
         start_frame=0,
-        end_frame=len(wave),
+        end_frame=decoded["length"],
         text=reply["text"],
         language=reply["language"],
         language_mismatch=mismatch,
@@ -540,7 +561,7 @@ def record_failures(plan, task, folder, checkpoint):
             )
 
 
-def run(work, workers=128, auto_resume=False):
+def run(work, workers=128, auto_resume=False, audio_processes=0):
     work = Path(work).resolve()
     # Retain ownership through recovery waits as well as active processing.
     with (work / "supervisor.lock").open("w") as lock:
@@ -557,7 +578,7 @@ def run(work, workers=128, auto_resume=False):
         )
         while True:
             try:
-                return _run(work, workers)
+                return _run(work, workers, audio_processes)
             except transport.TransientASRError as exc:
                 if not auto_resume:
                     raise
@@ -602,7 +623,7 @@ def run(work, workers=128, auto_resume=False):
 VERIFIED_CHECKPOINTS = {}
 
 
-def _run(work, workers=128):
+def _run(work, workers=128, audio_processes=0):
     work = Path(work).resolve()
     with (work / "run.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -629,6 +650,8 @@ def _run(work, workers=128):
             dict(
                 endpoint=plan["endpoint"],
                 workers=workers,
+                audio_processes=audio_processes,
+                pipeline_batches=PIPELINE_BATCHES,
                 timeout_seconds=600,
                 request_attempts=transport.ATTEMPTS,
                 retry_delays_seconds=list(transport.RETRY_DELAYS),
@@ -638,20 +661,61 @@ def _run(work, workers=128):
             ),
         )
         checkpoints, folders, counts, verified, conflicts = [], [], Counter(), 0, 0
+
+        def account(index, task, folder, checkpoint):
+            nonlocal verified, conflicts
+            checkpoints.append(checkpoint)
+            folders.append(folder)
+            verified += task["rows"]
+            counts.update(checkpoint["counts"])
+            conflicts += checkpoint["language_conflicts"]
+            event(
+                work,
+                "running",
+                verified_rows=verified,
+                total_rows=sum(s["rows"] for s in plan["inputs"]),
+                completed_batches=index + 1,
+                total_batches=len(plan["tasks"]),
+                counts=dict(counts),
+                language_conflicts=conflicts,
+                elapsed_seconds=round(time.monotonic() - started, 2),
+            )
+
+        def complete(index, task, folder, futures):
+            rows = [f.result() for f in futures]
+            validate_output_formats(rows)
+            checkpoint = save_checkpoint(work, task, plan_hash, rows)
+            verified_checkpoints[folder] = checkpoint
+            record_failures(plan, task, folder, checkpoint)
+            account(index, task, folder, checkpoint)
+
+        audio_pool = (
+            ProcessPoolExecutor(audio_processes, mp_context=multiprocessing.get_context("spawn"))
+            if audio_processes
+            else contextlib.nullcontext()
+        )
         try:
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                for index, task in enumerate(plan["tasks"]):
-                    source_work, source_hash = task_source(plan, work, index, plan_hash)
-                    folder = checkpoint_path(source_work, task)
-                    checkpoint = verified_checkpoints.get(folder)
-                    if checkpoint is None:
-                        checkpoint = load_checkpoint(source_work, task, source_hash)
-                        if checkpoint is None and source_work != work:
-                            raise ValueError("Previous segment checkpoint missing")
+            with ThreadPoolExecutor(max_workers=workers) as pool, audio_pool as audio_executor:
+                plan["_audio_pool"] = audio_executor
+                pending = deque()
+                try:
+                    for index, task in enumerate(plan["tasks"]):
+                        source_work, source_hash = task_source(plan, work, index, plan_hash)
+                        folder = checkpoint_path(source_work, task)
+                        checkpoint = verified_checkpoints.get(folder)
+                        if checkpoint is None:
+                            checkpoint = load_checkpoint(source_work, task, source_hash)
+                            if checkpoint is None and source_work != work:
+                                raise ValueError("Previous segment checkpoint missing")
+                            if checkpoint is not None:
+                                verified_checkpoints[folder] = checkpoint
+                                record_failures(plan, task, folder, checkpoint)
                         if checkpoint is not None:
-                            verified_checkpoints[folder] = checkpoint
-                            record_failures(plan, task, folder, checkpoint)
-                    if checkpoint is None:
+                            # Progress and publication stay in task order.
+                            while pending:
+                                complete(*pending.popleft())
+                            account(index, task, folder, checkpoint)
+                            continue
                         check_service(plan)
                         table = (
                             datasets[task["dataset_id"]]
@@ -670,27 +734,16 @@ def _run(work, workers=128):
                             or ordered_hash(table["sample_id"].to_pylist()) != task["ids_sha256"]
                         ):
                             raise ValueError("Source target order changed")
-                        rows = list(pool.map(lambda r: process(r, plan), table.to_pylist()))
-                        validate_output_formats(rows)
-                        checkpoint = save_checkpoint(work, task, plan_hash, rows)
-                        verified_checkpoints[folder] = checkpoint
-                        record_failures(plan, task, folder, checkpoint)
-                    checkpoints.append(checkpoint)
-                    folders.append(folder)
-                    verified += task["rows"]
-                    counts.update(checkpoint["counts"])
-                    conflicts += checkpoint["language_conflicts"]
-                    event(
-                        work,
-                        "running",
-                        verified_rows=verified,
-                        total_rows=sum(s["rows"] for s in plan["inputs"]),
-                        completed_batches=index + 1,
-                        total_batches=len(plan["tasks"]),
-                        counts=dict(counts),
-                        language_conflicts=conflicts,
-                        elapsed_seconds=round(time.monotonic() - started, 2),
-                    )
+                        futures = [pool.submit(process, r, plan) for r in table.to_pylist()]
+                        pending.append((index, task, folder, futures))
+                        while len(pending) >= PIPELINE_BATCHES:
+                            complete(*pending.popleft())
+                    while pending:
+                        complete(*pending.popleft())
+                except BaseException:
+                    # Do not keep sending queued requests after the run has already failed.
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    raise
             event(work, "publishing", verified_rows=verified, counts=dict(counts))
             path = publish(plan, work, checkpoints, folders)
             event(work, "complete", verified_rows=verified, manifest=str(path), counts=dict(counts))

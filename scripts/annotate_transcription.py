@@ -42,6 +42,12 @@ def main():
         action="store_true",
         help="Resume verified checkpoints after temporary service failures",
     )
+    command.add_argument(
+        "--audio-processes",
+        type=int,
+        default=0,
+        help="Decode and resample in this many processes (0: in the request threads)",
+    )
     command = commands.add_parser(
         "migrate-tables", help="Publish a v1 run as a single v2 table, without ASR"
     )
@@ -62,7 +68,7 @@ def main():
     elif args.command == "migrate-tables":
         print(migrate_tables(args.root, args.source_manifest, args.work), flush=True)
     else:
-        run(args.work, args.workers, args.auto_resume)
+        run(args.work, args.workers, args.auto_resume, args.audio_processes)
 
 
 if __name__ == "__main__":
