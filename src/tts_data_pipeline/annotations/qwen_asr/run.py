@@ -27,7 +27,7 @@ from .languages import SOURCE_LANGUAGES as LANGUAGES
 from .schema import result_schema
 
 COLUMNS = ["sample_id", "audio", "audio_sha256", "sample_rate", "channels", "language", "text"]
-# Batches in flight: the next batch's requests start while the previous batch's slowest finish.
+# Batches in flight: later batches' requests run while an earlier batch's slowest requests finish.
 PIPELINE_BATCHES = 2
 
 
@@ -561,7 +561,7 @@ def record_failures(plan, task, folder, checkpoint):
             )
 
 
-def run(work, workers=128, auto_resume=False, audio_processes=0):
+def run(work, workers=128, auto_resume=False, audio_processes=0, pipeline_batches=PIPELINE_BATCHES):
     work = Path(work).resolve()
     # Retain ownership through recovery waits as well as active processing.
     with (work / "supervisor.lock").open("w") as lock:
@@ -578,7 +578,7 @@ def run(work, workers=128, auto_resume=False, audio_processes=0):
         )
         while True:
             try:
-                return _run(work, workers, audio_processes)
+                return _run(work, workers, audio_processes, pipeline_batches)
             except transport.TransientASRError as exc:
                 if not auto_resume:
                     raise
@@ -623,7 +623,7 @@ def run(work, workers=128, auto_resume=False, audio_processes=0):
 VERIFIED_CHECKPOINTS = {}
 
 
-def _run(work, workers=128, audio_processes=0):
+def _run(work, workers=128, audio_processes=0, pipeline_batches=PIPELINE_BATCHES):
     work = Path(work).resolve()
     with (work / "run.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -631,6 +631,8 @@ def _run(work, workers=128, audio_processes=0):
         migration = validate_implementation(work, plan)
         if not 1 <= workers <= 256:
             raise ValueError("workers must be in [1,256]")
+        if not 1 <= pipeline_batches <= 16:
+            raise ValueError("pipeline_batches must be in [1,16]")
         plan_hash = file_hash(work / "plan.json")
         verified_checkpoints = VERIFIED_CHECKPOINTS.setdefault((work, plan_hash), {})
         plan["_failure_journal"] = journal.FailureJournal(work / "failures.jsonl")
@@ -651,7 +653,7 @@ def _run(work, workers=128, audio_processes=0):
                 endpoint=plan["endpoint"],
                 workers=workers,
                 audio_processes=audio_processes,
-                pipeline_batches=PIPELINE_BATCHES,
+                pipeline_batches=pipeline_batches,
                 timeout_seconds=600,
                 request_attempts=transport.ATTEMPTS,
                 retry_delays_seconds=list(transport.RETRY_DELAYS),
@@ -736,7 +738,7 @@ def _run(work, workers=128, audio_processes=0):
                             raise ValueError("Source target order changed")
                         futures = [pool.submit(process, r, plan) for r in table.to_pylist()]
                         pending.append((index, task, folder, futures))
-                        while len(pending) >= PIPELINE_BATCHES:
+                        while len(pending) >= pipeline_batches:
                             complete(*pending.popleft())
                     while pending:
                         complete(*pending.popleft())

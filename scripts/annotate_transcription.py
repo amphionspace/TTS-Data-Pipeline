@@ -48,6 +48,12 @@ def main():
         default=0,
         help="Decode and resample in this many processes (0: in the request threads)",
     )
+    command.add_argument(
+        "--pipeline-batches",
+        type=int,
+        default=2,
+        help="Batches in flight, so slow requests in one batch do not idle the server",
+    )
     command = commands.add_parser(
         "migrate-tables", help="Publish a v1 run as a single v2 table, without ASR"
     )
@@ -68,7 +74,7 @@ def main():
     elif args.command == "migrate-tables":
         print(migrate_tables(args.root, args.source_manifest, args.work), flush=True)
     else:
-        run(args.work, args.workers, args.auto_resume, args.audio_processes)
+        run(args.work, args.workers, args.auto_resume, args.audio_processes, args.pipeline_batches)
 
 
 if __name__ == "__main__":
