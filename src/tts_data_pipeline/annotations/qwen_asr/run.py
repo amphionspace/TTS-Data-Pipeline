@@ -176,6 +176,100 @@ def prepare(root, work, model_root, endpoint, datasets, batch_size=512):
     return plan
 
 
+def prepare_segment(previous_work, work, endpoint, model, server):
+    """Continue a run on another server: same run_id and tasks, prior checkpoints kept as-is."""
+    previous_work, work = Path(previous_work).resolve(), Path(work).resolve()
+    if work.exists():
+        raise FileExistsError("Use a new work directory; run resumes an existing plan")
+    previous = json.loads((previous_work / "plan.json").read_text())
+    if "previous_segment" in previous:
+        raise ValueError("Chain segments from the latest work directory only")
+    boundary = 0
+    for task in previous["tasks"]:
+        if not (checkpoint_path(previous_work, task) / "checkpoint.json").exists():
+            break
+        boundary += 1
+    for task in previous["tasks"][boundary:]:
+        if (checkpoint_path(previous_work, task) / "checkpoint.json").exists():
+            raise ValueError("Previous segment checkpoints are not a contiguous prefix")
+    endpoint = endpoint.rstrip("/")
+    client.check_sglang_service(endpoint, model)
+    model_root = Path(previous["model_root"])
+    for name, sha in previous["profile"]["model_files"].items():
+        if file_hash(model_root / name) != sha:
+            raise ValueError("Model files changed")
+    definition = dict(previous["profile"])
+    for name in ("server_version", "seed", "max_completion_tokens"):
+        definition.pop(name)
+    definition.update(
+        name="qwen3-asr-1.7b-base-v2-sglang",
+        backend="sglang",
+        served_model=model,
+        server=server,
+        service_dtype="bfloat16",
+        request="non_stream_verbose_json",
+        chunking="sglang_omni_server_30s_chunks_above_30s",
+        text_join="sglang_omni_join_transcript_parts",
+        language_argument="sglang_omni_language_form",
+        long_audio_language_detection="unavailable_chunked_responses_return_empty",
+        truncation_detection="unavailable_no_finish_reason",
+        max_new_tokens=1024,
+        dependencies={
+            n: importlib.metadata.version(n)
+            for n in ("numpy", "scipy", "soundfile", "pyarrow", "pylance")
+        },
+        libsndfile=sf.__libsndfile_version__,
+        implementation=code_hashes(),
+    )
+    plan = dict(
+        previous,
+        endpoint=endpoint,
+        model=model,
+        profile=definition,
+        profile_id=digest(definition),
+        previous_segment=dict(
+            work=str(previous_work),
+            plan_sha256=file_hash(previous_work / "plan.json"),
+            profile_id=previous["profile_id"],
+            profile=previous["profile"],
+            endpoint=previous["endpoint"],
+            tasks=boundary,
+            rows=sum(t["rows"] for t in previous["tasks"][:boundary]),
+        ),
+        segment_created_at=datetime.now(BEIJING).isoformat(),
+    )
+    work.mkdir(parents=True)
+    write_json(work / "plan.json", plan)
+    return plan
+
+
+def task_source(plan, work, index, plan_hash):
+    """Tasks before the segment boundary stay in the previous work, under its plan hash."""
+    previous = plan.get("previous_segment")
+    if previous and index < previous["tasks"]:
+        return Path(previous["work"]), previous["plan_sha256"]
+    return Path(work), plan_hash
+
+
+def segments(plan):
+    previous = plan.get("previous_segment")
+    current = dict(
+        profile_id=plan["profile_id"], profile=plan["profile"], endpoint=plan.get("endpoint")
+    )
+    if not previous:
+        return [dict(current, tasks=[0, len(plan["tasks"])])]
+    return [
+        dict(
+            profile_id=previous["profile_id"],
+            profile=previous["profile"],
+            endpoint=previous["endpoint"],
+            tasks=[0, previous["tasks"]],
+            work=previous["work"],
+        ),
+        dict(current, tasks=[previous["tasks"], len(plan["tasks"])]),
+    ]
+
+
 def process(row, plan):
     encoded = row["audio"]["bytes"]
     if hashlib.sha256(encoded).hexdigest() != row["audio_sha256"]:
@@ -207,7 +301,7 @@ def process(row, plan):
     expected_language = LANGUAGES.get(row["language"])
     request, frames = audio.encode_request(wave, rate)
     try:
-        reply = client.transcribe(plan["endpoint"], plan["model"], request)
+        reply = transcribe(plan)(plan["endpoint"], plan["model"], request)
     except transport.RequestRejected as exc:
         # Verified Zenless zero-wave placeholders (< 10 ms). Do not suppress arbitrary 400s.
         if (
@@ -243,7 +337,7 @@ def process(row, plan):
     )
     candidate = None
     if mismatch:
-        candidate = client.transcribe(
+        candidate = transcribe(plan)(
             plan["endpoint"], plan["model"], request, LANGUAGE_CODES[expected_language]
         )
     if candidate and candidate.get("error_code"):
@@ -277,6 +371,23 @@ def process(row, plan):
         else None,
     )
     return target, result
+
+
+def transcribe(plan):
+    if plan.get("profile", {}).get("backend") == "sglang":
+        return client.transcribe_sglang
+    return client.transcribe
+
+
+def check_service(plan):
+    if plan.get("profile", {}).get("backend") == "sglang":
+        client.check_sglang_service(plan["endpoint"], plan["model"])
+        return
+    served = client.check_service(
+        plan["endpoint"], plan["model"], plan["profile"]["server_version"]
+    )
+    if Path(served["root"]).resolve() != Path(plan["model_root"]):
+        raise RuntimeError("Serving checkpoint changed")
 
 
 def checkpoint_path(work, task):
@@ -345,14 +456,16 @@ def save_checkpoint(work, task, plan_hash, outputs):
     return checkpoint
 
 
-def publish(plan, work, checkpoints):
+def publish(plan, work, checkpoints, folders=None):
     root = Path(plan["root"])
+    if folders is None:
+        folders = [checkpoint_path(work, t) for t in plan["tasks"]]
     outputs = []
     for source in plan["inputs"]:
         name = source["dataset_id"]
         selected = [
-            (t, c)
-            for t, c in zip(plan["tasks"], checkpoints, strict=True)
+            (f, c)
+            for t, c, f in zip(plan["tasks"], checkpoints, folders, strict=True)
             if t["dataset_id"] == name
         ]
         counts = Counter()
@@ -362,8 +475,7 @@ def publish(plan, work, checkpoints):
             raise ValueError("Publication coverage mismatch")
 
         def batches():
-            for task, _ in selected:
-                folder = checkpoint_path(work, task)
+            for folder, _ in selected:
                 targets = pq.read_table(folder / "targets.parquet")
                 results = pq.read_table(folder / "results.parquet")
                 yield from publication.combine(targets, results).to_batches(max_chunksize=4096)
@@ -383,6 +495,7 @@ def publish(plan, work, checkpoints):
         run_id=plan["run_id"],
         profile=plan["profile"],
         profile_id=plan["profile_id"],
+        segments=segments(plan),
         inputs=plan["inputs"],
         outputs=outputs,
         finished_at=datetime.now(BEIJING).isoformat(),
@@ -412,6 +525,19 @@ def validate_implementation(work, plan):
     raise ValueError(
         "Transcription implementation changed; use the frozen code or audited migration"
     )
+
+
+def record_failures(plan, task, folder, checkpoint):
+    if not checkpoint["counts"].get("failed"):
+        return
+    for target in pq.read_table(folder / "targets.parquet").to_pylist():
+        if target["status"] == "failed":
+            plan["_failure_journal"].record(
+                target,
+                target["error_code"],
+                details=dict(dataset_id=task["dataset_id"], offset=task["offset"]),
+                from_checkpoint=True,
+            )
 
 
 def run(work, workers=128, auto_resume=False):
@@ -472,15 +598,20 @@ def run(work, workers=128, auto_resume=False):
                 raise
 
 
+# Verified checkpoints are immutable; recovery in the same process need not hash them again.
+VERIFIED_CHECKPOINTS = {}
+
+
 def _run(work, workers=128):
     work = Path(work).resolve()
     with (work / "run.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         plan = json.loads((work / "plan.json").read_text())
         migration = validate_implementation(work, plan)
-        if not 1 <= workers <= 128:
-            raise ValueError("workers must be in [1,128]")
+        if not 1 <= workers <= 256:
+            raise ValueError("workers must be in [1,256]")
         plan_hash = file_hash(work / "plan.json")
+        verified_checkpoints = VERIFIED_CHECKPOINTS.setdefault((work, plan_hash), {})
         plan["_failure_journal"] = journal.FailureJournal(work / "failures.jsonl")
         datasets = {}
         for source in plan["inputs"]:
@@ -506,17 +637,22 @@ def _run(work, workers=128):
                 started_at=datetime.now(BEIJING).isoformat(),
             ),
         )
-        checkpoints, counts, verified, conflicts = [], Counter(), 0, 0
+        checkpoints, folders, counts, verified, conflicts = [], [], Counter(), 0, 0
         try:
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 for index, task in enumerate(plan["tasks"]):
-                    checkpoint = load_checkpoint(work, task, plan_hash)
+                    source_work, source_hash = task_source(plan, work, index, plan_hash)
+                    folder = checkpoint_path(source_work, task)
+                    checkpoint = verified_checkpoints.get(folder)
                     if checkpoint is None:
-                        served = client.check_service(
-                            plan["endpoint"], plan["model"], plan["profile"]["server_version"]
-                        )
-                        if Path(served["root"]).resolve() != Path(plan["model_root"]):
-                            raise RuntimeError("Serving checkpoint changed")
+                        checkpoint = load_checkpoint(source_work, task, source_hash)
+                        if checkpoint is None and source_work != work:
+                            raise ValueError("Previous segment checkpoint missing")
+                        if checkpoint is not None:
+                            verified_checkpoints[folder] = checkpoint
+                            record_failures(plan, task, folder, checkpoint)
+                    if checkpoint is None:
+                        check_service(plan)
                         table = (
                             datasets[task["dataset_id"]]
                             .scanner(
@@ -537,21 +673,10 @@ def _run(work, workers=128):
                         rows = list(pool.map(lambda r: process(r, plan), table.to_pylist()))
                         validate_output_formats(rows)
                         checkpoint = save_checkpoint(work, task, plan_hash, rows)
-                    if checkpoint["counts"].get("failed"):
-                        failures = pq.read_table(
-                            checkpoint_path(work, task) / "targets.parquet"
-                        ).to_pylist()
-                        for target in failures:
-                            if target["status"] == "failed":
-                                plan["_failure_journal"].record(
-                                    target,
-                                    target["error_code"],
-                                    details=dict(
-                                        dataset_id=task["dataset_id"], offset=task["offset"]
-                                    ),
-                                    from_checkpoint=True,
-                                )
+                        verified_checkpoints[folder] = checkpoint
+                        record_failures(plan, task, folder, checkpoint)
                     checkpoints.append(checkpoint)
+                    folders.append(folder)
                     verified += task["rows"]
                     counts.update(checkpoint["counts"])
                     conflicts += checkpoint["language_conflicts"]
@@ -567,7 +692,7 @@ def _run(work, workers=128):
                         elapsed_seconds=round(time.monotonic() - started, 2),
                     )
             event(work, "publishing", verified_rows=verified, counts=dict(counts))
-            path = publish(plan, work, checkpoints)
+            path = publish(plan, work, checkpoints, folders)
             event(work, "complete", verified_rows=verified, manifest=str(path), counts=dict(counts))
         except Exception as exc:
             event(
