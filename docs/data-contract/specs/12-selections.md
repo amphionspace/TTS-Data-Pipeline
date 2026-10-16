@@ -355,8 +355,11 @@ dev 保留在训练集合，其副本也不留出，因此 dev 不能作为无�
 **质量（6001）。** rules 的 `quality_inputs` 固定 upstream_quality annotation
 `tts-ann-upstream_quality-20261013T143341bjt-01` 的 `result.upstream_dnsmos`（DNSMOS P.835 OVRL，上游校准），
 规划时核对其 base manifest/版本与本次输入一致、列在 annotation schema 中。按 sample_id 与 base 对齐，ok 行须核对 audio_sha256。
-分数 `>= 3.3655` 通过；更低、非 ok 或空值记 6001（flag bit 13）。3.3655 是 emilia2 在 selection-v2 入选行上的 p90，
-作为固定值写入规则，不在运行时重算。主原因优先级在 3002 之后、5001 之前插入 6001：
+门槛按语言：`min_inclusive_by_language` 为 emilia2 在 selection-v2 入选行上各语言（别名归一后）的 p90，
+即每种语言保留前 10%（de 3.2913、en 3.3922、es 3.3201、fr 3.3474、it 3.2727、ja 3.3264、ko 3.3552、nl 3.1846、pl 3.2838、
+pt 3.3202、zh 3.402）；`min_inclusive` 3.0 是绝对下限，低于所有语言门槛，目前不排除任何行。
+分数不低于本语言门槛与下限二者的较大值通过；更低、非 ok 或空值记 6001（flag bit 13）。门槛作为固定值写入规则，不在运行时重算；
+规划时要求按语言门槛覆盖全部 supported_languages。主原因优先级在 3002 之后、5001 之前插入 6001：
 
 103, 102, 104, 105, 1002, 101, 1001, 1003, 2001, 2002, 2003, 2004, 1007, 1008, 1004, 1005, 1006, 3001, 3002, 6001, 5001, 4002, 7001, 8001, 4001。
 
@@ -367,7 +370,7 @@ dev 保留在训练集合，其副本也不留出，因此 dev 不能作为无�
 
 **重复。** 只在 emilia2 内部按完整 audio_sha256 分组；与 emilia、emilia_yodas 相同的音频由父 selection 的去重决定（8001），
 因此入选行仍是 selection-v2 的子集，可直接按行筛选 selection-v2 的特征。DNSMOS 对不足 9 秒的音频重复补齐后打分，短片段偏低；
-门槛按全局分位而非按语言或时长分组，入选集合因此偏向较长片段和 en/zh。
+门槛按语言分组、不按时长，各语言行数比例与 selection-v2 的 emilia2 一致，时长分布仍偏向较长片段。
 
 ## 写入、发布、恢复与清理
 

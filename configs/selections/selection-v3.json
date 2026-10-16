@@ -86,7 +86,7 @@
     "wutheringwaves:32 one-frame records",
     "galgame:7 reviewed >300s transcript mismatches"
   ],
-  "initial_root_reason": "selection-v3: emilia2 only, upstream DNSMOS >= 3.3655 (top 10% of its selection-v2 rows); only rows selection-v2 selected; other rules as selection-v2. Parent exclusions inherited in full; those of other datasets match no row here.",
+  "initial_root_reason": "selection-v3: emilia2 only, top 10% upstream DNSMOS within each language among selection-v2 selected rows (per-language p90, floor 3.0); only rows selection-v2 selected; other rules as selection-v2. Parent exclusions inherited in full; those of other datasets match no row here.",
   "rules_version": "selection-v3",
   "parent_selected_only": true,
   "parent_selection": "tts-selection-supervised-tts-20261012T123927bjt-01",
@@ -160,9 +160,22 @@
       ],
       "column": "result.upstream_dnsmos",
       "metric": "dnsmos_p835_ovrl_calibrated",
-      "min_inclusive": 3.3655,
+      "min_inclusive": 3.0,
       "unavailable": "status != ok or null score excludes (6001)",
-      "derivation": "p90 of upstream DNSMOS over emilia2 rows selected by tts-selection-supervised-tts-20261012T123927bjt-01 (78,397,790 rows; 7,848,873 at or above); a fixed value, not recomputed per run"
+      "derivation": "per language: p90 of upstream DNSMOS over the emilia2 rows selected by tts-selection-supervised-tts-20261012T123927bjt-01 (78,397,790 rows; language after aliases), so each language keeps its top 10%; min_inclusive 3.0 is an absolute floor below every language's p90; fixed values, not recomputed per run",
+      "min_inclusive_by_language": {
+        "de": 3.2913,
+        "en": 3.3922,
+        "es": 3.3201,
+        "fr": 3.3474,
+        "it": 3.2727,
+        "ja": 3.3264,
+        "ko": 3.3552,
+        "nl": 3.1846,
+        "pl": 3.2838,
+        "pt": 3.3202,
+        "zh": 3.402
+      }
     }
   ]
 }

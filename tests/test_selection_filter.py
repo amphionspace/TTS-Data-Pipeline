@@ -523,6 +523,36 @@ def test_quality_minimum_is_inclusive_and_missing_scores_fail(quality, expected)
     assert bool(flags & (1 << 13)) == (expected == 6001)
 
 
+@pytest.mark.parametrize(
+    ("language", "quality", "expected"),
+    [("en", 3.3922, 0), ("en", 3.3921, 6001), ("de", 3.3, 0), ("de", 3.29, 6001)],
+)
+def test_quality_minimum_is_per_language(language, quality, expected):
+    base = row("q", language=language)
+    item = v3_rules()["quality_inputs"][0]
+    value = score(base, quality) | {
+        "min_inclusive": item["min_inclusive"],
+        "min_inclusive_by_language": item["min_inclusive_by_language"],
+    }
+    reason, _, _, _ = classify(base, "alpha", v3_rules(), set(), {}, None, {}, value)
+    assert reason == expected
+
+
+def test_quality_floor_applies_below_a_language_minimum():
+    base = row("q", language="nl")
+    value = score(base, 3.19) | {"min_inclusive": 3.2, "min_inclusive_by_language": {"nl": 3.1}}
+    reason, _, _, _ = classify(base, "alpha", v3_rules(), set(), {}, None, {}, value)
+    assert reason == 6001
+
+
+def test_per_language_minimums_cover_supported_languages(tmp_path):
+    configuration = v3_rules()
+    del configuration["quality_inputs"][0]["min_inclusive_by_language"]["nl"]
+    write_json(tmp_path / "rules.json", configuration)
+    with pytest.raises(ValueError, match="every supported language"):
+        plan(tmp_path, Path("/tmp") / tmp_path.name / "scratch", tmp_path / "rules.json")
+
+
 def test_quality_identity_must_match_base():
     base = row("q")
     with pytest.raises(ValueError, match="Quality identity"):
@@ -624,7 +654,8 @@ def test_single_dataset_quality_selection_inherits_other_datasets_exclusions(tmp
     assert manifest["reason_dictionary"]["version"] == 3
     assert manifest["reason_dictionary"]["codes"][6001] == "below_quality_policy"
     assert manifest["flag_dictionary"]["bits"][13] == "quality_policy"
-    assert manifest["coverage"]["quality_scores"][0]["min_inclusive"] == 3.3655
+    assert manifest["coverage"]["quality_scores"][0]["min_inclusive"] == 3.0
+    assert manifest["coverage"]["quality_scores"][0]["min_inclusive_by_language"]["en"] == 3.3922
     assert manifest["text_sources"] == {"0": manifest["text_sources"]["0"]}
 
 

@@ -4,7 +4,8 @@ All row arrays are scratch state, never a published selection representation.
 Rules without `annotation_inputs`/`text_filter` reproduce selection-v1 exactly;
 selection-v2 adds pinned ASR text sources, strict ASR language and text-script checks,
 text length/repetition policy and sample-scoped source-timeline evidence;
-selection-v3 adds pinned per-sample quality scores with a fixed minimum (`quality_inputs`)
+selection-v3 adds pinned per-sample quality scores with fixed minimums, optionally per language
+(`quality_inputs`),
 and keeps only rows its parent selected (`parent_selected_only`).
 Reference pairing is deliberately unsupported.
 """
@@ -474,6 +475,11 @@ def pin_annotations(root, rules, inputs):
                     "metric": item["metric"],
                     "min_inclusive": item["min_inclusive"],
                 }
+                | (
+                    {"min_inclusive_by_language": item["min_inclusive_by_language"]}
+                    if "min_inclusive_by_language" in item
+                    else {}
+                )
             )
     return pinned
 
@@ -593,6 +599,10 @@ def plan(root, work, rules_path, *, selection_id=None):
         raise ValueError("This executor supports self-reference selection only")
     if rules.get("quality_inputs") and not QUALITY_CODES <= set(rules["reason_priority"]):
         raise ValueError("Quality rules need 6001 in reason_priority")
+    for item in rules.get("quality_inputs", []):
+        by_language = item.get("min_inclusive_by_language")
+        if by_language is not None and set(rules["supported_languages"]) - set(by_language):
+            raise ValueError("Per-language quality minimums must cover every supported language")
     if rules.get("parent_selected_only") and not (
         parent_id and PARENT_CODES <= set(rules["reason_priority"])
     ):
@@ -786,7 +796,11 @@ def classify(
             raise ValueError("Quality identity disagrees with base")
         if quality["status"] != "ok" or quality["score"] is None:
             outcome = "unavailable"
-        elif quality["score"] < quality["min_inclusive"]:
+        elif quality["score"] < max(
+            quality["min_inclusive"],
+            # Unsupported languages are already excluded (2002); only the floor applies to them.
+            quality.get("min_inclusive_by_language", {}).get(language, quality["min_inclusive"]),
+        ):
             outcome = "below"
         else:
             outcome = "passed"
@@ -857,7 +871,11 @@ def scan_part(args):
             evidence = {}
             quality = None
             if scores is not None:
-                quality = scores[position] | {"min_inclusive": quality_item["min_inclusive"]}
+                quality = scores[position] | {
+                    k: quality_item[k]
+                    for k in ("min_inclusive", "min_inclusive_by_language")
+                    if k in quality_item
+                }
             reason, flags, lang, text = classify(
                 row, task["dataset"], rules, audio, samples, asr, evidence, quality
             )
