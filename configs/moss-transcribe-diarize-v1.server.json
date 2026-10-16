@@ -1,0 +1,20 @@
+{
+  "note": "Server-side provenance of the external MOSS endpoint, provided by the data owner on 2026-10-13. Frozen into the moss-transcribe-diarize-v1 profile after the pilot.",
+  "model_id": "OpenMOSS-Team/MOSS-Transcribe-Diarize",
+  "model_revision": "704aa4a9c304e8520be88901e0d1960158ef5b15",
+  "serving": {
+    "sglang-omni": "0.1.8",
+    "sglang-omni-commit": "204ba29a5303c25ca74238cc7f1e1356b494dd24",
+    "sglang": "0.5.21",
+    "torch": "2.13.0",
+    "transformers": "5.12.1",
+    "flashinfer-python": "0.6.18",
+    "nvidia-cuda-nvcc": "13.0.88",
+    "nvidia-cuda-crt": "13.0.88",
+    "nvidia-nvvm": "13.0.88",
+    "nvidia-cuda-runtime": "13.0.96"
+  },
+  "endpoint": "http://127.0.0.1:18000",
+  "launch_arguments": null,
+  "served_name": "/119010446/moss-diarization/models/MOSS-Transcribe-Diarize"
+}

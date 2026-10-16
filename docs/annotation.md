@@ -217,7 +217,7 @@ v2 manifest 的 layout_migration 仍记录原 v1 manifest 路径与摘要，仅�
 | transcription | Qwen3-ASR-1.7B 多语言基线（已发布）；FireRedASR2-AED 中文候选 |
 | text_agreement | 版本化归一化、分词和编辑距离算法 |
 | text_alignment | Qwen3-ForcedAligner-0.6B |
-| speaker_structure | NVIDIA Nemotron-3-Diarization 候选，pyannote Community-1 对照 |
+| speaker_structure | OpenMOSS MOSS-Transcribe-Diarize（外部 SGLang Omni 服务，见 05 的 MOSS 说话人结构单表）；NVIDIA Nemotron-3-Diarization、pyannote Community-1 为备选 |
 | restoration | sarulab-speech/sidon-v0.1，单说话人 |
 | quality_summary | 固定版本的评估规则或经校准的评估器 |
 
