@@ -1,0 +1,166 @@
+{
+  "contract_version": "v0.1",
+  "purpose": "supervised_tts",
+  "reference_policy": "self",
+  "duration_seconds": {
+    "min_inclusive": 1.0,
+    "max_inclusive": 120.0
+  },
+  "text_normalization": {
+    "name": "unicode-strip-v1",
+    "implementation": "python.str.strip",
+    "python_version": "3.11"
+  },
+  "language_aliases": {
+    "en-US": "en",
+    "zh-CN": "zh",
+    "en-us": "en",
+    "zh-cn": "zh"
+  },
+  "supported_languages": [
+    "de",
+    "en",
+    "es",
+    "fr",
+    "it",
+    "ja",
+    "ko",
+    "nl",
+    "pl",
+    "pt",
+    "zh"
+  ],
+  "source_priority": [
+    "emilia2"
+  ],
+  "representative_order": [
+    "source_priority",
+    "sample_id"
+  ],
+  "duplicate_conflict": "exclude_unresolved_group",
+  "reason_priority": [
+    103,
+    102,
+    104,
+    105,
+    1002,
+    101,
+    1001,
+    1003,
+    2001,
+    2002,
+    2003,
+    2004,
+    1007,
+    1008,
+    1004,
+    1005,
+    1006,
+    3001,
+    3002,
+    6001,
+    5001,
+    4002,
+    7001,
+    4001
+  ],
+  "annotation_inputs": [],
+  "evaluation": {
+    "status": "upstream_test_held_out",
+    "held_out_splits": {
+      "field": "original_split",
+      "values": [
+        "test",
+        "test.clean",
+        "test.other",
+        "test_seen",
+        "test_unseen"
+      ],
+      "note": "upstream test sets stay unseen; dev/valid splits remain in training"
+    },
+    "duplicate_groups": "a group containing a held-out member holds out every eligible member"
+  },
+  "audio_presence_evidence": "published_ingest_required_nonempty_bytes_and_full_readback; check audio_sha256 and native frame metadata again; no new full audio decode",
+  "initial_exclusion_evidence": [
+    "wutheringwaves:32 one-frame records",
+    "galgame:7 reviewed >300s transcript mismatches"
+  ],
+  "initial_root_reason": "selection-v3: emilia2 only, upstream DNSMOS >= 3.3655 (top 10% of its selection-v2 rows); other rules as selection-v2. Parent exclusions inherited in full; those of other datasets match no row here.",
+  "rules_version": "selection-v3",
+  "parent_selection": "tts-selection-supervised-tts-20261012T123927bjt-01",
+  "text_sources": {},
+  "text_filter": {
+    "analysis": "NFC; effective characters are Unicode categories L*/N* (str.isalnum), counted as code points",
+    "min_effective_characters": 1,
+    "dense_languages": [
+      "zh",
+      "yue",
+      "ja",
+      "ko",
+      "th"
+    ],
+    "seconds_per_character": {
+      "dense_languages": [
+        0.04,
+        2.0
+      ],
+      "other": [
+        0.015,
+        1.0
+      ]
+    },
+    "duration_source": "base num_frames / sample_rate (published actual decode); no audio statistics",
+    "repetition": {
+      "fold": "NFC(casefold(NFC(text)))",
+      "char_languages": [
+        "zh",
+        "yue",
+        "ja",
+        "ko",
+        "th"
+      ],
+      "word_split": "str.split whitespace, each word reduced to effective characters, empty words dropped",
+      "word_n": 4,
+      "word_min_units": 18,
+      "char_n": 8,
+      "char_min_units": 30,
+      "min_count": 5,
+      "min_coverage": 0.8
+    },
+    "markup_characters": "[]{}<>\\|^#",
+    "asr_line_breaks": "exclude: line breaks in ASR text mark internal chunk joins",
+    "script": {
+      "analysis": "letters only (str.isalpha); han/kana/hangul one unit per character, other scripts one unit per word (same-script letter run); script from the Unicode character name",
+      "expected": {
+        "zh": [
+          "han"
+        ],
+        "ja": [
+          "han",
+          "kana"
+        ],
+        "ko": [
+          "hangul"
+        ],
+        "default": [
+          "latin"
+        ]
+      },
+      "min_share": 0.5
+    }
+  },
+  "quality_inputs": [
+    {
+      "task": "upstream_quality",
+      "run_id": "tts-ann-upstream_quality-20261013T143341bjt-01",
+      "datasets": [
+        "emilia2"
+      ],
+      "column": "result.upstream_dnsmos",
+      "metric": "dnsmos_p835_ovrl_calibrated",
+      "min_inclusive": 3.3655,
+      "unavailable": "status != ok or null score excludes (6001)",
+      "derivation": "p90 of upstream DNSMOS over emilia2 rows selected by tts-selection-supervised-tts-20261012T123927bjt-01 (78,397,790 rows; 7,848,873 at or above); a fixed value, not recomputed per run"
+    }
+  ]
+}

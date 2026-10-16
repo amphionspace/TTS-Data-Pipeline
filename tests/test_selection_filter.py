@@ -495,3 +495,132 @@ def test_upstream_test_split_and_its_copies_are_held_out(tmp_path):
         digest("b-other"): 0,
     }
     assert manifest["evaluation"]["status"] == "upstream_test_held_out"
+
+
+def score(base, value, status="ok", **changes):
+    return {
+        "sample_id": base["sample_id"],
+        "status": status,
+        "audio_sha256": base["audio_sha256"] if status == "ok" else None,
+        "score": value if status == "ok" else None,
+        "min_inclusive": 3.3655,
+    } | changes
+
+
+def v3_rules():
+    return json.loads((REPOSITORY / "configs/selections/selection-v3.json").read_text())
+
+
+@pytest.mark.parametrize(
+    ("quality", "expected"),
+    [(3.3655, 0), (3.5, 0), (3.3654, 6001), (None, 6001)],
+)
+def test_quality_minimum_is_inclusive_and_missing_scores_fail(quality, expected):
+    base = row("q")
+    value = score(base, quality) if quality is not None else score(base, None, status="failed")
+    reason, flags, _, _ = classify(base, "alpha", v3_rules(), set(), {}, None, {}, value)
+    assert reason == expected
+    assert bool(flags & (1 << 13)) == (expected == 6001)
+
+
+def test_quality_identity_must_match_base():
+    base = row("q")
+    with pytest.raises(ValueError, match="Quality identity"):
+        classify(base, "alpha", v3_rules(), set(), {}, None, {}, score(base, 3.5, audio_sha256="0"))
+
+
+def test_shorter_rule_wins_over_quality():
+    base = row("q", duration=0.5)
+    reason, flags, _, _ = classify(base, "alpha", v3_rules(), set(), {}, None, {}, score(base, 3.0))
+    assert reason == 3001 and flags & (1 << 13)
+
+
+def write_quality(root, run_id, base, records, values):
+    path = Path("datasets") / base["dataset_id"] / "v0.1/annotations/upstream_quality" / run_id
+    rows = [
+        {
+            "sample_id": r["sample_id"],
+            "input_fingerprint": "x",
+            "status": "ok",
+            "error_code": None,
+            "result": {"audio_sha256": r["audio_sha256"], "upstream_dnsmos": v},
+        }
+        for r, v in reversed(list(zip(records, values, strict=True)))
+    ]
+    ds = lance.write_dataset(pa.Table.from_pylist(rows), root / path / "results.lance")
+    folder = root / "annotations/upstream_quality" / run_id
+    folder.mkdir(parents=True)
+    result = {
+        "name": "result",
+        "type": "struct",
+        "fields": [{"name": "audio_sha256"}, {"name": "upstream_dnsmos"}],
+    }
+    write_json(
+        folder / "manifest.json",
+        {
+            "status": "complete",
+            "run_id": run_id,
+            "profile_id": "profile",
+            "inputs": [base],
+            "outputs": [
+                {
+                    "dataset_id": base["dataset_id"],
+                    "table": {
+                        "table_path": str(path / "results.lance"),
+                        "branch": None,
+                        "lance_version": ds.version,
+                        "rows": len(rows),
+                        "schema": [{"name": "sample_id"}, result],
+                    },
+                }
+            ],
+        },
+    )
+
+
+def test_single_dataset_quality_selection_inherits_other_datasets_exclusions(tmp_path):
+    root = tmp_path / "unified"
+    records = [
+        row("e0", text="clean speech"),
+        row("e1", text="noisy speech"),
+        row("e2", audio="copy", text="same words"),
+        row("e3", audio="copy", text="same words"),
+    ]
+    base = write_base(root, "alpha", records)
+    write_quality(root, "dnsmos-run", base, records, [3.5, 3.0, 3.4, 3.4])
+    elsewhere = {
+        "exclusion_id": digest("elsewhere"),
+        "scope": {"dataset_id": "other", "release_id": "v0.1", "sample_id": digest("x")},
+        "reason": 105,
+    }
+    write_parent(root, [elsewhere])
+    configuration = v3_rules()
+    configuration.update(parent_selection="parent", source_priority=["alpha"])
+    configuration["quality_inputs"][0].update(run_id="dnsmos-run", datasets=["alpha"])
+    rules_path = tmp_path / "rules.json"
+    write_json(rules_path, configuration)
+    work = tmp_path / "scratch"
+    p = plan(root, work, rules_path, selection_id="quality")
+    assert p["annotation_inputs"][0]["role"] == "quality"
+    scan(work, workers=2)
+    resolve_duplicates(work)
+    manifest = publish(work, workers=2)
+    output = manifest["outputs"][0]
+    ds = lance.dataset(root / output["table_path"], version=output["base_version"])
+    branch = ds.checkout_version((output["branch"], output["lance_version"]))
+    reasons = {
+        r["sample_id"]: r["selection_reason"]
+        for r in branch.to_table(columns=["sample_id", "selection_reason"]).to_pylist()
+    }
+    assert reasons == {
+        digest("e0"): 0,
+        digest("e1"): 6001,
+        digest("e2"): 0,
+        digest("e3"): 4001,
+    }
+    assert manifest["exclusions"]["effective_count"] == 1
+    assert manifest["reason_dictionary"]["version"] == 3
+    assert manifest["reason_dictionary"]["codes"][6001] == "below_quality_policy"
+    assert manifest["flag_dictionary"]["bits"][13] == "quality_policy"
+    assert manifest["coverage"]["quality_scores"][0]["min_inclusive"] == 3.3655
+    assert manifest["text_sources"] == {"0": manifest["text_sources"]["0"]}
