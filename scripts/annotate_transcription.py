@@ -1,12 +1,13 @@
 """Prepare or resume independent Qwen ASR annotation runs."""
 
 import argparse
+import json
 from pathlib import Path
 
 import _bootstrap  # noqa: F401
 
 from tts_data_pipeline.annotations.qwen_asr.migrate import migrate_tables
-from tts_data_pipeline.annotations.qwen_asr.run import prepare, run
+from tts_data_pipeline.annotations.qwen_asr.run import prepare, prepare_segment, run
 
 
 def main():
@@ -23,6 +24,16 @@ def main():
         default=["genshin_voice", "starrail_voice", "wutheringwaves", "zenless_voice"],
     )
     command.add_argument("--batch-size", type=int, default=512)
+    command = commands.add_parser(
+        "prepare-segment", help="Continue a run's remaining tasks on another ASR server"
+    )
+    command.add_argument("--previous-work", type=Path, required=True)
+    command.add_argument("--work", type=Path, required=True)
+    command.add_argument("--endpoint", required=True)
+    command.add_argument("--model", required=True)
+    command.add_argument(
+        "--server", type=json.loads, required=True, help="JSON description of the pinned server"
+    )
     command = commands.add_parser("run")
     command.add_argument("--work", type=Path, required=True)
     command.add_argument("--workers", type=int, default=128)
@@ -30,6 +41,18 @@ def main():
         "--auto-resume",
         action="store_true",
         help="Resume verified checkpoints after temporary service failures",
+    )
+    command.add_argument(
+        "--audio-processes",
+        type=int,
+        default=0,
+        help="Decode and resample in this many processes (0: in the request threads)",
+    )
+    command.add_argument(
+        "--pipeline-batches",
+        type=int,
+        default=2,
+        help="Batches in flight, so slow requests in one batch do not idle the server",
     )
     command = commands.add_parser(
         "migrate-tables", help="Publish a v1 run as a single v2 table, without ASR"
@@ -43,10 +66,15 @@ def main():
             args.root, args.work, args.model_root, args.endpoint, args.datasets, args.batch_size
         )
         print(plan["run_id"], sum(s["rows"] for s in plan["inputs"]), "targets", flush=True)
+    elif args.command == "prepare-segment":
+        plan = prepare_segment(
+            args.previous_work, args.work, args.endpoint, args.model, args.server
+        )
+        print(plan["run_id"], plan["previous_segment"]["tasks"], "tasks retained", flush=True)
     elif args.command == "migrate-tables":
         print(migrate_tables(args.root, args.source_manifest, args.work), flush=True)
     else:
-        run(args.work, args.workers, args.auto_resume)
+        run(args.work, args.workers, args.auto_resume, args.audio_processes, args.pipeline_batches)
 
 
 if __name__ == "__main__":

@@ -41,6 +41,83 @@ def check_service(endpoint, model, expected_version):
     return matches[0]
 
 
+def check_sglang_service(endpoint, model):
+    # sglang-omni reports neither a version nor a filesystem root; the profile pins its config.
+    models = request_json(endpoint + "/models")
+    matches = [m for m in models["data"] if m["id"] == model]
+    if len(matches) != 1:
+        raise RuntimeError("Pinned ASR model unavailable")
+    return matches[0]
+
+
+def multipart(fields, audio):
+    boundary = uuid.uuid4().hex
+    body = bytearray()
+    for name, value in fields.items():
+        body.extend(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'
+            f"{value}\r\n".encode()
+        )
+    body.extend(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"'
+        "\r\nContent-Type: audio/wav\r\n\r\n".encode()
+    )
+    body.extend(audio)
+    body.extend(f"\r\n--{boundary}--\r\n".encode())
+    return bytes(body), f"multipart/form-data; boundary={boundary}"
+
+
+def transcribe_sglang(endpoint, model, audio, language=None):
+    """sglang-omni: non-stream (stream rejects >30 s), server-side 30 s chunks, no finish reason."""
+    fields = {
+        "model": model,
+        "temperature": "0",
+        "max_new_tokens": "1024",
+        "response_format": "verbose_json",
+    }
+    if language:
+        fields["language"] = language
+    body, content_type = multipart(fields, audio)
+    request = urllib.request.Request(
+        endpoint + "/audio/transcriptions", data=body, headers={"Content-Type": content_type}
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def read():
+        with opener.open(request, timeout=600) as response:
+            return json.load(response)
+
+    invalid = []
+    for attempt in range(FORMAT_ATTEMPTS):
+        response = dict(transport.call(read), model=model)
+        evidence = dict(response, invalid_format_attempts=invalid) if invalid else response
+        text = response.get("text")
+        if not isinstance(text, str):
+            invalid.append(response)
+            if attempt + 1 == FORMAT_ATTEMPTS:
+                return {"error_code": "asr_output_invalid_format", "raw_response": evidence}
+            print(
+                json.dumps(dict(event="asr_output_format_retry", attempt=attempt + 1)), flush=True
+            )
+            continue
+        if text.strip() == "<|nospeech|>":
+            text = ""
+        if language:
+            detected = LANGUAGE_NAMES[language]
+        else:
+            # Chunked (>30 s) responses echo the request language, so automatic detection is absent.
+            detected = response.get("language") or ""
+            if detected == "None" or not text.strip():
+                detected = ""
+        return dict(
+            language=detected,
+            language_source="requested" if language else "detected",
+            text=text,
+            raw_response=evidence,
+            error_code=None,
+        )
+
+
 def transcribe(endpoint, model, audio, language=None):
     fields = {
         "model": model,
