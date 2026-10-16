@@ -3,7 +3,9 @@
 All row arrays are scratch state, never a published selection representation.
 Rules without `annotation_inputs`/`text_filter` reproduce selection-v1 exactly;
 selection-v2 adds pinned ASR text sources, strict ASR language and text-script checks,
-text length/repetition policy and sample-scoped source-timeline evidence.
+text length/repetition policy and sample-scoped source-timeline evidence;
+selection-v3 adds pinned per-sample quality scores with a fixed minimum (`quality_inputs`)
+and keeps only rows its parent selected (`parent_selected_only`).
 Reference pairing is deliberately unsupported.
 """
 
@@ -79,7 +81,9 @@ REASONS = {
     4001: "duplicate_not_selected",
     4002: "conflicting_duplicate",
     5001: "reference_identity_unavailable",
+    6001: "below_quality_policy",
     7001: "held_out",
+    8001: "not_selected_by_parent",
     65535: "pending",
 }
 FLAGS = [
@@ -96,7 +100,17 @@ FLAGS = [
     "source_timeline",
     "text_policy",
     "language_evidence",
+    "quality_policy",
+    "parent_policy",
 ]
+# Dictionary version 3 adds 6001 and flag bit 13, version 4 adds 8001 and bit 14;
+# rules without these policies publish the earlier version unchanged.
+QUALITY_CODES, QUALITY_BIT = {6001}, 13
+PARENT_CODES, PARENT_BIT = {8001}, 14
+# Parent reasons a parent-only rule may override on a row its own checks select:
+# the parent saw duplicates across datasets this selection does not read.
+PARENT_OVERRIDABLE = {4001, 4002, 7001}
+QUALITY_COLUMNS = ("sample_id", "status", "result.audio_sha256")
 ASR_COLUMNS = {
     "sample_id": "sample_id",
     "status": "status",
@@ -304,6 +318,65 @@ def inherited_exclusions(root, parent_id):
     return parent, rows
 
 
+def parent_outputs(root, parent_id, inputs):
+    """Pin the parent's branch of every input; it must sit on the same base version."""
+    manifest = json.loads((Path(root) / "selections" / parent_id / "manifest.json").read_text())
+    outputs = {o["dataset_id"]: o for o in manifest["outputs"]}
+    pinned = []
+    for source in inputs:
+        o = outputs.get(source["dataset_id"])
+        if (
+            o is None
+            or o["table_path"] != source["table_path"]
+            or o["base_version"] != source["lance_version"]
+            or o["rows"] != source["rows"]
+            or not o["validation"]["base_unchanged"]
+        ):
+            raise ValueError(f"Parent has no output on this base: {source['dataset_id']}")
+        pinned.append(
+            {
+                k: o[k]
+                for k in ("dataset_id", "table_path", "branch", "lance_version", "tag", "rows")
+            }
+            | {"ordered_sample_ids_sha256": o["validation"]["ordered_sample_ids_sha256"]}
+        )
+    return pinned
+
+
+def restrict_to_parent(root, pinned, array, priority):
+    """Mark rows the parent did not select; return the parent reasons that 8001 replaced."""
+    ds = lance.dataset(Path(root) / pinned["table_path"])
+    branch = ds.checkout_version((pinned["branch"], pinned["lance_version"]))
+    rank = {code: i for i, code in enumerate(priority)}
+    replaced, ordered, position = Counter(), hashlib.sha256(), 0
+    for batch in branch.to_batches(
+        columns=["sample_id", "selection_reason"], batch_size=1 << 20, scan_in_order=True
+    ):
+        ids = np.asarray(batch.column("sample_id").to_pylist(), dtype="S64")
+        block = array[position : position + len(batch)]
+        if not np.array_equal(ids, block["sample_id"]):
+            raise ValueError("Parent branch row order differs from base")
+        ordered.update(b"".join(s + b"\n" for s in ids))
+        parent = batch.column("selection_reason").to_numpy()
+        hit = np.flatnonzero(parent != 0)
+        if len(hit):
+            # The row's own reason keeps priority; 8001 only replaces a selection.
+            own = np.array([rank.get(int(r), -1) for r in block["reason"][hit]], dtype=np.int64)
+            take = hit[(block["reason"][hit] == 0) | (own > rank[8001])]
+            replaced.update(int(r) for r in parent[take])
+            reasons, flags = block["reason"].copy(), block["flags"].copy()
+            flags[hit] |= np.uint32(1 << PARENT_BIT)
+            reasons[take] = 8001
+            array["reason"][position : position + len(batch)] = reasons
+            array["flags"][position : position + len(batch)] = flags
+        position += len(batch)
+    if position != len(array) or ordered.hexdigest() != pinned["ordered_sample_ids_sha256"]:
+        raise ValueError("Parent branch does not cover base")
+    if set(replaced) - PARENT_OVERRIDABLE:
+        raise ValueError(f"Rules disagree with the parent beyond duplicates: {dict(replaced)}")
+    return {str(k): v for k, v in sorted(replaced.items())}
+
+
 def timeline_exclusions(rules_path, rules, inputs):
     """Sample-scoped source-duration findings from the pinned interval audit."""
     evidence = rules.get("source_timeline_evidence")
@@ -347,10 +420,12 @@ def timeline_exclusions(rules_path, rules, inputs):
 
 
 def pin_annotations(root, rules, inputs):
-    """Fix each adopted transcription run to its manifest, table snapshot and base inputs."""
+    """Fix each adopted transcription or quality run to its manifest, table snapshot and base."""
     releases = {s["dataset_id"]: s for s in inputs}
     pinned, covered = [], set()
-    for item in rules.get("annotation_inputs", []):
+    items = [(i, "transcription") for i in rules.get("annotation_inputs", [])]
+    items += [(i, "quality") for i in rules.get("quality_inputs", [])]
+    for item, role in items:
         folder = Path("annotations") / item["task"] / item["run_id"]
         manifest = json.loads((Path(root) / folder / "manifest.json").read_text())
         if manifest["status"] != "complete" or manifest["run_id"] != item["run_id"]:
@@ -358,9 +433,9 @@ def pin_annotations(root, rules, inputs):
         bases = {s["dataset_id"]: s for s in manifest["inputs"]}
         outputs = {o["dataset_id"]: o for o in manifest["outputs"]}
         for name in item["datasets"]:
-            if name in covered:
-                raise ValueError("Dataset has two text sources")
-            covered.add(name)
+            if (role, name) in covered:
+                raise ValueError(f"Dataset has two {role} sources")
+            covered.add((role, name))
             source, table = releases[name], outputs[name]["table"]
             if (
                 bases[name]["manifest_sha256"] != source["manifest_sha256"]
@@ -369,26 +444,64 @@ def pin_annotations(root, rules, inputs):
                 or table["branch"] is not None
             ):
                 raise ValueError(f"Annotation was computed on a different base: {name}")
+            entry = {
+                "task": item["task"],
+                "run_id": item["run_id"],
+                "manifest_path": str(folder / "manifest.json"),
+                "manifest_sha256": file_sha(Path(root) / folder / "manifest.json"),
+                "profile_id": manifest["profile_id"],
+                "dataset_id": name,
+                "release_id": source["release_id"],
+                "table_path": table["table_path"],
+                "branch": None,
+                "lance_version": table["lance_version"],
+                "rows": table["rows"],
+                "columns": sorted(ASR_COLUMNS.values()),
+                "base_manifest_sha256": source["manifest_sha256"],
+                "base_lance_version": source["lance_version"],
+            }
+            if role == "transcription":
+                pinned.append({"text_source": item["text_source"], **entry})
+                continue
+            result = next(c for c in table["schema"] if c["name"] == "result")
+            if item["column"] not in {f"result.{f['name']}" for f in result["fields"]}:
+                raise ValueError(f"Quality column is not in the annotation schema: {name}")
             pinned.append(
-                {
-                    "text_source": item["text_source"],
-                    "task": item["task"],
-                    "run_id": item["run_id"],
-                    "manifest_path": str(folder / "manifest.json"),
-                    "manifest_sha256": file_sha(Path(root) / folder / "manifest.json"),
-                    "profile_id": manifest["profile_id"],
-                    "dataset_id": name,
-                    "release_id": source["release_id"],
-                    "table_path": table["table_path"],
-                    "branch": None,
-                    "lance_version": table["lance_version"],
-                    "rows": table["rows"],
-                    "columns": sorted(ASR_COLUMNS.values()),
-                    "base_manifest_sha256": source["manifest_sha256"],
-                    "base_lance_version": source["lance_version"],
+                entry
+                | {
+                    "role": "quality",
+                    "columns": [*QUALITY_COLUMNS, item["column"]],
+                    "metric": item["metric"],
+                    "min_inclusive": item["min_inclusive"],
                 }
             )
     return pinned
+
+
+def transcription_inputs(p, name=None):
+    """Pinned text sources; quality inputs carry no text."""
+    return [
+        a
+        for a in p.get("annotation_inputs", [])
+        if "text_source" in a and (name is None or a["dataset_id"] == name)
+    ]
+
+
+def quality_input(p, name):
+    return next(
+        (
+            a
+            for a in p.get("annotation_inputs", [])
+            if a.get("role") == "quality" and a["dataset_id"] == name
+        ),
+        None,
+    )
+
+
+def aligned_key(item, offset):
+    """Scratch name of one aligned scan slice; transcription keeps its original name."""
+    kind = "quality-" if item.get("role") == "quality" else ""
+    return f"{item['dataset_id']}-{kind}{offset:012d}"
 
 
 def align_annotations(work):
@@ -417,8 +530,12 @@ def align_annotations(work):
         table = lance.dataset(Path(p["root"]) / item["table_path"], version=item["lance_version"])
         if table.count_rows() != item["rows"]:
             raise ValueError("Annotation row count changed")
-        names = list(ASR_COLUMNS)
-        ann = table.to_table(columns=[ASR_COLUMNS[k] for k in names]).rename_columns(names)
+        if item.get("role") == "quality":
+            names, columns = ["sample_id", "status", "audio_sha256", "score"], item["columns"]
+        else:
+            names = list(ASR_COLUMNS)
+            columns = [ASR_COLUMNS[k] for k in names]
+        ann = table.to_table(columns=columns).rename_columns(names)
         # 64-bit offsets: one dataset's aligned text can exceed 2 GiB.
         ann = ann.cast(
             pa.schema(
@@ -437,21 +554,21 @@ def align_annotations(work):
         if not aligned["sample_id"].equals(ids):
             raise ValueError("Annotation alignment failed")
         for task in (t for t in p["tasks"] if t["dataset"] == name):
-            path = folder / f"{name}-{task['offset']:012d}.parquet"
+            path = folder / f"{aligned_key(item, task['offset'])}.parquet"
             pq.write_table(aligned.slice(task["offset"], task["rows"]), path)
             done[path.stem] = {"path": str(path), "sha256": file_sha(path), "rows": task["rows"]}
-        event(work, "annotation_aligned", dataset=name, rows=len(aligned))
+        event(work, "annotation_aligned", dataset=name, rows=len(aligned), role=item.get("role"))
     write_json(checkpoint, done)
     return done
 
 
-def asr_rows(p, task):
-    """Aligned annotation rows for one scan task, or None for base-text datasets."""
-    if not any(a["dataset_id"] == task["dataset"] for a in p["annotation_inputs"]):
+def aligned_rows(p, task, item):
+    """Aligned annotation rows of one pinned input for one scan task; None without that input."""
+    if item is None:
         return None
     import pyarrow.parquet as pq
 
-    path = Path(p["work"]) / "annotations" / f"{task['dataset']}-{task['offset']:012d}.parquet"
+    path = Path(p["work"]) / "annotations" / f"{aligned_key(item, task['offset'])}.parquet"
     done = json.loads((Path(p["work"]) / "annotations" / "aligned.json").read_text())
     if file_sha(path) != done[path.stem]["sha256"]:
         raise ValueError("Aligned annotation scratch changed")
@@ -474,6 +591,12 @@ def plan(root, work, rules_path, *, selection_id=None):
         )
     if rules["reference_policy"] != "self":
         raise ValueError("This executor supports self-reference selection only")
+    if rules.get("quality_inputs") and not QUALITY_CODES <= set(rules["reason_priority"]):
+        raise ValueError("Quality rules need 6001 in reason_priority")
+    if rules.get("parent_selected_only") and not (
+        parent_id and PARENT_CODES <= set(rules["reason_priority"])
+    ):
+        raise ValueError("parent_selected_only needs parent_selection and 8001 in reason_priority")
     selection_id = selection_id or datetime.now(BEIJING).strftime(
         "tts-selection-supervised-tts-%Y%m%dT%H%M%Sbjt-01"
     )
@@ -532,6 +655,9 @@ def plan(root, work, rules_path, *, selection_id=None):
         "inputs": inputs,
         "annotation_inputs": pin_annotations(root, rules, inputs),
         "parent": parent,
+        "parent_outputs": parent_outputs(root, parent_id, inputs)
+        if rules.get("parent_selected_only")
+        else None,
         "tasks": tasks,
         "exclusions": exclusions + additions,
         "exclusion_additions": [e["exclusion_id"] for e in additions],
@@ -559,7 +685,9 @@ def asr_language_conflict(asr, language, source):
     return source["language_labels"].get(asr["language"] or "") != language
 
 
-def classify(row, dataset, rules, audio_exclusions, sample_exclusions, asr=None, evidence=None):
+def classify(
+    row, dataset, rules, audio_exclusions, sample_exclusions, asr=None, evidence=None, quality=None
+):
     reasons, flags = [], 0
     raw_text = row["text"]
     text = chosen_text(raw_text, asr)
@@ -651,6 +779,23 @@ def classify(row, dataset, rules, audio_exclusions, sample_exclusions, asr=None,
         if json.loads(metadata).get(held["field"]) in held["values"]:
             reasons.append(7001)
             flags |= 1 << 8
+    if quality is not None:
+        if quality["sample_id"] != row["sample_id"]:
+            raise ValueError("Quality row is not aligned with base")
+        if quality["status"] == "ok" and quality["audio_sha256"] != row["audio_sha256"]:
+            raise ValueError("Quality identity disagrees with base")
+        if quality["status"] != "ok" or quality["score"] is None:
+            outcome = "unavailable"
+        elif quality["score"] < quality["min_inclusive"]:
+            outcome = "below"
+        else:
+            outcome = "passed"
+        if outcome != "passed":
+            # A missing score never passes the minimum.
+            reasons.append(6001)
+            flags |= 1 << QUALITY_BIT
+        if evidence is not None:
+            evidence["quality"] = outcome
     bounds = rules["duration_seconds"]
     if duration < bounds["min_inclusive"]:
         reasons.append(3001)
@@ -686,11 +831,11 @@ def scan_part(args):
             # One sample may carry several independent exclusions.
             samples.setdefault((entry["scope"]["dataset_id"], entry["scope"]["sample_id"]), [])
             samples[(entry["scope"]["dataset_id"], entry["scope"]["sample_id"])].append(entry)
-    annotation = asr_rows(p, task)
-    text_source = next(
-        (a["text_source"] for a in p["annotation_inputs"] if a["dataset_id"] == task["dataset"]),
-        0,
-    )
+    transcription = next(iter(transcription_inputs(p, task["dataset"])), None)
+    annotation = aligned_rows(p, task, transcription)
+    text_source = transcription["text_source"] if transcription else 0
+    quality_item = quality_input(p, task["dataset"])
+    scores = aligned_rows(p, task, quality_item)
     languages = {lang: i + 1 for i, lang in enumerate(rules["supported_languages"])}
     counter, lang_counts, lang_seconds = Counter(), Counter(), Counter()
     raw_counts, raw_seconds = Counter(), Counter()
@@ -710,8 +855,11 @@ def scan_part(args):
             if annotation is not None:
                 asr = annotation[position] | {"text_source": text_source}
             evidence = {}
+            quality = None
+            if scores is not None:
+                quality = scores[position] | {"min_inclusive": quality_item["min_inclusive"]}
             reason, flags, lang, text = classify(
-                row, task["dataset"], rules, audio, samples, asr, evidence
+                row, task["dataset"], rules, audio, samples, asr, evidence, quality
             )
             sid, sha = row["sample_id"], row["audio_sha256"]
             if len(sid) != 64 or any(c not in "0123456789abcdef" for c in sid):
@@ -734,6 +882,8 @@ def scan_part(args):
             checks["sample_exclusions"] += len(samples.get((task["dataset"], sid), []))
             if asr is not None:
                 checks["asr_" + str(asr["status"])] += 1
+            if quality is not None:
+                checks["quality_" + evidence["quality"]] += 1
             ids.update(sid.encode() + b"\n")
             counter[str(reason)] += 1
             lang_counts[lang or "<missing>"] += 1
@@ -851,10 +1001,12 @@ def resolve_duplicates(work):
         return result
     parts = json.loads((work / "scan.json").read_text())
     applied = sum(t.get("checks", {}).get("sample_exclusions", 0) for t in parts)
-    if applied != sum("sample_id" in e["scope"] for e in p["exclusions"]):
+    # Inherited exclusions of datasets outside this selection stay effective but match no row here.
+    names = {s["dataset_id"] for s in p["inputs"]}
+    if applied != sum(e["scope"].get("dataset_id") in names for e in p["exclusions"]):
         raise ValueError("Sample-scoped exclusions do not all match a base row")
     sources = p["inputs"]
-    arrays, array_paths = [], []
+    arrays, array_paths, replaced = [], [], {}
     total = sum(s["rows"] for s in sources)
     index = np.lib.format.open_memmap(
         work / "global-index.npy", mode="w+", dtype=INDEX, shape=(total,)
@@ -878,6 +1030,11 @@ def resolve_duplicates(work):
             offset = end
         if offset != len(array):
             raise ValueError("Missing scan parts")
+        if p.get("parent_outputs"):
+            replaced[name] = restrict_to_parent(
+                p["root"], p["parent_outputs"][dataset], array, p["rules"]["reason_priority"]
+            )
+            event(work, "parent_restricted", dataset=name, replaced=replaced[name])
         array.flush()
         arrays.append(array)
         array_paths.append(path)
@@ -991,6 +1148,7 @@ def resolve_duplicates(work):
         array.flush()
         array_info.append({"path": str(path), "sha256": file_sha(path)})
     result = stats | {
+        "parent_not_selected": replaced if p.get("parent_outputs") else None,
         "arrays": array_info,
         "lance_version": table.version,
         "duplicate_path": str(duplicate_path),
@@ -1016,7 +1174,7 @@ def text_override(raw, asr):
 
 def aligned_text(p, name):
     """(text_source, status, text) arrays in base row order for an ASR-text dataset."""
-    item = next((a for a in p["annotation_inputs"] if a["dataset_id"] == name), None)
+    item = next(iter(transcription_inputs(p, name)), None)
     if item is None:
         return None
     import pyarrow.parquet as pq
@@ -1024,7 +1182,7 @@ def aligned_text(p, name):
     done = json.loads((Path(p["work"]) / "annotations" / "aligned.json").read_text())
     tables = []
     for task in sorted((t for t in p["tasks"] if t["dataset"] == name), key=lambda t: t["offset"]):
-        entry = done[f"{name}-{task['offset']:012d}"]
+        entry = done[aligned_key(item, task["offset"])]
         if file_sha(entry["path"]) != entry["sha256"]:
             raise ValueError("Aligned annotation scratch changed")
         tables.append(pq.read_table(entry["path"], columns=["status", "text"]))
@@ -1246,7 +1404,7 @@ def text_sources(p):
     sources = {
         "0": {"kind": "base_normalization", "normalization": p["rules"]["text_normalization"]}
     }
-    for item in p.get("annotation_inputs", []):
+    for item in transcription_inputs(p):
         code = str(item["text_source"])
         rule = p["rules"]["text_sources"][code]
         entry = sources.setdefault(
@@ -1348,6 +1506,12 @@ def publish(work, workers=16):
         )
     )
     parts = json.loads((Path(work) / "scan.json").read_text())
+    quality = p["rules"].get("quality_inputs")
+    restricted = bool(p["rules"].get("parent_selected_only"))
+    version = 4 if restricted else 3 if quality else 2
+    hidden = (set() if quality or restricted else QUALITY_CODES) | (
+        set() if restricted else PARENT_CODES
+    )
     manifest = {
         "contract_version": "v0.1",
         "artifact_kind": "selection",
@@ -1365,13 +1529,19 @@ def publish(work, workers=16):
             "sha256": file_sha(incomplete / "rules.json"),
             "implementation_sha256": p["implementation_sha256"],
         },
-        # Version 2 adds 105/1003-1008/2003/2004 and flag bits 10-12; old codes keep meaning.
+        # Version 2 adds 105/1003-1008/2003/2004 and flag bits 10-12; version 3 adds 6001
+        # and bit 13; version 4 adds 8001 and bit 14. Old codes keep their meaning.
         "reason_dictionary": {
-            "version": 2,
-            "codes": REASONS,
+            "version": version,
+            "codes": {k: v for k, v in REASONS.items() if k not in hidden},
             "priority": p["rules"]["reason_priority"],
         },
-        "flag_dictionary": {"version": 2, "bits": dict(enumerate(FLAGS))},
+        "flag_dictionary": {
+            "version": version,
+            "bits": dict(
+                enumerate(FLAGS[: {2: QUALITY_BIT, 3: PARENT_BIT, 4: len(FLAGS)}[version]])
+            ),
+        },
         "exclusions": {
             "parent": parent,
             "initial_evidence_sources": p["rules"]["initial_exclusion_evidence"],
@@ -1383,13 +1553,24 @@ def publish(work, workers=16):
             "retracted": 0,
             "effective_count": len(p["exclusions"]),
         },
-        "duplicates": {k: v for k, v in result.items() if k not in {"arrays", "duplicate_path"}},
+        "duplicates": {
+            k: v
+            for k, v in result.items()
+            if k not in {"arrays", "duplicate_path", "parent_not_selected"}
+        },
         "coverage": {
             "row_rules": sum(s["rows"] for s in p["inputs"]),
             "exact_duplicate_hashes": sum(s["rows"] for s in p["inputs"]),
             "full_audio_decode": 0,
             "near_duplicates": "not_checked",
-            "quality_scores": "not_checked",
+            "quality_scores": quality or "not_checked",
+            "parent_selection": {
+                "rule": "parent_selected_only",
+                "outputs": p["parent_outputs"],
+                "replaced_parent_reasons": result["parent_not_selected"],
+            }
+            if restricted
+            else "not_applied",
             "audio_statistics": "not_used",
             "audio_presence": p["rules"]["audio_presence_evidence"],
             "text_filter": p["rules"].get("text_filter", "not_applied"),
