@@ -37,6 +37,12 @@ def main():
     plan.add_argument("--reference-codec-plan", type=Path, help="published codec run plan")
     plan.add_argument("--reference-seed", type=int, default=20261008)
     plan.add_argument(
+        "--reference-placement",
+        choices=("uniform", "prefix"),
+        default="uniform",
+        help="uniform: random legal start; prefix: start at frame 0 with the uniform lengths",
+    )
+    plan.add_argument(
         "--reuse",
         type=Path,
         nargs="+",
@@ -71,6 +77,7 @@ def main():
             reference_sources_plan=args.reference_sources_plan,
             reference_codec_plan=args.reference_codec_plan,
             reference_seed=args.reference_seed,
+            reference_placement=args.reference_placement,
             reuse=args.reuse,
         )
     else:

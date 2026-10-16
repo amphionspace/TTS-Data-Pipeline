@@ -86,6 +86,7 @@ def prepare(
     reference_sources_plan=None,
     reference_codec_plan=None,
     reference_seed=20261008,
+    reference_placement="uniform",
     reuse=(),
 ):
     """Reuse the already-audited pinned codec target plan, never its codec feature outputs.
@@ -93,13 +94,20 @@ def prepare(
     `reference_codec_plan` pins each dataset's published codec from a codec run plan;
     `reference_sources_plan` keeps accepting an existing merge plan. `reuse` lists published
     speaker manifests of this exact profile whose rows may be copied by target.
+    `reference_placement` "prefix" starts every reference at frame 0 (prefix_reference.py).
     """
     work = Path(work).resolve()
     original = json.loads(Path(targets_plan).read_text())
     if reference_sources_plan and reference_codec_plan:
         raise ValueError("Pass either a merge plan or a codec plan as the reference source")
     reference = bool(reference_sources_plan or reference_codec_plan)
-    definition = profile(model_root, reference_seed if reference else None)
+    if reference_placement not in ("uniform", "prefix"):
+        raise ValueError(f"Unknown reference placement: {reference_placement}")
+    if reference_placement == "prefix" and not reference:
+        raise ValueError("A prefix placement needs a reference codec source")
+    definition = speaker_profile(
+        model_root, reference_seed if reference else None, reference_placement
+    )
     reference_sources = {}
     if reference_sources_plan:
         reference_sources = {
@@ -109,7 +117,9 @@ def prepare(
     elif reference_codec_plan:
         reference_sources = codec_sources(reference_codec_plan, datasets)
     profile_name = PROFILE_NAME
-    if reference:
+    if reference_placement == "prefix":
+        from .prefix_reference import PROFILE_NAME as profile_name
+    elif reference:
         from .reference import PROFILE_NAME as profile_name
     accepted = json.loads(Path(acceptance).read_text())
     if not accepted.get("production_speaker_accepted") or accepted["profile_id"] != digest(
@@ -263,12 +273,29 @@ def reuse_sources(manifests, profile_id):
     return sources
 
 
+def placement(definition):
+    from .prefix_reference import is_prefix
+
+    return "prefix" if is_prefix(definition) else "uniform"
+
+
+def speaker_profile(model_root, reference_seed, reference_placement="uniform"):
+    if reference_placement == "prefix":
+        from .prefix_reference import profile as prefix_profile
+
+        return prefix_profile(model_root, reference_seed)
+    return profile(model_root, reference_seed)
+
+
 def validate_plan(p):
     if (
         file_hash(p["selection_path"]) != p["selection_sha256"]
         or file_hash(p["acceptance_path"]) != p["acceptance_sha256"]
         or file_hash(__file__) != p["execution_code_sha256"]
-        or profile(p["model_root"], p["profile"].get("reference", {}).get("seed")) != p["profile"]
+        or speaker_profile(
+            p["model_root"], p["profile"].get("reference", {}).get("seed"), placement(p["profile"])
+        )
+        != p["profile"]
     ):
         raise ValueError("Pinned input, implementation, or numerical profile changed")
     accepted = json.loads(Path(p["acceptance_path"]).read_text())
@@ -352,7 +379,10 @@ def prepare_task(p, d, task):
     if len(rows) != task["rows"] or ordered_hash(ids) != task["ordered_ids_sha256"]:
         raise ValueError("Task target set changed")
     if "reference_codec_source" in d:
-        from .reference import attach
+        if placement(p["profile"]) == "prefix":
+            from .prefix_reference import attach
+        else:
+            from .reference import attach
 
         attach(
             rows,
@@ -496,6 +526,11 @@ def write_task(p, d, task, prepared, values, hardware):
     if not back.equals(table):
         raise ValueError("Speaker fragment readback differs")
     validate_table(back)
+    if placement(p["profile"]) == "prefix":
+        ok = pc.equal(back["status"], "ok")
+        for column in ("reference_codec_start", "start_frame"):
+            if pc.any(pc.and_(ok, pc.not_equal(back[column], 0))).as_py():
+                raise ValueError("Prefix reference does not start at the first frame")
     checkpoint = dict(
         task=task,
         profile_id=p["profile_id"],
