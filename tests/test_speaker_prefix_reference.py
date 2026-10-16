@@ -9,7 +9,6 @@ from test_speaker_reuse import (
     codec_run,
     fixture,
     make_run,
-    publish_first,
     stored,
 )
 
@@ -99,9 +98,7 @@ def test_prefix_profile_is_distinct(monkeypatch):
 
 
 def test_prefix_run_matches_uniform_lengths(tmp_path):
-    """A prefix run over the same targets: same statuses and lengths, every start at 0."""
-    _, _, d, d1, _ = publish_first(tmp_path)
-    uniform = stored(d1)
+    """A prefix run keeps its own uniform plan's statuses and lengths, every start at 0."""
     selected, p, d = fixture(tmp_path / "prefix")
     p = {**p, "profile": PREFIX_PROFILE, "profile_id": digest(PREFIX_PROFILE)}
     d2 = make_run(
@@ -117,10 +114,17 @@ def test_prefix_run_matches_uniform_lengths(tmp_path):
     manifest = run.finalize(p, d2)
     assert manifest["error_counts"] == {"no_legal_reference": 1}
     prefix = stored(d2)
+    # Lengths come from the uniform draw for the same identity (its audio bytes included),
+    # so compare with the uniform plan this run kept, not with another fixture's run.
+    state = Path(d2["state"])
+    uniform = {}
+    for t in d2["tasks"]:
+        with pa.ipc.open_file(state / "uniform" / "references" / f"{t['id']}.arrow") as reader:
+            uniform.update({r["target_id"]: r for r in reader.read_all().to_pylist()})
     assert set(prefix) == set(uniform)
     for sid, row in prefix.items():
         old = uniform[sid]
-        assert row["status"] == old["status"]
+        assert (row["status"] == "ok") == (old["error_code"] is None)
         if row["status"] != "ok":
             continue
         assert row["reference_codec_start"] == row["start_frame"] == 0
@@ -128,7 +132,6 @@ def test_prefix_run_matches_uniform_lengths(tmp_path):
             old["reference_codec_end"] - old["reference_codec_start"]
         )
         assert row["end_frame"] == old["end_frame"] - old["start_frame"]
-    state = Path(d2["state"])
     for t in d2["tasks"]:
         assert (state / "references" / f"{t['id']}.arrow").exists()
         assert (state / "uniform" / "references" / f"{t['id']}.arrow").exists()
