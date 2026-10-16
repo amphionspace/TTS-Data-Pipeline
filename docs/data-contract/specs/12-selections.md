@@ -350,7 +350,7 @@ dev 保留在训练集合，其副本也不留出，因此 dev 不能作为无�
 **状态：未实现，未发布。** 质量筛选计划同时使用五项证据：上游 DNSMOS（下文规则）、ASR 一致性（`text_agreement`）、
 有效带宽（`effective_bandwidth`）、UTMOS（`utmos`）与片段内 speaker x-vector 方差（`speaker_consistency`）。
 后四项尚无 annotation（见 [05 · 任务与结果解释](05-annotations.md#任务与结果解释)），各自的门槛、组合方式与原因码在实现时补齐；
-在此之前不发布 selection-v3。`configs/selections/selection-v3.json` 与下文只覆盖 DNSMOS 与父 selection 两部分，是草案。
+在此之前不发布 selection-v3。下文只覆盖 DNSMOS 与父 selection 两部分，是草案；其规则与执行器代码已从仓库撤下，见提交 8341715。
 2026-10-16 两次只按 DNSMOS 的发布（全局 p90）已删除，见 PUBLICATIONS。
 
 **输入。** 只有 emilia2（source_priority 仅此一项）。rules 固定父 selection 为 selection-v2 的发布并完整继承其有效排除；
