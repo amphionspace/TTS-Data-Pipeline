@@ -176,8 +176,11 @@ task 名称及其逻辑结果如下。每个任务在生产运行前须冻结 pr
 | `transcription` | 独立 ASR 文本、识别或指定语言、实际处理范围，见[独立 ASR 转写结果](#独立-asr-转写结果) |
 | `upstream_quality` | 上游提供的质量分数导入，见[上游质量导入与采样](#上游质量导入与采样) |
 | `audio_quality` | DNSMOS P.835 的 SIG/BAK/OVRL、校准前后值、窗口范围及窗口均值/最低值/数量 |
-| `text_agreement` | 原始/规范化 CER、WER、分母、增删改数量、文本差异范围 |
+| `text_agreement` | 原始/规范化 CER、WER、分母、增删改数量、文本差异范围（ASR 一致性；未实现） |
 | `text_alignment` | 字词单元、文本范围、音频范围、时间异常 |
+| `effective_bandwidth` | 有效带宽：频谱能量实际覆盖的上限频率及其估计口径、分析范围（未实现） |
+| `utmos` | UTMOS 预测 MOS、模型与输入延拓方式、分析范围（未实现；与 DNSMOS 先对照，不直接混合） |
+| `speaker_consistency` | 片段内分窗 speaker x-vector 的离散度（如与片段均值的方差）、窗口数与范围（未实现） |
 | `speaker_structure` | 样本内 speaker 区间、估计人数、重叠区间及摘要，见[MOSS 说话人结构单表](#moss-说话人结构单表) |
 | `text_revision` | `action=keep/replace`、候选文本、修订依据，见[文本修订与selection采用](#文本修订与selection采用) |
 | `restoration` | 执行状态、派生音频引用、输入/输出哈希、采样率/长度及处理谱系，见[音频恢复](#音频恢复) |
