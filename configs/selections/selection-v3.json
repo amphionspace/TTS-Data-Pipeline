@@ -62,6 +62,7 @@
     5001,
     4002,
     7001,
+    8001,
     4001
   ],
   "annotation_inputs": [],
@@ -85,8 +86,9 @@
     "wutheringwaves:32 one-frame records",
     "galgame:7 reviewed >300s transcript mismatches"
   ],
-  "initial_root_reason": "selection-v3: emilia2 only, upstream DNSMOS >= 3.3655 (top 10% of its selection-v2 rows); other rules as selection-v2. Parent exclusions inherited in full; those of other datasets match no row here.",
+  "initial_root_reason": "selection-v3: emilia2 only, upstream DNSMOS >= 3.3655 (top 10% of its selection-v2 rows); only rows selection-v2 selected; other rules as selection-v2. Parent exclusions inherited in full; those of other datasets match no row here.",
   "rules_version": "selection-v3",
+  "parent_selected_only": true,
   "parent_selection": "tts-selection-supervised-tts-20261012T123927bjt-01",
   "text_sources": {},
   "text_filter": {

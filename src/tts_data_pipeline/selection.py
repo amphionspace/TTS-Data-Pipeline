@@ -4,7 +4,8 @@ All row arrays are scratch state, never a published selection representation.
 Rules without `annotation_inputs`/`text_filter` reproduce selection-v1 exactly;
 selection-v2 adds pinned ASR text sources, strict ASR language and text-script checks,
 text length/repetition policy and sample-scoped source-timeline evidence;
-selection-v3 adds pinned per-sample quality scores with a fixed minimum (`quality_inputs`).
+selection-v3 adds pinned per-sample quality scores with a fixed minimum (`quality_inputs`)
+and keeps only rows its parent selected (`parent_selected_only`).
 Reference pairing is deliberately unsupported.
 """
 
@@ -82,6 +83,7 @@ REASONS = {
     5001: "reference_identity_unavailable",
     6001: "below_quality_policy",
     7001: "held_out",
+    8001: "not_selected_by_parent",
     65535: "pending",
 }
 FLAGS = [
@@ -99,9 +101,15 @@ FLAGS = [
     "text_policy",
     "language_evidence",
     "quality_policy",
+    "parent_policy",
 ]
-# Dictionary version 3 adds 6001 and flag bit 13; earlier rules publish version 2 unchanged.
+# Dictionary version 3 adds 6001 and flag bit 13, version 4 adds 8001 and bit 14;
+# rules without these policies publish the earlier version unchanged.
 QUALITY_CODES, QUALITY_BIT = {6001}, 13
+PARENT_CODES, PARENT_BIT = {8001}, 14
+# Parent reasons a parent-only rule may override on a row its own checks select:
+# the parent saw duplicates across datasets this selection does not read.
+PARENT_OVERRIDABLE = {4001, 4002, 7001}
 QUALITY_COLUMNS = ("sample_id", "status", "result.audio_sha256")
 ASR_COLUMNS = {
     "sample_id": "sample_id",
@@ -308,6 +316,65 @@ def inherited_exclusions(root, parent_id):
         "exclusions": len(rows),
     }
     return parent, rows
+
+
+def parent_outputs(root, parent_id, inputs):
+    """Pin the parent's branch of every input; it must sit on the same base version."""
+    manifest = json.loads((Path(root) / "selections" / parent_id / "manifest.json").read_text())
+    outputs = {o["dataset_id"]: o for o in manifest["outputs"]}
+    pinned = []
+    for source in inputs:
+        o = outputs.get(source["dataset_id"])
+        if (
+            o is None
+            or o["table_path"] != source["table_path"]
+            or o["base_version"] != source["lance_version"]
+            or o["rows"] != source["rows"]
+            or not o["validation"]["base_unchanged"]
+        ):
+            raise ValueError(f"Parent has no output on this base: {source['dataset_id']}")
+        pinned.append(
+            {
+                k: o[k]
+                for k in ("dataset_id", "table_path", "branch", "lance_version", "tag", "rows")
+            }
+            | {"ordered_sample_ids_sha256": o["validation"]["ordered_sample_ids_sha256"]}
+        )
+    return pinned
+
+
+def restrict_to_parent(root, pinned, array, priority):
+    """Mark rows the parent did not select; return the parent reasons that 8001 replaced."""
+    ds = lance.dataset(Path(root) / pinned["table_path"])
+    branch = ds.checkout_version((pinned["branch"], pinned["lance_version"]))
+    rank = {code: i for i, code in enumerate(priority)}
+    replaced, ordered, position = Counter(), hashlib.sha256(), 0
+    for batch in branch.to_batches(
+        columns=["sample_id", "selection_reason"], batch_size=1 << 20, scan_in_order=True
+    ):
+        ids = np.asarray(batch.column("sample_id").to_pylist(), dtype="S64")
+        block = array[position : position + len(batch)]
+        if not np.array_equal(ids, block["sample_id"]):
+            raise ValueError("Parent branch row order differs from base")
+        ordered.update(b"".join(s + b"\n" for s in ids))
+        parent = batch.column("selection_reason").to_numpy()
+        hit = np.flatnonzero(parent != 0)
+        if len(hit):
+            # The row's own reason keeps priority; 8001 only replaces a selection.
+            own = np.array([rank.get(int(r), -1) for r in block["reason"][hit]], dtype=np.int64)
+            take = hit[(block["reason"][hit] == 0) | (own > rank[8001])]
+            replaced.update(int(r) for r in parent[take])
+            reasons, flags = block["reason"].copy(), block["flags"].copy()
+            flags[hit] |= np.uint32(1 << PARENT_BIT)
+            reasons[take] = 8001
+            array["reason"][position : position + len(batch)] = reasons
+            array["flags"][position : position + len(batch)] = flags
+        position += len(batch)
+    if position != len(array) or ordered.hexdigest() != pinned["ordered_sample_ids_sha256"]:
+        raise ValueError("Parent branch does not cover base")
+    if set(replaced) - PARENT_OVERRIDABLE:
+        raise ValueError(f"Rules disagree with the parent beyond duplicates: {dict(replaced)}")
+    return {str(k): v for k, v in sorted(replaced.items())}
 
 
 def timeline_exclusions(rules_path, rules, inputs):
@@ -526,6 +593,10 @@ def plan(root, work, rules_path, *, selection_id=None):
         raise ValueError("This executor supports self-reference selection only")
     if rules.get("quality_inputs") and not QUALITY_CODES <= set(rules["reason_priority"]):
         raise ValueError("Quality rules need 6001 in reason_priority")
+    if rules.get("parent_selected_only") and not (
+        parent_id and PARENT_CODES <= set(rules["reason_priority"])
+    ):
+        raise ValueError("parent_selected_only needs parent_selection and 8001 in reason_priority")
     selection_id = selection_id or datetime.now(BEIJING).strftime(
         "tts-selection-supervised-tts-%Y%m%dT%H%M%Sbjt-01"
     )
@@ -584,6 +655,9 @@ def plan(root, work, rules_path, *, selection_id=None):
         "inputs": inputs,
         "annotation_inputs": pin_annotations(root, rules, inputs),
         "parent": parent,
+        "parent_outputs": parent_outputs(root, parent_id, inputs)
+        if rules.get("parent_selected_only")
+        else None,
         "tasks": tasks,
         "exclusions": exclusions + additions,
         "exclusion_additions": [e["exclusion_id"] for e in additions],
@@ -932,7 +1006,7 @@ def resolve_duplicates(work):
     if applied != sum(e["scope"].get("dataset_id") in names for e in p["exclusions"]):
         raise ValueError("Sample-scoped exclusions do not all match a base row")
     sources = p["inputs"]
-    arrays, array_paths = [], []
+    arrays, array_paths, replaced = [], [], {}
     total = sum(s["rows"] for s in sources)
     index = np.lib.format.open_memmap(
         work / "global-index.npy", mode="w+", dtype=INDEX, shape=(total,)
@@ -956,6 +1030,11 @@ def resolve_duplicates(work):
             offset = end
         if offset != len(array):
             raise ValueError("Missing scan parts")
+        if p.get("parent_outputs"):
+            replaced[name] = restrict_to_parent(
+                p["root"], p["parent_outputs"][dataset], array, p["rules"]["reason_priority"]
+            )
+            event(work, "parent_restricted", dataset=name, replaced=replaced[name])
         array.flush()
         arrays.append(array)
         array_paths.append(path)
@@ -1069,6 +1148,7 @@ def resolve_duplicates(work):
         array.flush()
         array_info.append({"path": str(path), "sha256": file_sha(path)})
     result = stats | {
+        "parent_not_selected": replaced if p.get("parent_outputs") else None,
         "arrays": array_info,
         "lance_version": table.version,
         "duplicate_path": str(duplicate_path),
@@ -1427,6 +1507,11 @@ def publish(work, workers=16):
     )
     parts = json.loads((Path(work) / "scan.json").read_text())
     quality = p["rules"].get("quality_inputs")
+    restricted = bool(p["rules"].get("parent_selected_only"))
+    version = 4 if restricted else 3 if quality else 2
+    hidden = (set() if quality or restricted else QUALITY_CODES) | (
+        set() if restricted else PARENT_CODES
+    )
     manifest = {
         "contract_version": "v0.1",
         "artifact_kind": "selection",
@@ -1445,15 +1530,17 @@ def publish(work, workers=16):
             "implementation_sha256": p["implementation_sha256"],
         },
         # Version 2 adds 105/1003-1008/2003/2004 and flag bits 10-12; version 3 adds 6001
-        # and bit 13. Old codes keep their meaning.
+        # and bit 13; version 4 adds 8001 and bit 14. Old codes keep their meaning.
         "reason_dictionary": {
-            "version": 3 if quality else 2,
-            "codes": {k: v for k, v in REASONS.items() if quality or k not in QUALITY_CODES},
+            "version": version,
+            "codes": {k: v for k, v in REASONS.items() if k not in hidden},
             "priority": p["rules"]["reason_priority"],
         },
         "flag_dictionary": {
-            "version": 3 if quality else 2,
-            "bits": dict(enumerate(FLAGS if quality else FLAGS[:QUALITY_BIT])),
+            "version": version,
+            "bits": dict(
+                enumerate(FLAGS[: {2: QUALITY_BIT, 3: PARENT_BIT, 4: len(FLAGS)}[version]])
+            ),
         },
         "exclusions": {
             "parent": parent,
@@ -1466,13 +1553,24 @@ def publish(work, workers=16):
             "retracted": 0,
             "effective_count": len(p["exclusions"]),
         },
-        "duplicates": {k: v for k, v in result.items() if k not in {"arrays", "duplicate_path"}},
+        "duplicates": {
+            k: v
+            for k, v in result.items()
+            if k not in {"arrays", "duplicate_path", "parent_not_selected"}
+        },
         "coverage": {
             "row_rules": sum(s["rows"] for s in p["inputs"]),
             "exact_duplicate_hashes": sum(s["rows"] for s in p["inputs"]),
             "full_audio_decode": 0,
             "near_duplicates": "not_checked",
             "quality_scores": quality or "not_checked",
+            "parent_selection": {
+                "rule": "parent_selected_only",
+                "outputs": p["parent_outputs"],
+                "replaced_parent_reasons": result["parent_not_selected"],
+            }
+            if restricted
+            else "not_applied",
             "audio_statistics": "not_used",
             "audio_presence": p["rules"]["audio_presence_evidence"],
             "text_filter": p["rules"].get("text_filter", "not_applied"),
