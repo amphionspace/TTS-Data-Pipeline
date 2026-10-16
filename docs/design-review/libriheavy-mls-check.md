@@ -33,7 +33,7 @@
 这是完整 ID 级核查，不是对所有音频做感知去重；不能推导“相同内容绝不使用不同 ID”。
 此前“配置交集尚未核对”的问题现已在 ID 层面关闭。
 
-复核脚本：`scripts/check_libriheavy_overlap.py`；结果：`reports/source-check/libriheavy-overlap.json`。
+复核脚本：`scripts/check_libriheavy_overlap.py`（已删除，见提交 8122e5c）；结果：`reports/source-check/libriheavy-overlap.json`。
 它只读取 id 列，不加载音频 bytes；临时 SQLite 在检查完成后自动清理。
 
 ## MLS SIDON：来源清单和字段映射成立

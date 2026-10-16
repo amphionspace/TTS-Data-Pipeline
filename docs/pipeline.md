@@ -420,7 +420,6 @@ selection 按阶段和已提交分支。因此 Emilia2 中断时尚无 archive �
 | `reports/*/active.json` | 某轮运行的路径/PID/入口指针，不替代正式 manifest |
 | `scripts/check_contract.py` | 契约、生成 schema、示例一致性；`--target` 比较部署副本 |
 | `scripts/export_contract.py` | 重新生成仓库内机器可读 schema 和合成示例；不自动同步 unified 文档 |
-| `scripts/check_libriheavy_overlap.py` | LibriHeavy 配置间的完整来源 ID 重叠核查，不是波形去重或通用转换阶段 |
 | `tests/` 与 `docs/design-review/` | 自动回归和数值/来源/性能证据；历史实验不能代替当前 profile 验收 |
 
 最低限度的读取方式是先检查 `manifest.status == "complete"`，再按该 manifest 的明确快照打开表。

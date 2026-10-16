@@ -40,7 +40,7 @@ Emilia2 每行是一个 short 片段，分数随片段而定，long 和 dialogue
 
 ## 3. 方法
 
-用 `scripts/report_upstream_dnsmos.py` 全量读取三个 `samples.lance` 的 `language`、`duration_seconds`、`metadata_json`，
+用 `scripts/report_upstream_dnsmos.py`（一次性脚本，已删除，见提交 c7ac9da）全量读取三个 `samples.lance` 的 `language`、`duration_seconds`、`metadata_json`，
 按（数据集、语言、时长分段、Emilia2 接入方式）汇总 0.01 宽的直方图和时长。分位数按 0.01 的分箱取值，均值按分箱中心计算，误差不超过 0.005。
 原始汇总在 `artifacts/analysis/upstream-dnsmos-20261012.json`（不入库）。
 
@@ -166,8 +166,11 @@ Emilia2 每行是一个 short 片段，分数随片段而定，long 和 dialogue
 
 ## 11. 复现
 
+脚本已从仓库删除，需要时从提交 c7ac9da 取出：
+
 ```bash
-python scripts/report_upstream_dnsmos.py --out artifacts/analysis/upstream-dnsmos-<date>.json
+git show c7ac9da:scripts/report_upstream_dnsmos.py > /tmp/report_upstream_dnsmos.py
+python /tmp/report_upstream_dnsmos.py --out artifacts/analysis/upstream-dnsmos-<date>.json
 ```
 
 在 dev host 上用 24 个进程约 7 分钟（184M 行）。输出为每个（数据集、语言、时长分段、接入方式）一行，带 0.01 宽的直方图与小时数。
