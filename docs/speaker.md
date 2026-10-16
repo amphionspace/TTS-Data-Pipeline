@@ -86,6 +86,17 @@ python scripts/extract_speaker.py run \
 `artifacts/reference-runs/`，当前运行入口为 `reports/reference/active.json`。
 完成全部新表发布和校验后才清理本次临时特征表；最小验收证据和正式回归测试继续保留。
 
+## 起点固定的 prefix reference
+
+`plan --reference-placement prefix` 让每个 reference 从第 0 帧开始，长度与随机起点版本逐条相同（规则见 spec 11）。
+实现位于 `prefix_reference.py`；`reference.py`、`profile.py`、`storage.py` 不改动，随机起点 profile 及其验收保持可复现。
+采样计划在 state 下保存两份：`uniform/references/` 为长度来源，`references/` 为推理使用的 prefix 计划。
+新 profile 需要独立验收：`artifacts/speaker-prefix-reference-validation/`（emilia2 抽样逐条对照原生单条 FP32，
+并核对每条长度、状态与已发布的随机起点 run 一致）。prefix 结果无法复用随机起点 run 的行。
+
+只对部分数据集重做 speaker 与 merged 时，`feature_pipeline.py init --pinned-work-root <已有 work root> --datasets ...`
+沿用该 work root 已发布的 codec 与 text plan，不再新建 codec/text 运行。
+
 ## 每卡多 worker 调度
 
 `run --workers-per-gpu N` 为每张 GPU 启动 N 个独立上下文，共用任务队列。
