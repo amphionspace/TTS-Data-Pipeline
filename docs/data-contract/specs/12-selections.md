@@ -91,13 +91,19 @@ selection仍从base建立，绝不以annotation分支为父。采样权重由训
 | 2003 | language_evidence_conflict | ASR 语言证据与来源语言不严格一致（不一致、空、多标签或曾尝试指定语言） |
 | 2004 | text_script_mismatch | 选用文本的文字系统与语言标签不符（期望文字单位不足一半） |
 
-6000–6999 为后续质量策略保留，其他未分配码不得擅用；需要更多原因可正式扩展字典。
+字典 version 3（selection-v3 起，仅在规则含 quality_inputs 时使用；否则仍发布 version 2）新增：
+
+| 码 | 名称 | 含义 |
+| --- | --- | --- |
+| 6001 | below_quality_policy | 固定质量分数低于规则的包含下限，或该行没有可用分数；不自动称为坏音频 |
+
+6000–6999 其余码为后续质量策略保留，其他未分配码不得擅用；需要更多原因可正式扩展字典。
 主原因优先级固定为：已确认音频/配对问题 → 缺音频/文本 → 用途要求的语言/时长/参考规则 →
 未解决重复冲突 → 留出评估 → 普通重复非代表。rules 必须枚举具体有序码列表，不通过码值大小推断。
 
 flags 独立分配 bit：0 音频问题，1 缺文本，2 配对问题，3 语言规则，4 时长规则，
 5 重复成员，6 未解决重复冲突，7 参考规则，8 留出评估，9 已确认排除；
-version 2 起 10 来源时间轴，11 文本策略，12 语言证据。13–31 保留。
+version 2 起 10 来源时间轴，11 文本策略，12 语言证据；version 3 起 13 质量策略。14–31 保留。
 不能使用 `1 << reason_code`；一个入选代表可以 reason=0 且 bit5=1。
 flags=0 只说明此次已执行检查未命中，不代表检查过所有质量维度；coverage 必须区分未检查和通过。
 遇到未知字典版本、未知码或未知 bit 的消费者须拒绝解释，而非默认入选。
@@ -260,7 +266,7 @@ seen_speaker 和 unseen_speaker 分开声明；目标与参考都检查隔离。
 规则版本按 `selection-v<N>` 顺序命名，下一套规则为 selection-v3，在 rules.json 中写 rules_version。
 同一版本的判定口径固定，阈值、来源或判定变化须使用新版本。
 发布的 selection 以其 rules.json 原文件和 SHA256 为准；已发布文件不因改名重写，本节说明各版本的含义。
-两版都是 purpose=supervised_tts，从固定 base 建立，不检查音质、近重复或独立语言识别；
+各版都是 purpose=supervised_tts，从固定 base 建立，不检查近重复或独立语言识别；selection-v1/v2 不检查音质，selection-v3 只用固定的上游 DNSMOS 分数；
 规则通过不等于音文逐字验收。selection-v1 的 evaluation.status=not_assigned。
 
 ### selection-v1
@@ -330,6 +336,27 @@ rules 的 evaluation.held_out_splits 固定字段与取值：`test`、`test.clea
 组处置为 held_out，不选代表，避免测试音频经由副本回到训练集合。evaluation.status=upstream_test_held_out。
 只覆盖完全相同音频（audio_sha256）的副本，近似重复（重新编码、跨数据集同源录音）不检查；
 dev 保留在训练集合，其副本也不留出，因此 dev 不能作为无泄漏的评测集。
+
+### selection-v3
+
+面向二阶段预训练的 emilia2 高 DNSMOS 子集。原因与 flag 使用字典 version 3。
+
+**输入。** 只有 emilia2（source_priority 仅此一项）。rules 固定父 selection 为 selection-v2 的发布并完整继承其有效排除；
+其中属于其他数据集的样本级排除照常写入 exclusions.jsonl，只是在本次输入中没有对应行，不要求匹配。
+不使用转写 annotation（emilia2 本就用 base text），不重复引用区间核查证据（其条目已随父 selection 继承，且不涉及 emilia2）。
+文本、语言、文字系统、时长、留出等其余规则与 selection-v2 相同。
+
+**质量（6001）。** rules 的 `quality_inputs` 固定 upstream_quality annotation
+`tts-ann-upstream_quality-20261013T143341bjt-01` 的 `result.upstream_dnsmos`（DNSMOS P.835 OVRL，上游校准），
+规划时核对其 base manifest/版本与本次输入一致、列在 annotation schema 中。按 sample_id 与 base 对齐，ok 行须核对 audio_sha256。
+分数 `>= 3.3655` 通过；更低、非 ok 或空值记 6001（flag bit 13）。3.3655 是 emilia2 在 selection-v2 入选行上的 p90，
+作为固定值写入规则，不在运行时重算。主原因优先级在 3002 之后、5001 之前插入 6001：
+
+103, 102, 104, 105, 1002, 101, 1001, 1003, 2001, 2002, 2003, 2004, 1007, 1008, 1004, 1005, 1006, 3001, 3002, 6001, 5001, 4002, 7001, 4001。
+
+**重复。** 只在 emilia2 内部按完整 audio_sha256 分组。与 emilia、emilia_yodas 相同的音频不再作为重复排除，
+与其他 selection 合用时须由训练端自行去重。DNSMOS 对不足 9 秒的音频重复补齐后打分，短片段偏低；
+门槛按全局分位而非按语言或时长分组，入选集合因此偏向较长片段和 en/zh。
 
 ## 写入、发布、恢复与清理
 
