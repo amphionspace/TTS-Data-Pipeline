@@ -46,6 +46,7 @@
 | Annotation | `tts-ann-upstream_quality-20261013T143341bjt-01` | upstream_quality（upstream-dnsmos-p835-ovrl-v1）；emilia、emilia_yodas、emilia2；184,069,533 行 | 2026-10-13 16:38 | |
 | Selection | `tts-selection-supervised-tts-20260929T151539bjt-01` | selection-v1；16 个数据集；入选 128,220,178 条，357,506.8 小时 | 2026-09-29 15:39 | 现有训练 build 使用 |
 | Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
+| Selection | `tts-selection-supervised-tts-20261016T131121bjt-01` | selection-v3；emilia2；入选 7,848,873 条，22,599.3 小时；selection-v2 入选行中上游 DNSMOS ≥ 3.3655 | 2026-10-16 13:59 | 二阶段 continue train（按行筛选 selection-v2 特征） |
 | Features | text · `text-selection-text-v1-20260930T153654bjt-01` | 16 个数据集，128,220,178 行 | 2026-09-30 17:01 | selection-v1 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-packed-v1-20260930T130829bjt-01` | 16 个数据集，128,220,178 行 | 2026-10-01 05:34 | selection-v1 |
 | Features | codec · `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20260930T181155bjt-01` | 12 个数据集，49,918,118 行 | 2026-10-01 13:33 | selection-v1 |
@@ -296,6 +297,31 @@
 - 原因：selection-v2 规则增加上游测试集留出后重新发布；selection-v2 只保留一份发布
 - 替代：`tts-selection-supervised-tts-20261012T123927bjt-01`
 - 前提：没有特征或训练 build 引用；18 个分支、保护 tag 与 selection 目录一并删除
+
+### 2026-10-16 · 发布 · tts-selection-supervised-tts-20261016T115213bjt-01
+
+- 时间：2026-10-16 12:55（北京时间）
+- manifest：`selections/tts-selection-supervised-tts-20261016T115213bjt-01/manifest.json`
+- SHA256：`ed82970f6e9cb05d88d91b3b87678a202bbcd32f57e619167e35e492475a872b`
+- 内容：规则 selection-v3（首版，无 parent_selected_only）；emilia2；入选 7,848,897 / 99,840,397 条，22,599.3 小时；父 selection `tts-selection-supervised-tts-20261012T123927bjt-01`；
+  质量输入 `tts-ann-upstream_quality-20261013T143341bjt-01`（upstream DNSMOS ≥ 3.3655）
+- 说明：只在 emilia2 内部去重，24 行在 selection-v2 中是 emilia/emilia_yodas 副本的非代表（4001 22、4002 2）却重新入选，不是 selection-v2 的子集
+
+### 2026-10-16 · 发布 · tts-selection-supervised-tts-20261016T131121bjt-01
+
+- 时间：2026-10-16 13:59（北京时间）
+- manifest：`selections/tts-selection-supervised-tts-20261016T131121bjt-01/manifest.json`
+- SHA256：`e0558ae8516bd10c507f2dbf4c5ed1b1bc7f84228a9070021cbbcf5aeadc2cca`
+- 内容：规则 selection-v3（parent_selected_only，字典 version 4）；emilia2；入选 7,848,873 / 99,840,397 条，22,599.3 小时；父 selection `tts-selection-supervised-tts-20261012T123927bjt-01`；
+  质量输入 `tts-ann-upstream_quality-20261013T143341bjt-01`（upstream DNSMOS ≥ 3.3655）；8001 共 34,208 行（替换父原因 4001 30,880、4002 3,328）
+- 说明：替代 `tts-selection-supervised-tts-20261016T115213bjt-01`；逐行核对入选行全部在 selection-v2 中入选，与旧发布只差上述 24 行。
+  特征按行筛选 selection-v2 已发布的 emilia2 codec/text/speaker/merged，不另行提取
+
+### 2026-10-16 · 删除 · tts-selection-supervised-tts-20261016T115213bjt-01
+
+- 原因：不是 selection-v2 的子集（见其发布小节）
+- 替代：`tts-selection-supervised-tts-20261016T131121bjt-01`
+- 前提：没有特征或训练 build 引用；emilia2 上的分支、保护 tag 与 selection 目录一并删除
 
 ## Features
 
