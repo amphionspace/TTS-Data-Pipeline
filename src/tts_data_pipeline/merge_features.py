@@ -31,10 +31,14 @@ from .feature_runtime import (
     write_json,
 )
 from .schema import digest
+from .speaker.qwen3_ecapa.prefix_reference import MERGED_PROFILE_NAME as PREFIX_MERGED_PROFILE_NAME
+from .speaker.qwen3_ecapa.prefix_reference import SPEAKER_MODE as PREFIX_SPEAKER_MODE
+from .speaker.qwen3_ecapa.prefix_reference import is_prefix
 from .timestamps import BEIJING
 
 KINDS = ("codec", "speaker", "text")
 PROFILE_NAME = "selected-features-v1"
+REFERENCE_PROFILE_NAME = "reference-features-v1"
 NATIVE_DURATION_TOLERANCE_SECONDS = 0.02
 AUDIO_KINDS = ("codec", "speaker")
 EXCLUSION_RULE = (
@@ -60,8 +64,11 @@ def require_equal(left, right, label):
         raise ValueError(f"Feature mismatch: {label}")
 
 
-def merge_tables(codec, speaker, text, dataset_id, release_id):
-    """ID join, full metadata/range checks, zero numerical transformations."""
+def merge_tables(codec, speaker, text, dataset_id, release_id, prefix=False):
+    """ID join, full metadata/range checks, zero numerical transformations.
+
+    `prefix` additionally requires every reference to start at the first frame.
+    """
     reference = "reference_codec_start" in speaker.schema.names
     ids = text["target_id"]
     if ids.null_count or pc.count_distinct(ids).as_py() != len(ids):
@@ -91,7 +98,10 @@ def merge_tables(codec, speaker, text, dataset_id, release_id):
     require_equal(codec["native_sample_rate"], speaker["native_sample_rate"], "native rate")
     differences = []
     if reference:
-        from .speaker.qwen3_ecapa.reference import validate
+        if prefix:
+            from .speaker.qwen3_ecapa.prefix_reference import validate
+        else:
+            from .speaker.qwen3_ecapa.reference import validate
 
         metadata = ["target_id", "audio_sha256", "native_sample_rate", "start_frame", "end_frame"]
         for ref, full in zip(
@@ -178,6 +188,13 @@ def prepare(
     paths = dict(codec=codec_plan, speaker=speaker_plan, text=text_plan)
     plans = {k: json.loads(Path(v).read_text()) for k, v in paths.items()}
     reference = "reference" in plans["speaker"].get("profile", {})
+    prefix = is_prefix(plans["speaker"].get("profile", {}))
+    if prefix:
+        merged_name, speaker_mode = PREFIX_MERGED_PROFILE_NAME, PREFIX_SPEAKER_MODE
+    elif reference:
+        merged_name, speaker_mode = REFERENCE_PROFILE_NAME, "codec_grid_reference"
+    else:
+        merged_name, speaker_mode = PROFILE_NAME, "whole_sample"
     codec = plans["codec"]
     codec_datasets = list(codec["datasets"])
     if "predecessor_completed_datasets" in codec:
@@ -259,13 +276,11 @@ def prepare(
             sources={k: v["profile_id"] for k, v in sources.items()},
             native_duration_tolerance_seconds=NATIVE_DURATION_TOLERANCE_SECONDS,
             payload_transform="none",
-            speaker_mode="codec_grid_reference" if reference else "whole_sample",
+            speaker_mode=speaker_mode,
             failed_audio_rows="excluded",
             execution_code_sha256=p["execution_code_sha256"],
         )
-        run_id = make_feature_run_id(
-            name, "merged", "reference-features-v1" if reference else PROFILE_NAME, created
-        )
+        run_id = make_feature_run_id(name, "merged", merged_name, created)
         release = Path(p["output_root"]) / "datasets" / name / original["source"]["release_id"]
         final = release / "features/merged" / run_id
         tasks = []
@@ -282,6 +297,7 @@ def prepare(
                 excluded_count=len(excluded_ids),
                 source_failures=failures,
                 reference=reference,
+                profile_name=merged_name,
                 target_set_sha256=original["target_set_sha256"],
                 target_tasks=original["tasks"],
                 tasks=tasks,
@@ -395,7 +411,12 @@ def merge_chunk(p, d, task, tables, schema):
         text = text.filter(mask)
     if text.num_rows:
         merged, differences = merge_tables(
-            audio["codec"], audio["speaker"], text, name, d["source"]["release_id"]
+            audio["codec"],
+            audio["speaker"],
+            text,
+            name,
+            d["source"]["release_id"],
+            prefix=d.get("profile_name") == PREFIX_MERGED_PROFILE_NAME,
         )
     else:
         merged, differences = pa.Table.from_batches([], schema=schema), []
@@ -490,7 +511,9 @@ def finalize(p, d, checkpoints, schema):
         dataset_id=d["source"]["dataset_id"],
         release_id=d["source"]["release_id"],
         run_id=d["run_id"],
-        profile_name="reference-features-v1" if d["reference"] else PROFILE_NAME,
+        profile_name=d.get(
+            "profile_name", REFERENCE_PROFILE_NAME if d["reference"] else PROFILE_NAME
+        ),
         profile_id=d["profile_id"],
         profile=d["profile"],
         target_kind="sample",

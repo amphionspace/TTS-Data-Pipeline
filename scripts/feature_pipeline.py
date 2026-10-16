@@ -53,6 +53,26 @@ def init(args):
     codec_acceptance = json.loads(Path(args.codec_acceptance).read_text())
     speaker_acceptance = json.loads(Path(args.speaker_acceptance).read_text())
     codec_ids = {codec_acceptance["profile_id"], codec_acceptance.get("predecessor_profile_id")}
+    steps = {
+        k: str(work / k)
+        for k in ("codec", "text", "speaker-early", "speaker-late", "merged-early", "merged-late")
+    }
+    pinned = None
+    if args.pinned_work_root:
+        # Speaker and merged only, on another work root's published codec and text.
+        old = json.loads((Path(args.pinned_work_root) / "pipeline.json").read_text())
+        if not args.datasets:
+            raise ValueError("A pinned run needs --datasets")
+        if old["selection_sha256"] != file_hash(args.selection) or args.output_root:
+            raise ValueError("A pinned run keeps the pinned run's selection and output root")
+        pinned = dict(work_root=str(Path(args.pinned_work_root).resolve()))
+        for kind in ("codec", "text"):
+            steps[kind] = old["steps"][kind]
+            plan = Path(steps[kind]) / "plan.json"
+            missing = set(args.datasets) - published_datasets(plan)
+            if missing:
+                raise ValueError(f"Pinned {kind} is not published for {sorted(missing)}")
+            pinned[f"{kind}_plan_sha256"] = file_hash(plan)
     config = dict(
         created_at=datetime.now(timezone.utc).isoformat(),
         root=str(Path(args.root).resolve()),
@@ -62,23 +82,15 @@ def init(args):
         codec_acceptance=str(Path(args.codec_acceptance).resolve()),
         speaker_acceptance=str(Path(args.speaker_acceptance).resolve()),
         reference_seed=args.reference_seed,
+        reference_placement=args.reference_placement,
+        pinned=pinned,
         codec_reuse=published(args.root, "codec", codec_ids - {None}),
         speaker_reuse=published(args.root, "speaker_embedding", {speaker_acceptance["profile_id"]}),
         late_datasets=args.late_datasets,
         # Smoke runs: a dataset subset written outside the unified root.
         datasets=args.datasets,
         output_root=str(Path(args.output_root).resolve()) if args.output_root else None,
-        steps={
-            k: str(work / k)
-            for k in (
-                "codec",
-                "text",
-                "speaker-early",
-                "speaker-late",
-                "merged-early",
-                "merged-late",
-            )
-        },
+        steps=steps,
     )
     work.mkdir(parents=True, exist_ok=True)
     write_json(work / "pipeline.json", config)
@@ -270,91 +282,110 @@ def run(args):
             dict(phase=phase, at=datetime.now(timezone.utc).isoformat(), **fields),
         )
 
-    codec = Step(
-        "codec",
-        s["codec"],
-        [
-            "scripts/extract_codec.py",
-            "plan",
-            "--root",
-            c["root"],
-            "--selection",
-            c["selection"],
-            "--work",
-            s["codec"],
-            "--models",
-            c["models"],
-            "--acceptance",
-            c["codec_acceptance"],
-            "--reuse",
-            *c["codec_reuse"],
-        ],
-        [
-            "scripts/extract_codec.py",
-            "run",
-            "--work",
-            s["codec"],
-            "--mode",
-            args.codec_mode,
-            "--gpus",
-            *gpus,
-            "--workers-per-gpu",
-            str(args.codec_workers_per_gpu),
-            "--decode-threads",
-            str(args.codec_decode_threads),
-            "--cpu-workers",
-            str(args.copy_workers),
-        ],
-        logs / "codec.log",
-    )
+    pinned = c.get("pinned")
     out = ["--output-root", c["output_root"]] if c.get("output_root") else []
-    codec.plan_command += out + (["--datasets", *c["datasets"]] if c.get("datasets") else [])
-    codec.progress_status = Path(s["codec"]) / "status.json"
-    if args.codec_mode == "encode" and codec_plan.exists():
-        # The reuse mode runs on another host and publishes there. A codec start publishes every
-        # fully checkpointed, unpublished dataset, so every (re)start here waits until none is
-        # left: two hosts must never publish one stage.
-        def gate():
-            waiting = unpublished_complete(codec_plan)
-            write_json(
-                work / "codec-gate.json",
-                dict(at=datetime.now(timezone.utc).isoformat(), waiting=waiting),
-            )
-            return waiting and f"datasets awaiting publication by the reuse host: {waiting}"
-
-        codec.gate = gate
-        codec.python, codec.started, codec.started_at = python, True, time.monotonic()
-        codec.restart_at = time.monotonic()
+    if pinned:
+        for kind, path in (("codec", codec_plan), ("text", text_plan)):
+            if file_hash(path) != pinned[f"{kind}_plan_sha256"]:
+                raise ValueError(f"Pinned {kind} plan changed")
+            if not set(c["datasets"]) <= published_datasets(path):
+                raise ValueError(f"Pinned {kind} is not published")
+        codec = text = None
     else:
-        codec.start(python)
-    if not codec_plan.exists():
-        raise SystemExit(f"Codec plan failed; see {logs / 'codec.log'}")
-    # Text needs only the pinned targets, which the codec plan fixes.
-    text = Step(
-        "text",
-        s["text"],
-        ["scripts/extract_text.py", "plan", "--targets-plan", str(codec_plan), "--work", s["text"]],
-        [
-            "scripts/extract_text.py",
-            "run",
-            "--work",
+        codec = Step(
+            "codec",
+            s["codec"],
+            [
+                "scripts/extract_codec.py",
+                "plan",
+                "--root",
+                c["root"],
+                "--selection",
+                c["selection"],
+                "--work",
+                s["codec"],
+                "--models",
+                c["models"],
+                "--acceptance",
+                c["codec_acceptance"],
+                "--reuse",
+                *c["codec_reuse"],
+            ],
+            [
+                "scripts/extract_codec.py",
+                "run",
+                "--work",
+                s["codec"],
+                "--mode",
+                args.codec_mode,
+                "--gpus",
+                *gpus,
+                "--workers-per-gpu",
+                str(args.codec_workers_per_gpu),
+                "--decode-threads",
+                str(args.codec_decode_threads),
+                "--cpu-workers",
+                str(args.copy_workers),
+            ],
+            logs / "codec.log",
+        )
+        codec.plan_command += out + (["--datasets", *c["datasets"]] if c.get("datasets") else [])
+        codec.progress_status = Path(s["codec"]) / "status.json"
+        if args.codec_mode == "encode" and codec_plan.exists():
+            # The reuse mode runs on another host and publishes there. A codec start publishes every
+            # fully checkpointed, unpublished dataset, so every (re)start here waits until none is
+            # left: two hosts must never publish one stage.
+            def gate():
+                waiting = unpublished_complete(codec_plan)
+                write_json(
+                    work / "codec-gate.json",
+                    dict(at=datetime.now(timezone.utc).isoformat(), waiting=waiting),
+                )
+                return waiting and f"datasets awaiting publication by the reuse host: {waiting}"
+
+            codec.gate = gate
+            codec.python, codec.started, codec.started_at = python, True, time.monotonic()
+            codec.restart_at = time.monotonic()
+        else:
+            codec.start(python)
+        if not codec_plan.exists():
+            raise SystemExit(f"Codec plan failed; see {logs / 'codec.log'}")
+        # Text needs only the pinned targets, which the codec plan fixes.
+        text = Step(
+            "text",
             s["text"],
-            "--workers",
-            str(args.text_workers),
-        ],
-        logs / "text.log",
+            [
+                "scripts/extract_text.py",
+                "plan",
+                "--targets-plan",
+                str(codec_plan),
+                "--work",
+                s["text"],
+            ],
+            [
+                "scripts/extract_text.py",
+                "run",
+                "--work",
+                s["text"],
+                "--workers",
+                str(args.text_workers),
+            ],
+            logs / "text.log",
+        )
+        text.plan_command += out
+        text.start(python)
+    all_datasets = (
+        set(c["datasets"])
+        if pinned
+        else {d["source"]["dataset_id"] for d in json.loads(codec_plan.read_text())["datasets"]}
     )
-    text.plan_command += out
-    text.start(python)
-    all_datasets = {
-        d["source"]["dataset_id"] for d in json.loads(codec_plan.read_text())["datasets"]
-    }
     late = set(c["late_datasets"]) & all_datasets
     if not late:
         # Default: the dataset with the most new encoding finishes codec last.
         work_rows = {
             d["source"]["dataset_id"]: sum(t["rows"] - t.get("reuse_rows", 0) for t in d["tasks"])
             for d in json.loads(codec_plan.read_text())["datasets"]
+            if d["source"]["dataset_id"] in all_datasets
         }
         late = {max(work_rows, key=work_rows.get)}
     early = sorted(all_datasets - late)
@@ -379,6 +410,8 @@ def run(args):
                 str(codec_plan),
                 "--reference-seed",
                 str(c["reference_seed"]),
+                "--reference-placement",
+                c.get("reference_placement", "uniform"),
                 "--datasets",
                 *datasets,
                 *(
@@ -448,8 +481,9 @@ def run(args):
     merged_early = merged("merged-early", speaker_early, early) if early else None
     merged_late = merged("merged-late", speaker_late, late) if late else None
     steps = [x for x in (codec, text, speaker_early, speaker_late, merged_early, merged_late) if x]
-    for step in steps[2:]:
-        step.plan_command += out
+    for step in steps:
+        if step not in (codec, text):
+            step.plan_command += out
     while True:
         done = {x.name for x in steps if x.finished()}
         codec_done = published_datasets(codec_plan)
@@ -465,12 +499,12 @@ def run(args):
         if (
             speaker_late
             and not speaker_late.started
-            and "codec" in done
+            and (pinned or "codec" in done)
             and set(late) <= codec_done
         ):
             speaker_late.start(python)
         for m, sp in ((merged_early, speaker_early), (merged_late, speaker_late)):
-            if m and not m.started and sp.name in done and "text" in done:
+            if m and not m.started and sp.name in done and (pinned or "text" in done):
                 m.start(python)
         status(
             "running",
@@ -518,8 +552,20 @@ def main():
     a.add_argument("--codec-acceptance", required=True)
     a.add_argument("--speaker-acceptance", required=True)
     a.add_argument("--reference-seed", type=int, default=20261008)
-    a.add_argument("--datasets", nargs="+", help="Smoke runs only: process just these datasets")
+    a.add_argument(
+        "--datasets", nargs="+", help="Smoke or pinned runs only: process just these datasets"
+    )
     a.add_argument("--output-root", help="Smoke runs only: publish outside the unified root")
+    a.add_argument(
+        "--reference-placement",
+        choices=["uniform", "prefix"],
+        default="uniform",
+        help="prefix: every reference starts at frame 0, with the uniform policy's lengths",
+    )
+    a.add_argument(
+        "--pinned-work-root",
+        help="Run only speaker and merged on this work root's published codec and text plans",
+    )
     a.add_argument(
         "--late-datasets",
         nargs="*",

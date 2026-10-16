@@ -144,3 +144,12 @@ bytes 和 config。来源 checkpoint/revision 记为证据；特征身份不应�
 不写零向量、不回退到完整音频 embedding。来源冲突或普遍性故障停止阶段，不能静默大量跳过。
 该表仍覆盖完整输入 selection；后续 reference merged 仅保留成功行，并报告排除原因。
 不生成文本 token、训练 batch 或 loss mask；训练端自行将帧区间映射至预测目标位置。
+
+### 起点固定的 prefix reference 版本
+
+`qwen3-ecapa-24k-fp32-prefix-reference-v1` 使用 `codec-grid-prefix-reference-v1` 策略：
+每个 reference 从完整 codec 第 0 帧开始，长度取 `codec-grid-reference-v1` 对同一身份和 seed 抽出的长度，
+随机身份仍以 `codec-grid-reference-v1` 为策略版本，因此与随机起点版本逐条同长、同 `no_legal_reference` 集合，只有起点不同。
+只定义每 80 ms 为整数原生采样点的采样率（如 16、22.05、24、44.1、48 kHz），其他采样率显式报错。
+字段、裁剪、解码与失败语义同上节；成功行 `reference_codec_start = start_frame = 0`，写入与 merge 时均校验。
+对应 merged profile 为 `prefix-reference-features-v1`，`speaker_mode = codec_grid_prefix_reference`。
