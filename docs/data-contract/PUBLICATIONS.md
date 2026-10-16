@@ -59,6 +59,8 @@
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261013T025148bjt-01` | 1 个数据集（emilia2），78,397,790 行 | 2026-10-13 06:35 | selection-v2 |
 | Features | merged · `merged-reference-features-v1-20261013T004007bjt-01` | 17 个数据集，125,485,003 行 | 2026-10-13 01:24 | selection-v2 |
 | Features | merged · `merged-reference-features-v1-20261013T063612bjt-01` | 1 个数据集（emilia2），76,684,408 行 | 2026-10-13 07:00 | selection-v2 |
+| Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261016T103356bjt-01` | 1 个数据集（emilia2），78,397,790 行；prefix reference | 2026-10-16 14:20 | selection-v2（另一 pretrain） |
+| Features | merged · `merged-prefix-reference-features-v1-20261016T142123bjt-01` | 1 个数据集（emilia2），76,684,408 行；prefix reference | 2026-10-16 14:43 | selection-v2（另一 pretrain） |
 
 ## 基础数据集
 
@@ -421,6 +423,22 @@
 - 处理：最终全量审计完成：selection-v2 的 72 个 final（codec、text、speaker_embedding、merged 各 18 个）0 个问题，全量读取 814.2M 行、3.84 TB；merged emilia2 的 target_id 流与 text 减去 speaker no_legal_reference 行完全一致，targets.lance 与子集摘要一致。审计时的 2 条警告（codec emilia、mls_sidon 仅被旧版本引用的文件）已由 2026-10-13 的清理消除，复核为 0 警告
 - 原/新 SHA256：manifest 未改动
 - 证据：selection-v2 feature run 工作目录 `audit/audit-final-20261012T1603.json`；审计工具 `scripts/audit_features.py`
+
+### 2026-10-16 · 发布 · speaker_embedding · emilia2-speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261016T103356bjt-01
+
+- 时间：2026-10-16 14:20（北京时间）
+- manifest：`datasets/emilia2/v0.1/features/speaker_embedding/emilia2-speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261016T103356bjt-01/manifest.json`
+- SHA256：`8924aeae598e4afee1d1db30eac0ba3af005a8fb21e8afeca229a048fb1037f1`
+- 内容：emilia2，78,397,790 行；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`；profile `qwen3-ecapa-24k-fp32-prefix-reference-v1`（参考从第 0 帧开始，长度与 uniform 策略相同，seed 20261008）
+- 说明：ACP 任务 pt-avtoatx9，codec/text 固定为 selection-v2-20261012 已发布结果；全部新提取；no_legal_reference 1,713,382 行，与 uniform 版一致
+
+### 2026-10-16 · 发布 · merged · emilia2-merged-prefix-reference-features-v1-20261016T142123bjt-01
+
+- 时间：2026-10-16 14:43（北京时间）
+- manifest：`datasets/emilia2/v0.1/features/merged/emilia2-merged-prefix-reference-features-v1-20261016T142123bjt-01/manifest.json`
+- SHA256：`7ff9ae9259402839faf630ca7fd9f71b90eb43bdb42c448763e68c4bc8f8f6d5`
+- 内容：emilia2，76,684,408 行；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`；profile `prefix-reference-features-v1`
+- 说明：排除 speaker no_legal_reference 1,713,382 行，行数与 uniform 版 `merged-reference-features-v1-20261013T063612bjt-01` 一致；供另一 pretrain 使用，uniform 版保留
 
 ## 统一根维护
 
