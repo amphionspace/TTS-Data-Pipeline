@@ -64,6 +64,10 @@
 | Features | merged · `merged-reference-features-v1-20261013T063612bjt-01` | 1 个数据集（emilia2），76,684,408 行 | 2026-10-13 07:00 | selection-v2 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261016T103356bjt-01` | 1 个数据集（emilia2），78,397,790 行；prefix reference | 2026-10-16 14:20 | selection-v2（另一 pretrain） |
 | Features | merged · `merged-prefix-reference-features-v1-20261016T142123bjt-01` | 1 个数据集（emilia2），76,684,408 行；prefix reference | 2026-10-16 14:43 | selection-v2（另一 pretrain） |
+| Features | codec · `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20261019T120241bjt-01` | 1 个数据集（emilia），33,992,131 行 | 2026-10-19 13:10 | selection-v4 |
+| Features | text · `text-selection-text-v1-20261019T120740bjt-01` | 1 个数据集（emilia），33,992,131 行 | 2026-10-19 13:51 | selection-v4 |
+| Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261019T131032bjt-01` | 1 个数据集（emilia），33,992,131 行 | 2026-10-19 14:35 | selection-v4 |
+| Features | merged · `merged-reference-features-v1-20261019T143526bjt-01` | 1 个数据集（emilia），33,992,131 行 | 2026-10-19 14:51 | selection-v4 |
 
 ## 基础数据集
 
@@ -482,6 +486,38 @@
 - SHA256：`7ff9ae9259402839faf630ca7fd9f71b90eb43bdb42c448763e68c4bc8f8f6d5`
 - 内容：emilia2，76,684,408 行；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`；profile `prefix-reference-features-v1`
 - 说明：排除 speaker no_legal_reference 1,713,382 行，行数与 uniform 版 `merged-reference-features-v1-20261013T063612bjt-01` 一致；供另一 pretrain 使用，uniform 版保留
+
+### 2026-10-19 · 发布 · codec · emilia-codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20261019T120241bjt-01
+
+- 时间：2026-10-19 13:10（北京时间）
+- manifest：`datasets/emilia/v0.1/features/codec/emilia-codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20261019T120241bjt-01/manifest.json`
+- SHA256：`34e9385ef14964e1d3be4d3a2d10bf0903d0ca0071ce8359d4ca1689e17809bc`
+- 内容：emilia，33,992,131 行；绑定 selection `tts-selection-supervised-tts-20261019T103416bjt-01`（selection-v4）
+- 说明：复用 `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20261012T134948bjt-01`（selection-v2）的 33,991,838 行（同 audio_sha256 与采样率，payload 复核、身份重绑），其余 293 行在本机 GPU 6 编码
+
+### 2026-10-19 · 发布 · text · emilia-text-selection-text-v1-20261019T120740bjt-01
+
+- 时间：2026-10-19 13:51（北京时间）
+- manifest：`datasets/emilia/v0.1/features/text/emilia-text-selection-text-v1-20261019T120740bjt-01/manifest.json`
+- SHA256：`2b9311a029bff1355cdc5729d9e2f1e5605e9b77f842bbbd260392d702d84e32`
+- 内容：emilia，33,992,131 行；绑定 selection-v4
+- 说明：文本来源同 selection-v2（`tts-ann-transcription-20261012T092945bjt-01`）
+
+### 2026-10-19 · 发布 · speaker_embedding · emilia-speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261019T131032bjt-01
+
+- 时间：2026-10-19 14:35（北京时间）
+- manifest：`datasets/emilia/v0.1/features/speaker_embedding/emilia-speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261019T131032bjt-01/manifest.json`
+- SHA256：`d5d8ccfda897fe8db77f4f4e7a0dcb83d81c24e770356052bd42819ed84c6774`
+- 内容：emilia，33,992,131 行；绑定 selection-v4；uniform reference（seed 20261008）
+- 说明：复用 `speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261012T193900bjt-01` 的 33,991,838 行（同 profile、音频与参考坐标），其余 293 行在本机 GPU 6 计算
+
+### 2026-10-19 · 发布 · merged · emilia-merged-reference-features-v1-20261019T143526bjt-01
+
+- 时间：2026-10-19 14:51（北京时间）
+- manifest：`datasets/emilia/v0.1/features/merged/emilia-merged-reference-features-v1-20261019T143526bjt-01/manifest.json`
+- SHA256：`e02bf7159be6de7d265f40c7bf0902fb27b1704c01322e69ff447384877a4ecd`
+- 内容：emilia，33,992,131 行；绑定 selection-v4；profile `reference-features-v1`
+- 说明：四份在本机（非 ACP）由 `feature_pipeline.py` 生成，work `artifacts/feature-runs/selection-v4-20261019`；发布后审计 CLEAN（136.0M 行 / 653.2 GB 全量读取，0 问题）
 
 ## 统一根维护
 
