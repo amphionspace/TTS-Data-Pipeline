@@ -3,8 +3,10 @@
     annotate_speaker_structure.py prepare --work W [--base-url http://127.0.0.1:18000]
     annotate_speaker_structure.py run --work W [--base-url URL]  # a new round over every sample not ok yet
     annotate_speaker_structure.py publish --work W    # publishes the last round's results
+    annotate_speaker_structure.py split --work W --into emilia=W1 emilia_yodas=W2 ...
+        # one run per dataset, adopting finished checkpoints; W can no longer run or publish
 
-Datasets run one at a time with the profile's concurrency. A request is resent on timeouts,
+Datasets run one at a time with the profile's concurrency (or --concurrency for a round). A request is resent on timeouts,
 unusable output or suspected truncation; service outages pause all requests (checked every
 30 minutes, 8 times by default) and never mark samples failed. Runtime outage timing can be
 overridden without changing inference settings or checkpoints. Each worker thread keeps its
@@ -154,11 +156,15 @@ def main():
     p.add_argument("--base-url", default="http://127.0.0.1:18000")
     p.add_argument("--server-config", default="configs/moss-transcribe-diarize-v1.server.json")
     p.add_argument("--datasets", nargs="+", default=list(diar.DATASETS))
-    for name in ("run", "publish"):
+    for name in ("run", "publish", "split"):
         sub.add_parser(name).add_argument("--work", required=True)
+    sub.choices["split"].add_argument("--into", nargs="+", required=True, metavar="DATASET=WORK")
     sub.choices["run"].add_argument("--base-url")
     sub.choices["run"].add_argument("--outage-wait-seconds", type=int)
     sub.choices["run"].add_argument("--outage-max-seconds", type=int)
+    sub.choices["run"].add_argument(
+        "--concurrency", type=int, help="override the profile's concurrency for this round"
+    )
     args = parser.parse_args()
     if args.command == "prepare":
         plan = diar.prepare(
@@ -175,7 +181,13 @@ def main():
         per_thread_connections()
         if args.base_url or args.outage_wait_seconds is not None:
             override_endpoint(args.base_url.rstrip("/") if args.base_url else None, *timing)
-        print(diar.run(args.work))
+        if args.concurrency is not None and args.concurrency <= 0:
+            parser.error("Concurrency must be positive")
+        print(diar.run(args.work, args.concurrency))
+    elif args.command == "split":
+        targets = dict(item.split("=", 1) for item in args.into)
+        for name, run in diar.split(args.work, targets).items():
+            print(name, run["run_id"], f"{run['fragments']}/{run['of']} fragments", run["work"])
     else:
         print(diar.publish(args.work))
 
