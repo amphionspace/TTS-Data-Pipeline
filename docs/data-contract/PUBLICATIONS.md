@@ -68,6 +68,8 @@
 | Features | text · `text-selection-text-v1-20261019T120740bjt-01` | 1 个数据集（emilia），33,992,131 行 | 2026-10-19 13:51 | selection-v4 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-reference-v1-20261019T131032bjt-01` | 1 个数据集（emilia），33,992,131 行 | 2026-10-19 14:35 | selection-v4 |
 | Features | merged · `merged-reference-features-v1-20261019T143526bjt-01` | 1 个数据集（emilia），33,992,131 行 | 2026-10-19 14:51 | selection-v4 |
+| Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261019T150157bjt-01` | 2 个数据集（emilia、emilia_yodas），75,844,468 行；prefix reference | 2026-10-19 17:41 | selection-v2（prefix） |
+| Features | merged · `merged-prefix-reference-features-v1-20261019T174217bjt-01` | 2 个数据集（emilia、emilia_yodas），75,844,468 行；prefix reference | 2026-10-19 18:01 | selection-v2（prefix） |
 
 ## 基础数据集
 
@@ -518,6 +520,38 @@
 - SHA256：`e02bf7159be6de7d265f40c7bf0902fb27b1704c01322e69ff447384877a4ecd`
 - 内容：emilia，33,992,131 行；绑定 selection-v4；profile `reference-features-v1`
 - 说明：四份在本机（非 ACP）由 `feature_pipeline.py` 生成，work `artifacts/feature-runs/selection-v4-20261019`；发布后审计 CLEAN（136.0M 行 / 653.2 GB 全量读取，0 问题）
+
+### 2026-10-19 · 发布 · speaker_embedding · emilia-speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261019T150157bjt-01
+
+- 时间：2026-10-19 17:25（北京时间）
+- manifest：`datasets/emilia/v0.1/features/speaker_embedding/emilia-speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261019T150157bjt-01/manifest.json`
+- SHA256：`a35ece3156b005f5a5db2c013e8fdf3291e7642b4cde5b8fa722d1bb1630936c`
+- 内容：emilia，37,428,980 行，全部 ok；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`（selection-v2）；prefix reference（每条参考从第 0 帧开始，长度同 uniform 策略，seed 20261008）
+- 说明：ACP 任务 pt-pzl532uk（work `artifacts/feature-runs/selection-v2-emilia-yodas-prefix-20261019`），固定 selection-v2 的 codec/text 发布，emilia 与 emilia_yodas 同一任务计算；作为 selection-v4 及之后含 emilia_yodas 的 v4 的 prefix speaker 复用来源；发布后审计 CLEAN（40 份 final、559.7M 行 / 2079.8 GB）
+
+### 2026-10-19 · 发布 · speaker_embedding · emilia_yodas-speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261019T150157bjt-01
+
+- 时间：2026-10-19 17:41（北京时间）
+- manifest：`datasets/emilia_yodas/v0.1/features/speaker_embedding/emilia_yodas-speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261019T150157bjt-01/manifest.json`
+- SHA256：`871b014a79b7d2a9ed75ebf76dc8a1f06fe887ab7b3bbca9fe11437f044592f6`
+- 内容：emilia_yodas，38,415,488 行，全部 ok；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`（selection-v2）；prefix reference（每条参考从第 0 帧开始，长度同 uniform 策略，seed 20261008）
+- 说明：ACP 任务 pt-pzl532uk（work `artifacts/feature-runs/selection-v2-emilia-yodas-prefix-20261019`），固定 selection-v2 的 codec/text 发布，emilia 与 emilia_yodas 同一任务计算；作为 selection-v4 及之后含 emilia_yodas 的 v4 的 prefix speaker 复用来源；发布后审计 CLEAN（40 份 final、559.7M 行 / 2079.8 GB）
+
+### 2026-10-19 · 发布 · merged · emilia-merged-prefix-reference-features-v1-20261019T174217bjt-01
+
+- 时间：2026-10-19 17:55（北京时间）
+- manifest：`datasets/emilia/v0.1/features/merged/emilia-merged-prefix-reference-features-v1-20261019T174217bjt-01/manifest.json`
+- SHA256：`65da354d1659bce2c2421ffc7c96310c30bd6817fe4c3b0d4729cea6a819e2a9`
+- 内容：emilia，37,428,980 行，无排除；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`（selection-v2）；profile `prefix-reference-features-v1`
+- 说明：ACP 任务 pt-pzl532uk（work `artifacts/feature-runs/selection-v2-emilia-yodas-prefix-20261019`），固定 selection-v2 的 codec/text 发布，emilia 与 emilia_yodas 同一任务计算；作为 selection-v4 及之后含 emilia_yodas 的 v4 的 prefix speaker 复用来源；发布后审计 CLEAN（40 份 final、559.7M 行 / 2079.8 GB）
+
+### 2026-10-19 · 发布 · merged · emilia_yodas-merged-prefix-reference-features-v1-20261019T174217bjt-01
+
+- 时间：2026-10-19 18:01（北京时间）
+- manifest：`datasets/emilia_yodas/v0.1/features/merged/emilia_yodas-merged-prefix-reference-features-v1-20261019T174217bjt-01/manifest.json`
+- SHA256：`ddccdf600e0cb1aa799afb9ec7b88c4ae4d99a504811d6f05326f9ea0954a11a`
+- 内容：emilia_yodas，38,415,488 行，无排除；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`（selection-v2）；profile `prefix-reference-features-v1`
+- 说明：ACP 任务 pt-pzl532uk（work `artifacts/feature-runs/selection-v2-emilia-yodas-prefix-20261019`），固定 selection-v2 的 codec/text 发布，emilia 与 emilia_yodas 同一任务计算；作为 selection-v4 及之后含 emilia_yodas 的 v4 的 prefix speaker 复用来源；发布后审计 CLEAN（40 份 final、559.7M 行 / 2079.8 GB）
 
 ## 统一根维护
 
