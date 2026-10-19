@@ -48,6 +48,7 @@
 | Annotation | `tts-ann-upstream_quality-20261013T143341bjt-01` | upstream_quality（upstream-dnsmos-p835-ovrl-v1）；emilia、emilia_yodas、emilia2；184,069,533 行 | 2026-10-13 16:38 | |
 | Selection | `tts-selection-supervised-tts-20260929T151539bjt-01` | selection-v1；16 个数据集；入选 128,220,178 条，357,506.8 小时 | 2026-09-29 15:39 | 现有训练 build 使用 |
 | Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
+| Selection | `tts-selection-supervised-tts-20261019T103416bjt-01` | selection-v4；emilia；入选 33,992,131 条，84,158.5 小时；selection-v2 规则 + MOSS 单说话人 | 2026-10-19 11:02 | 训练（emilia 部分） |
 | Features | text · `text-selection-text-v1-20260930T153654bjt-01` | 16 个数据集，128,220,178 行 | 2026-09-30 17:01 | selection-v1 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-packed-v1-20260930T130829bjt-01` | 16 个数据集，128,220,178 行 | 2026-10-01 05:34 | selection-v1 |
 | Features | codec · `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20260930T181155bjt-01` | 12 个数据集，49,918,118 行 | 2026-10-01 13:33 | selection-v1 |
@@ -355,6 +356,22 @@
 - 原因：全局单一 DNSMOS 门槛偏向长片段与 en/zh（短片段补齐打分偏低、各语言上游门槛不同）；改按语言 × 时长段分组取高分重新定义 selection-v3
 - 替代：无（新规则另行发布）
 - 前提：没有特征或训练 build 引用（特征任务只建到规划即停止，未发布）；emilia2 上的分支、保护 tag 与 selection 目录一并删除
+
+### 2026-10-19 · 发布 · tts-selection-supervised-tts-20261019T103416bjt-01
+
+- 时间：2026-10-19 11:02（北京时间）
+- manifest：`selections/tts-selection-supervised-tts-20261019T103416bjt-01/manifest.json`
+- SHA256：`39c9b6269891c9f00ca799de10c962122618034ad9442df36fb924677ad3177a`
+- 内容：selection-v4（原因/flag 字典 version 5）；只有 emilia，40,264,231 行，入选 33,992,131 条，84,158.5 小时
+  （en 40,359 h、zh 39,493 h、ja 1,476 h、de 1,420 h、fr 1,214 h、ko 198 h）。规则照抄 selection-v2，文本仍为
+  `tts-ann-transcription-20261012T092945bjt-01`；新增说话人输入 `tts-ann-speaker_structure-20261019T093525bjt-01`，
+  不是恰好 1 人记 6002（2 人 3,481,881、3 人 157,311、4+ 人 13,285、0 人 12,753、诊断失败 43,249）。
+  父 selection 为 `tts-selection-supervised-tts-20261012T123927bjt-01`，继承其 14,258 条有效排除，无新增
+- 说明：与 selection-v2 的 emilia 逐行比对：33,991,838 条两者都入选；v2 入选而 v4 未选的 3,437,142 条全部是 6002；
+  v4 入选而 v2 未选 293 条（v2 原因 4001 236 条、4002 57 条，同音频组原代表被 6002 排除后由组内成员接替）。
+  这 293 条没有 selection-v2 的特征，训练构建按用户决定跳过，清单见 pipeline 仓库工作区
+  `reports/selection-v4/selected-without-v2-features.tsv`（与 reports/interval-audit 一样不入 git）（SHA256 `d113358f3de1d3dda29dc3bd63144cbd24f1ec740dfcee5c7b9d395e6678c8e4`）；
+  其余行可直接按行筛选 selection-v2 的 emilia 特征。emilia_yodas 的 diarization 完成后以新的 selection_id 发布含 emilia_yodas 的 v4
 
 ## Features
 
