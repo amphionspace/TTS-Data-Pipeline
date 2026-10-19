@@ -43,6 +43,7 @@
 | 基础数据集 | zenless_voice/v0.1 | 406,720 条，554.4 小时 | 2026-10-09 18:53 | |
 | Annotation | `tts-ann-transcription-20261010T111659bjt-01` | transcription；genshin_voice、starrail_voice、wutheringwaves、zenless_voice；1,543,186 行 | 2026-10-10 11:17 | selection-v2 文本来源 |
 | Annotation | `tts-ann-transcription-20261012T092945bjt-01` | transcription；emilia；40,264,231 行 | 2026-10-12 09:39 | selection-v2 文本来源 |
+| Annotation | `tts-ann-transcription-20261010T161238bjt-01` | transcription；emilia_yodas；43,964,905 行（ok 43,964,455，failed 450）；vLLM + sglang 两段 | 2026-10-18 09:26 | |
 | Annotation | `tts-ann-upstream_quality-20261013T143341bjt-01` | upstream_quality（upstream-dnsmos-p835-ovrl-v1）；emilia、emilia_yodas、emilia2；184,069,533 行 | 2026-10-13 16:38 | |
 | Selection | `tts-selection-supervised-tts-20260929T151539bjt-01` | selection-v1；16 个数据集；入选 128,220,178 条，357,506.8 小时 | 2026-09-29 15:39 | 现有训练 build 使用 |
 | Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
@@ -250,6 +251,18 @@
 - 内容：upstream_quality，upstream-dnsmos-p835-ovrl-v1；emilia 40,264,231 行、emilia_yodas 43,964,905 行、emilia2 99,840,397 行，
   共 184,069,533 行，全部 ok；上游 DNSMOS P.835 校准后 OVRL 原样导入（emilia/yodas `upstream.dnsmos`，emilia2 `upstream.short.dnsmos`）
 - 说明：只是导入上游分数，不是本地重算；分布与各数据集上游阈值见 pipeline 仓库 docs/upstream-dnsmos-report.md
+
+### 2026-10-18 · 发布 · tts-ann-transcription-20261010T161238bjt-01
+
+- 时间：2026-10-18 09:26（北京时间）
+- manifest：`annotations/transcription/tts-ann-transcription-20261010T161238bjt-01/manifest.json`
+- SHA256：`ec10994951af78b6a39fb52254cea2d0eb1bf99ea177c967d39dd08edd825172`
+- 内容：transcription，qwen-asr-transcription-v2；emilia_yodas；43,964,905 行，ok 43,964,455，failed 450；
+  回读行数与 ID 顺序和固定 base 一致
+- 说明：同一 run_id 分两段执行，manifest `segments` 逐段记录 profile。任务 [0, 15423) 用 vLLM 0.18.0
+  （qwen3-asr-1.7b-base-v2）；该服务 2026-10-13 停止后，任务 [15423, 85869) 用 sglang-omni
+  （qwen3-asr-1.7b-base-v2-sglang）续跑。sglang 段没有截断检测，超过 30 秒的分块音频不返回检测语言，
+  分块拼接方式也不同于 vLLM 的换行拼接
 
 ## Selection
 
