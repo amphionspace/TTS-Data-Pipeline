@@ -574,3 +574,18 @@ def test_unmatched_prefix_cannot_become_successful_empty_text():
     with pytest.raises(client.InvalidASROutput):
         client.parse_content("language \nEnglish<asr_text>text")
     assert client.parse_content("<|nospeech|>")["text"] == ""
+
+
+def test_sglang_profile_is_shared_by_fresh_runs_and_segments():
+    from tts_data_pipeline.annotations.qwen_asr import run as asr
+
+    vllm = dict(
+        task="transcription", name="qwen3-asr-1.7b-base-v2", server_version="0.18.0", seed=0,
+        max_completion_tokens=1024, chunking="vllm", model_files={"a": "b"},
+    )
+    profile = asr.sglang_profile(vllm, "Qwen/Qwen3-ASR-1.7B", {"name": "sglang-omni"})
+    assert profile["backend"] == "sglang" and profile["name"] == "qwen3-asr-1.7b-base-v2-sglang"
+    assert not {"server_version", "seed", "max_completion_tokens"} & set(profile)
+    assert profile["model_files"] == {"a": "b"} and vllm["chunking"] == "vllm"
+    with pytest.raises(ValueError, match="backend sglang"):
+        asr.prepare("/r", "/w", "/m", "http://x/v1", ["d"], backend="sglang")

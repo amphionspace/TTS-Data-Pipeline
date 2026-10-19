@@ -24,6 +24,11 @@ def main():
         default=["genshin_voice", "starrail_voice", "wutheringwaves", "zenless_voice"],
     )
     command.add_argument("--batch-size", type=int, default=512)
+    command.add_argument("--backend", choices=["vllm", "sglang"], default="vllm")
+    command.add_argument("--model", help="served model name (sglang)")
+    command.add_argument(
+        "--server", type=json.loads, help="JSON description of the pinned server (sglang)"
+    )
     command = commands.add_parser(
         "prepare-segment", help="Continue a run's remaining tasks on another ASR server"
     )
@@ -63,7 +68,15 @@ def main():
     args = parser.parse_args()
     if args.command == "prepare":
         plan = prepare(
-            args.root, args.work, args.model_root, args.endpoint, args.datasets, args.batch_size
+            args.root,
+            args.work,
+            args.model_root,
+            args.endpoint,
+            args.datasets,
+            args.batch_size,
+            args.backend,
+            args.model,
+            args.server,
         )
         print(plan["run_id"], sum(s["rows"] for s in plan["inputs"]), "targets", flush=True)
     elif args.command == "prepare-segment":

@@ -71,16 +71,54 @@ def plan_ids(batches, dataset_id, batch_size):
     return tasks, offset, checksum.hexdigest()
 
 
-def prepare(root, work, model_root, endpoint, datasets, batch_size=512):
+def sglang_profile(definition, model, server):
+    """The sglang-omni variant of a vLLM profile: what the server, not the client, now decides."""
+    definition = dict(definition)
+    for name in ("server_version", "seed", "max_completion_tokens"):
+        definition.pop(name)
+    definition.update(
+        name="qwen3-asr-1.7b-base-v2-sglang",
+        backend="sglang",
+        served_model=model,
+        server=server,
+        service_dtype="bfloat16",
+        request="non_stream_verbose_json",
+        chunking="sglang_omni_server_30s_chunks_above_30s",
+        text_join="sglang_omni_join_transcript_parts",
+        language_argument="sglang_omni_language_form",
+        long_audio_language_detection="unavailable_chunked_responses_return_empty",
+        truncation_detection="unavailable_no_finish_reason",
+        max_new_tokens=1024,
+        dependencies={
+            n: importlib.metadata.version(n)
+            for n in ("numpy", "scipy", "soundfile", "pyarrow", "pylance")
+        },
+        libsndfile=sf.__libsndfile_version__,
+        implementation=code_hashes(),
+    )
+    return definition
+
+
+def prepare(
+    root, work, model_root, endpoint, datasets, batch_size=512, backend="vllm", model=None,
+    server=None,
+):
+    """backend "sglang" starts a fresh run on sglang-omni with the profile that continued the
+    vLLM runs (prepare_segment); `model` is the served name and `server` describes the service."""
     if not datasets or len(set(datasets)) != len(datasets) or not 1 <= batch_size <= 1024:
         raise ValueError("Require unique datasets and a batch size in [1,1024]")
+    if backend not in ("vllm", "sglang") or (backend == "sglang" and not (model and server)):
+        raise ValueError("backend sglang needs the served model name and a server description")
     root, work, model_root = Path(root).resolve(), Path(work).resolve(), Path(model_root).resolve()
     if work.exists():
         raise FileExistsError("Use a new work directory; run resumes an existing plan")
     endpoint = endpoint.rstrip("/")
-    served = client.check_service(endpoint, "Qwen3-ASR-1.7B", "0.18.0")
-    if Path(served["root"]).resolve() != model_root:
-        raise ValueError("Server model root differs from the pinned checkpoint")
+    if backend == "sglang":
+        client.check_sglang_service(endpoint, model)
+    else:
+        served = client.check_service(endpoint, "Qwen3-ASR-1.7B", "0.18.0")
+        if Path(served["root"]).resolve() != model_root:
+            raise ValueError("Server model root differs from the pinned checkpoint")
     files = {
         p.name: file_hash(p)
         for p in sorted(model_root.iterdir())
@@ -117,6 +155,8 @@ def prepare(root, work, model_root, endpoint, datasets, batch_size=512):
         libsndfile=sf.__libsndfile_version__,
         implementation=code_hashes(),
     )
+    if backend == "sglang":
+        definition = sglang_profile(definition, model, server)
     inputs, tasks = [], []
     for name in datasets:
         release = root / "datasets" / name / "v0.1"
@@ -167,7 +207,7 @@ def prepare(root, work, model_root, endpoint, datasets, batch_size=512):
         root=str(root),
         model_root=str(model_root),
         endpoint=endpoint,
-        model="Qwen3-ASR-1.7B",
+        model=model if backend == "sglang" else "Qwen3-ASR-1.7B",
         profile=definition,
         profile_id=digest(definition),
         inputs=inputs,
@@ -202,29 +242,7 @@ def prepare_segment(previous_work, work, endpoint, model, server):
     for name, sha in previous["profile"]["model_files"].items():
         if file_hash(model_root / name) != sha:
             raise ValueError("Model files changed")
-    definition = dict(previous["profile"])
-    for name in ("server_version", "seed", "max_completion_tokens"):
-        definition.pop(name)
-    definition.update(
-        name="qwen3-asr-1.7b-base-v2-sglang",
-        backend="sglang",
-        served_model=model,
-        server=server,
-        service_dtype="bfloat16",
-        request="non_stream_verbose_json",
-        chunking="sglang_omni_server_30s_chunks_above_30s",
-        text_join="sglang_omni_join_transcript_parts",
-        language_argument="sglang_omni_language_form",
-        long_audio_language_detection="unavailable_chunked_responses_return_empty",
-        truncation_detection="unavailable_no_finish_reason",
-        max_new_tokens=1024,
-        dependencies={
-            n: importlib.metadata.version(n)
-            for n in ("numpy", "scipy", "soundfile", "pyarrow", "pylance")
-        },
-        libsndfile=sf.__libsndfile_version__,
-        implementation=code_hashes(),
-    )
+    definition = sglang_profile(previous["profile"], model, server)
     plan = dict(
         previous,
         endpoint=endpoint,
