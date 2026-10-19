@@ -103,13 +103,20 @@ selection仍从base建立，绝不以annotation分支为父。采样权重由训
 | --- | --- | --- |
 | 8001 | not_selected_by_parent | 本规则逐行检查后入选，但父 selection 未选该行；只替换父原因 4001/4002/7001，其他父原因与本规则不一致即拒绝发布 |
 
+字典 version 5（规则含 speaker_inputs 时使用；否则仍发布 version 2）在 version 2 之上新增下码；
+6001、8001 与 flag bit 13/14 只属于 version 3/4，version 5 的 codes 不列出它们，bits 保留其名称但不使用：
+
+| 码 | 名称 | 含义 |
+| --- | --- | --- |
+| 6002 | not_single_speaker | 固定 speaker_structure 结果不是规则要求的说话人数（v4 要求恰好 1 人）：诊断失败、0 人或 2 人及以上 |
+
 6000–6999 其余码为后续质量策略保留，其他未分配码不得擅用；需要更多原因可正式扩展字典。
 主原因优先级固定为：已确认音频/配对问题 → 缺音频/文本 → 用途要求的语言/时长/参考规则 →
 未解决重复冲突 → 留出评估 → 普通重复非代表。rules 必须枚举具体有序码列表，不通过码值大小推断。
 
 flags 独立分配 bit：0 音频问题，1 缺文本，2 配对问题，3 语言规则，4 时长规则，
 5 重复成员，6 未解决重复冲突，7 参考规则，8 留出评估，9 已确认排除；
-version 2 起 10 来源时间轴，11 文本策略，12 语言证据；version 3 起 13 质量策略；version 4 起 14 父 selection 未选（凡父未选的行都置位，不论主原因）。15–31 保留。
+version 2 起 10 来源时间轴，11 文本策略，12 语言证据；version 3 起 13 质量策略；version 4 起 14 父 selection 未选（凡父未选的行都置位，不论主原因）；version 5 起 15 说话人策略。16–31 保留。
 不能使用 `1 << reason_code`；一个入选代表可以 reason=0 且 bit5=1。
 flags=0 只说明此次已执行检查未命中，不代表检查过所有质量维度；coverage 必须区分未检查和通过。
 遇到未知字典版本、未知码或未知 bit 的消费者须拒绝解释，而非默认入选。
@@ -269,10 +276,10 @@ seen_speaker 和 unseen_speaker 分开声明；目标与参考都检查隔离。
 
 ## 用途规则版本
 
-规则版本按 `selection-v<N>` 顺序命名，下一套规则为 selection-v3，在 rules.json 中写 rules_version。
+规则版本按 `selection-v<N>` 顺序命名，在 rules.json 中写 rules_version；selection-v3 是未发布的草案（名称保留），selection-v4 为 emilia 单说话人子集，下一套规则为 selection-v5。
 同一版本的判定口径固定，阈值、来源或判定变化须使用新版本。
 发布的 selection 以其 rules.json 原文件和 SHA256 为准；已发布文件不因改名重写，本节说明各版本的含义。
-各版都是 purpose=supervised_tts，从固定 base 建立，不检查近重复或独立语言识别；selection-v1/v2 不检查音质，selection-v3 只用固定的上游 DNSMOS 分数；
+各版都是 purpose=supervised_tts，从固定 base 建立，不检查近重复或独立语言识别；selection-v1/v2/v4 不检查音质，selection-v3 只用固定的上游 DNSMOS 分数，selection-v4 另用固定的 MOSS 说话人结构；
 规则通过不等于音文逐字验收。selection-v1 的 evaluation.status=not_assigned。
 
 ### selection-v1
@@ -377,6 +384,35 @@ pt 3.3202、zh 3.402）；`min_inclusive` 3.0 是绝对下限，低于所有语�
 **重复。** 只在 emilia2 内部按完整 audio_sha256 分组；与 emilia、emilia_yodas 相同的音频由父 selection 的去重决定（8001），
 因此入选行仍是 selection-v2 的子集，可直接按行筛选 selection-v2 的特征。DNSMOS 对不足 9 秒的音频重复补齐后打分，短片段偏低；
 门槛按语言分组、不按时长，各语言行数比例与 selection-v2 的 emilia2 一致，时长分布仍偏向较长片段。
+
+### selection-v4
+
+emilia 的单说话人子集，用于训练（之后与 selection-v2 的 emilia2 等组合）。原因与 flag 使用字典 version 5。
+
+**输入。** 第一次发布只有 emilia（source_priority 仅此一项），从固定 base 重建，不是 selection-v2 的派生结果。
+rules 固定父 selection 为 selection-v2 的发布并完整继承其有效排除（含 v2 由区间核查证据加入的 105 条目，emilia 1,416 条；
+exclusion_id 方案不变，故不再引用区间核查证据本身）；属于其他数据集的样本级排除照常写入 exclusions.jsonl，在本次输入中没有对应行，
+不要求匹配。文本来自 v2 同一份转写 annotation `tts-ann-transcription-20261012T092945bjt-01`（text_source 2）；
+文本、语言证据、文字系统、时长、留出等其余规则与 selection-v2 逐项相同。
+
+**说话人（6002）。** rules 的 `speaker_inputs` 固定 speaker_structure annotation
+`tts-ann-speaker_structure-20261019T093525bjt-01`（MOSS-Transcribe-Diarize），要求 `speaker_count == 1`。规划时核对其 manifest 完整、
+base manifest/版本与本次输入一致、result 含 speaker_count，并要求 speaker_inputs 覆盖 source_priority 的每个数据集；按 sample_id 与 base 对齐，
+ok 行须核对 audio_sha256。非 ok、空值、0 人（多为唱歌）、2 人及以上都记 6002（flag bit 15）；主说话人占比高的多人片段也排除。
+6002 在去重之前判定，因此重复组的代表取通过本规则的成员。主原因优先级在 3002 之后、5001 之前插入 6002：
+
+103, 102, 104, 105, 1002, 101, 1001, 1003, 2001, 2002, 2003, 2004, 1007, 1008, 1004, 1005, 1006, 3001, 3002, 6002, 5001, 4002, 7001, 4001。
+
+manifest 把 speaker 输入写在 `speaker_inputs`（形状同 annotation_inputs 条目，另含 `role`、`columns`、`speaker_count`），
+`annotation_inputs` 仍每个数据集只含一个文本来源；coverage.speaker_structure 记录输入与 passed、unavailable、count_N 各结果计数。
+
+**与 selection-v2 的关系。** 只在 emilia 内部按完整 audio_sha256 去重，不保证是 v2 的子集：v2 跨数据集冲突组（emilia 与 emilia_yodas 共 87 组）
+在单数据集重建中可能不再冲突，且 6002 改变组内代表；这些新增入选行由发布记录逐个列出，其余行可直接按行筛选 selection-v2 的特征。
+emilia 与 emilia2 没有相同音频，emilia 也没有留出组，故与 v2 的 emilia2 组合训练不产生精确重复或测试泄漏。
+
+**后续加入 emilia_yodas。** 同一规则版本的下一次发布加入 emilia_yodas：文本改用其转写 annotation
+`tts-ann-transcription-20261010T161238bjt-01`，说话人用其 speaker_structure 发布，并以新的 selection_id 替代本次发布。
+发布前须先规定 emilia 与 emilia_yodas 同音频组（约 541 万组）两份 ASR 文本不同时的裁决，并复查 yodas 与他处测试集的副本。
 
 ## 写入、发布、恢复与清理
 
