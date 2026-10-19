@@ -3,7 +3,9 @@
 All row arrays are scratch state, never a published selection representation.
 Rules without `annotation_inputs`/`text_filter` reproduce selection-v1 exactly;
 selection-v2 adds pinned ASR text sources, strict ASR language and text-script checks,
-text length/repetition policy and sample-scoped source-timeline evidence.
+text length/repetition policy and sample-scoped source-timeline evidence;
+selection-v4 adds a pinned speaker_structure annotation: only rows with exactly the required
+speaker count pass (`speaker_inputs`, reason 6002).
 Reference pairing is deliberately unsupported.
 """
 
@@ -79,6 +81,7 @@ REASONS = {
     4001: "duplicate_not_selected",
     4002: "conflicting_duplicate",
     5001: "reference_identity_unavailable",
+    6002: "not_single_speaker",
     7001: "held_out",
     65535: "pending",
 }
@@ -96,7 +99,14 @@ FLAGS = [
     "source_timeline",
     "text_policy",
     "language_evidence",
+    "quality_policy",
+    "parent_policy",
+    "speaker_policy",
 ]
+# Dictionary version 5 adds 6002 and flag bit 15 (bits 13/14 keep the names spec 12 gave them
+# for versions 3/4); rules without speaker_inputs publish version 2 unchanged.
+SPEAKER_CODES, SPEAKER_BIT = {6002}, 15
+SPEAKER_COLUMNS = ("sample_id", "status", "result.audio_sha256", "result.speaker_count")
 ASR_COLUMNS = {
     "sample_id": "sample_id",
     "status": "status",
@@ -347,10 +357,14 @@ def timeline_exclusions(rules_path, rules, inputs):
 
 
 def pin_annotations(root, rules, inputs):
-    """Fix each adopted transcription run to its manifest, table snapshot and base inputs."""
+    """Fix each adopted transcription and speaker_structure run to its manifest, snapshot and
+    base. Returns (transcription inputs, speaker inputs): they stay separate lists so consumers
+    of annotation_inputs keep seeing exactly one text source per dataset."""
     releases = {s["dataset_id"]: s for s in inputs}
-    pinned, covered = [], set()
-    for item in rules.get("annotation_inputs", []):
+    pinned, speakers, covered = [], [], set()
+    items = [(i, "transcription") for i in rules.get("annotation_inputs", [])]
+    items += [(i, "speaker") for i in rules.get("speaker_inputs", [])]
+    for item, role in items:
         folder = Path("annotations") / item["task"] / item["run_id"]
         manifest = json.loads((Path(root) / folder / "manifest.json").read_text())
         if manifest["status"] != "complete" or manifest["run_id"] != item["run_id"]:
@@ -358,9 +372,9 @@ def pin_annotations(root, rules, inputs):
         bases = {s["dataset_id"]: s for s in manifest["inputs"]}
         outputs = {o["dataset_id"]: o for o in manifest["outputs"]}
         for name in item["datasets"]:
-            if name in covered:
-                raise ValueError("Dataset has two text sources")
-            covered.add(name)
+            if (role, name) in covered:
+                raise ValueError(f"Dataset has two {role} sources")
+            covered.add((role, name))
             source, table = releases[name], outputs[name]["table"]
             if (
                 bases[name]["manifest_sha256"] != source["manifest_sha256"]
@@ -369,26 +383,52 @@ def pin_annotations(root, rules, inputs):
                 or table["branch"] is not None
             ):
                 raise ValueError(f"Annotation was computed on a different base: {name}")
-            pinned.append(
-                {
-                    "text_source": item["text_source"],
-                    "task": item["task"],
-                    "run_id": item["run_id"],
-                    "manifest_path": str(folder / "manifest.json"),
-                    "manifest_sha256": file_sha(Path(root) / folder / "manifest.json"),
-                    "profile_id": manifest["profile_id"],
-                    "dataset_id": name,
-                    "release_id": source["release_id"],
-                    "table_path": table["table_path"],
-                    "branch": None,
-                    "lance_version": table["lance_version"],
-                    "rows": table["rows"],
-                    "columns": sorted(ASR_COLUMNS.values()),
-                    "base_manifest_sha256": source["manifest_sha256"],
-                    "base_lance_version": source["lance_version"],
+            entry = {
+                "task": item["task"],
+                "run_id": item["run_id"],
+                "manifest_path": str(folder / "manifest.json"),
+                "manifest_sha256": file_sha(Path(root) / folder / "manifest.json"),
+                "profile_id": manifest["profile_id"],
+                "dataset_id": name,
+                "release_id": source["release_id"],
+                "table_path": table["table_path"],
+                "branch": None,
+                "lance_version": table["lance_version"],
+                "rows": table["rows"],
+                "columns": sorted(ASR_COLUMNS.values()),
+                "base_manifest_sha256": source["manifest_sha256"],
+                "base_lance_version": source["lance_version"],
+            }
+            if role == "transcription":
+                pinned.append({"text_source": item["text_source"], **entry})
+                continue
+            result = next(c for c in table["schema"] if c["name"] == "result")
+            if "speaker_count" not in {f["name"] for f in result["fields"]}:
+                raise ValueError(f"Speaker annotation has no speaker_count: {name}")
+            speakers.append(
+                entry
+                | {
+                    "role": "speaker",
+                    "columns": list(SPEAKER_COLUMNS),
+                    "speaker_count": item["speaker_count"],
                 }
             )
-    return pinned
+    return pinned, speakers
+
+
+def transcription_inputs(p, name=None):
+    """Pinned text sources (annotation_inputs)."""
+    return [a for a in p.get("annotation_inputs", []) if name is None or a["dataset_id"] == name]
+
+
+def speaker_input(p, name):
+    return next((a for a in p.get("speaker_inputs", []) if a["dataset_id"] == name), None)
+
+
+def aligned_key(item, offset):
+    """Scratch name of one aligned scan slice; transcription keeps its original name."""
+    kind = "speaker-" if item.get("role") == "speaker" else ""
+    return f"{item['dataset_id']}-{kind}{offset:012d}"
 
 
 def align_annotations(work):
@@ -407,7 +447,7 @@ def align_annotations(work):
     import pyarrow.parquet as pq
 
     done = {}
-    for item in p["annotation_inputs"]:
+    for item in p["annotation_inputs"] + p.get("speaker_inputs", []):
         name = item["dataset_id"]
         source = next(s for s in p["inputs"] if s["dataset_id"] == name)
         base = open_base(p["root"], source)
@@ -417,8 +457,12 @@ def align_annotations(work):
         table = lance.dataset(Path(p["root"]) / item["table_path"], version=item["lance_version"])
         if table.count_rows() != item["rows"]:
             raise ValueError("Annotation row count changed")
-        names = list(ASR_COLUMNS)
-        ann = table.to_table(columns=[ASR_COLUMNS[k] for k in names]).rename_columns(names)
+        if item.get("role") == "speaker":
+            names, columns = ["sample_id", "status", "audio_sha256", "speaker_count"], item["columns"]
+        else:
+            names = list(ASR_COLUMNS)
+            columns = [ASR_COLUMNS[k] for k in names]
+        ann = table.to_table(columns=columns).rename_columns(names)
         # 64-bit offsets: one dataset's aligned text can exceed 2 GiB.
         ann = ann.cast(
             pa.schema(
@@ -437,21 +481,21 @@ def align_annotations(work):
         if not aligned["sample_id"].equals(ids):
             raise ValueError("Annotation alignment failed")
         for task in (t for t in p["tasks"] if t["dataset"] == name):
-            path = folder / f"{name}-{task['offset']:012d}.parquet"
+            path = folder / f"{aligned_key(item, task['offset'])}.parquet"
             pq.write_table(aligned.slice(task["offset"], task["rows"]), path)
             done[path.stem] = {"path": str(path), "sha256": file_sha(path), "rows": task["rows"]}
-        event(work, "annotation_aligned", dataset=name, rows=len(aligned))
+        event(work, "annotation_aligned", dataset=name, rows=len(aligned), role=item.get("role"))
     write_json(checkpoint, done)
     return done
 
 
-def asr_rows(p, task):
-    """Aligned annotation rows for one scan task, or None for base-text datasets."""
-    if not any(a["dataset_id"] == task["dataset"] for a in p["annotation_inputs"]):
+def aligned_rows(p, task, item):
+    """Aligned annotation rows of one pinned input for one scan task; None without that input."""
+    if item is None:
         return None
     import pyarrow.parquet as pq
 
-    path = Path(p["work"]) / "annotations" / f"{task['dataset']}-{task['offset']:012d}.parquet"
+    path = Path(p["work"]) / "annotations" / f"{aligned_key(item, task['offset'])}.parquet"
     done = json.loads((Path(p["work"]) / "annotations" / "aligned.json").read_text())
     if file_sha(path) != done[path.stem]["sha256"]:
         raise ValueError("Aligned annotation scratch changed")
@@ -474,6 +518,17 @@ def plan(root, work, rules_path, *, selection_id=None):
         )
     if rules["reference_policy"] != "self":
         raise ValueError("This executor supports self-reference selection only")
+    if rules.get("speaker_inputs"):
+        if not SPEAKER_CODES <= set(rules["reason_priority"]):
+            raise ValueError("Speaker rules need 6002 in reason_priority")
+        for item in rules["speaker_inputs"]:
+            count = item.get("speaker_count")
+            if item["task"] != "speaker_structure" or type(count) is not int or count < 1:
+                raise ValueError("speaker_inputs need task speaker_structure and speaker_count >= 1")
+        covered = {n for item in rules["speaker_inputs"] for n in item["datasets"]}
+        if covered != set(rules["source_priority"]):
+            # Speaker evidence is required: a dataset without it cannot pass 6002.
+            raise ValueError("speaker_inputs must cover every dataset in source_priority")
     selection_id = selection_id or datetime.now(BEIJING).strftime(
         "tts-selection-supervised-tts-%Y%m%dT%H%M%Sbjt-01"
     )
@@ -522,6 +577,7 @@ def plan(root, work, rules_path, *, selection_id=None):
         additions = [e for e in additions if e["exclusion_id"] not in known]
     else:
         parent, exclusions, additions = None, known_exclusions(root, inputs, rules), []
+    transcriptions, speakers = pin_annotations(root, rules, inputs)
     result = {
         "selection_id": selection_id,
         "root": str(root),
@@ -530,13 +586,15 @@ def plan(root, work, rules_path, *, selection_id=None):
         "rules": rules,
         "rules_sha256": digest(rules),
         "inputs": inputs,
-        "annotation_inputs": pin_annotations(root, rules, inputs),
+        "annotation_inputs": transcriptions,
         "parent": parent,
         "tasks": tasks,
         "exclusions": exclusions + additions,
         "exclusion_additions": [e["exclusion_id"] for e in additions],
         "implementation_sha256": file_sha(__file__),
     }
+    if speakers:
+        result["speaker_inputs"] = speakers
     write_json(work / "plan.json", result)
     event(
         work,
@@ -559,7 +617,9 @@ def asr_language_conflict(asr, language, source):
     return source["language_labels"].get(asr["language"] or "") != language
 
 
-def classify(row, dataset, rules, audio_exclusions, sample_exclusions, asr=None, evidence=None):
+def classify(
+    row, dataset, rules, audio_exclusions, sample_exclusions, asr=None, evidence=None, speaker=None
+):
     reasons, flags = [], 0
     raw_text = row["text"]
     text = chosen_text(raw_text, asr)
@@ -651,6 +711,23 @@ def classify(row, dataset, rules, audio_exclusions, sample_exclusions, asr=None,
         if json.loads(metadata).get(held["field"]) in held["values"]:
             reasons.append(7001)
             flags |= 1 << 8
+    if speaker is not None:
+        if speaker["sample_id"] != row["sample_id"]:
+            raise ValueError("Speaker row is not aligned with base")
+        if speaker["status"] == "ok" and speaker["audio_sha256"] != row["audio_sha256"]:
+            raise ValueError("Speaker identity disagrees with base")
+        if speaker["status"] != "ok" or speaker["speaker_count"] is None:
+            outcome = "unavailable"
+        elif speaker["speaker_count"] != speaker["required"]:
+            outcome = f"count_{min(speaker['speaker_count'], 4)}"
+        else:
+            outcome = "passed"
+        if outcome != "passed":
+            # Failed diarization never passes; neither do zero (mostly singing) or 2+ speakers.
+            reasons.append(6002)
+            flags |= 1 << SPEAKER_BIT
+        if evidence is not None:
+            evidence["speaker"] = outcome
     bounds = rules["duration_seconds"]
     if duration < bounds["min_inclusive"]:
         reasons.append(3001)
@@ -686,11 +763,11 @@ def scan_part(args):
             # One sample may carry several independent exclusions.
             samples.setdefault((entry["scope"]["dataset_id"], entry["scope"]["sample_id"]), [])
             samples[(entry["scope"]["dataset_id"], entry["scope"]["sample_id"])].append(entry)
-    annotation = asr_rows(p, task)
-    text_source = next(
-        (a["text_source"] for a in p["annotation_inputs"] if a["dataset_id"] == task["dataset"]),
-        0,
-    )
+    transcription = next(iter(transcription_inputs(p, task["dataset"])), None)
+    annotation = aligned_rows(p, task, transcription)
+    text_source = transcription["text_source"] if transcription else 0
+    speaker_item = speaker_input(p, task["dataset"])
+    speakers = aligned_rows(p, task, speaker_item)
     languages = {lang: i + 1 for i, lang in enumerate(rules["supported_languages"])}
     counter, lang_counts, lang_seconds = Counter(), Counter(), Counter()
     raw_counts, raw_seconds = Counter(), Counter()
@@ -710,8 +787,11 @@ def scan_part(args):
             if annotation is not None:
                 asr = annotation[position] | {"text_source": text_source}
             evidence = {}
+            speaker = None
+            if speakers is not None:
+                speaker = speakers[position] | {"required": speaker_item["speaker_count"]}
             reason, flags, lang, text = classify(
-                row, task["dataset"], rules, audio, samples, asr, evidence
+                row, task["dataset"], rules, audio, samples, asr, evidence, speaker
             )
             sid, sha = row["sample_id"], row["audio_sha256"]
             if len(sid) != 64 or any(c not in "0123456789abcdef" for c in sid):
@@ -734,6 +814,8 @@ def scan_part(args):
             checks["sample_exclusions"] += len(samples.get((task["dataset"], sid), []))
             if asr is not None:
                 checks["asr_" + str(asr["status"])] += 1
+            if speaker is not None:
+                checks["speaker_" + evidence["speaker"]] += 1
             ids.update(sid.encode() + b"\n")
             counter[str(reason)] += 1
             lang_counts[lang or "<missing>"] += 1
@@ -851,7 +933,9 @@ def resolve_duplicates(work):
         return result
     parts = json.loads((work / "scan.json").read_text())
     applied = sum(t.get("checks", {}).get("sample_exclusions", 0) for t in parts)
-    if applied != sum("sample_id" in e["scope"] for e in p["exclusions"]):
+    # Inherited exclusions of datasets outside this selection stay effective but match no row here.
+    names = {s["dataset_id"] for s in p["inputs"]}
+    if applied != sum(e["scope"].get("dataset_id") in names for e in p["exclusions"]):
         raise ValueError("Sample-scoped exclusions do not all match a base row")
     sources = p["inputs"]
     arrays, array_paths = [], []
@@ -1016,7 +1100,7 @@ def text_override(raw, asr):
 
 def aligned_text(p, name):
     """(text_source, status, text) arrays in base row order for an ASR-text dataset."""
-    item = next((a for a in p["annotation_inputs"] if a["dataset_id"] == name), None)
+    item = next(iter(transcription_inputs(p, name)), None)
     if item is None:
         return None
     import pyarrow.parquet as pq
@@ -1246,7 +1330,7 @@ def text_sources(p):
     sources = {
         "0": {"kind": "base_normalization", "normalization": p["rules"]["text_normalization"]}
     }
-    for item in p.get("annotation_inputs", []):
+    for item in transcription_inputs(p):
         code = str(item["text_source"])
         rule = p["rules"]["text_sources"][code]
         entry = sources.setdefault(
@@ -1348,6 +1432,11 @@ def publish(work, workers=16):
         )
     )
     parts = json.loads((Path(work) / "scan.json").read_text())
+    speaker_inputs = p.get("speaker_inputs")
+    version = 5 if speaker_inputs else 2
+    codes = {k: v for k, v in REASONS.items() if version == 5 or k not in SPEAKER_CODES}
+    bits = dict(enumerate(FLAGS if version == 5 else FLAGS[:13]))
+    checks = sum((Counter(t.get("checks", {})) for t in parts), Counter())
     manifest = {
         "contract_version": "v0.1",
         "artifact_kind": "selection",
@@ -1365,13 +1454,14 @@ def publish(work, workers=16):
             "sha256": file_sha(incomplete / "rules.json"),
             "implementation_sha256": p["implementation_sha256"],
         },
-        # Version 2 adds 105/1003-1008/2003/2004 and flag bits 10-12; old codes keep meaning.
+        # Version 2 adds 105/1003-1008/2003/2004 and flag bits 10-12; version 5 adds 6002 and
+        # bit 15 (bits 13/14 keep spec 12's version 3/4 names, unused). Old codes keep meaning.
         "reason_dictionary": {
-            "version": 2,
-            "codes": REASONS,
+            "version": version,
+            "codes": codes,
             "priority": p["rules"]["reason_priority"],
         },
-        "flag_dictionary": {"version": 2, "bits": dict(enumerate(FLAGS))},
+        "flag_dictionary": {"version": version, "bits": bits},
         "exclusions": {
             "parent": parent,
             "initial_evidence_sources": p["rules"]["initial_exclusion_evidence"],
@@ -1393,11 +1483,25 @@ def publish(work, workers=16):
             "audio_statistics": "not_used",
             "audio_presence": p["rules"]["audio_presence_evidence"],
             "text_filter": p["rules"].get("text_filter", "not_applied"),
-            "checks": sum((Counter(t.get("checks", {})) for t in parts), Counter()),
+            "checks": checks,
         },
         "normalization_statistics": parts,
         "evaluation": p["rules"].get("evaluation", {"status": "not_assigned"}),
     }
+    if speaker_inputs:
+        # Keyed apart from annotation_inputs, so each dataset still has one text source there.
+        manifest["speaker_inputs"] = speaker_inputs
+        manifest["coverage"]["speaker_structure"] = {
+            "rule": "speaker_count_equals",
+            "reason": 6002,
+            "inputs": [
+                {k: a[k] for k in ("dataset_id", "run_id", "profile_id", "speaker_count")}
+                for a in speaker_inputs
+            ],
+            "outcomes": {
+                k.removeprefix("speaker_"): v for k, v in checks.items() if k.startswith("speaker_")
+            },
+        }
     # Scratch names and hashes are operational details, not consumption dependencies.
     manifest["normalization_statistics"] = [
         {k: v for k, v in t.items() if k not in {"file", "sha256", "fragments"}} for t in parts

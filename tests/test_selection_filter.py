@@ -413,6 +413,10 @@ def test_inherited_annotated_selection_publishes_audited_text(tmp_path):
     assert manifest["text_sources"]["1"]["datasets"] == ["game"]
     assert manifest["annotation_inputs"][0]["run_id"] == "asr-run"
     assert manifest["reason_dictionary"]["version"] == 2
+    # Without speaker_inputs the version-2 dictionaries are unchanged.
+    assert "6002" not in json.dumps(manifest["reason_dictionary"]["codes"])
+    assert len(manifest["flag_dictionary"]["bits"]) == 13
+    assert "speaker_inputs" not in manifest and "speaker_structure" not in manifest["coverage"]
     with pytest.raises(ValueError, match="already published"):
         publish_selection(work, workers=1)
 
