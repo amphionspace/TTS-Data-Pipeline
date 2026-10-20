@@ -291,8 +291,9 @@
 - manifest：`annotations/transcription/tts-ann-transcription-20261019T143130bjt-01/manifest.json`
 - SHA256：`702fc9212103e3d0387c86cc50a96f43f945b7cad45531ec5c2ec4acfbc8b6d1`
 - 内容：transcription，qwen-asr-transcription-v2；hifitts2；12,809,875 行，全部 ok；回读行数与 ID 顺序和固定 base 一致
-- 说明：hifitts2 首次转写，全程 sglang-omni（qwen3-asr-1.7b-base-v2-sglang，DP2 GPU 5-6）。该 profile 没有截断检测，
-  超过 30 秒的分块音频不返回检测语言，分块拼接方式也不同于 vLLM 的换行拼接。抽样 3 万行对上游文本：
+- 说明：hifitts2 首次转写，全程 sglang-omni（qwen3-asr-1.7b-base-v2-sglang，DP2 GPU 5-6）。该 profile 与 vLLM 版的差别：
+  没有截断检测（不知道输出是否被 max_new_tokens 截断）；超过 30 秒的音频会被服务端切成 30 秒分块，分块音频不返回检测语言，
+  各块文本的拼接方式也和 vLLM 的换行拼接不同。hifitts2 最长 20 秒，后两项不涉及。抽样 3 万行对上游文本：
   WER 3.06%、CER 1.36%，大部分差异来自上游 OCR/对齐/朗读偏差
 
 ## Selection
