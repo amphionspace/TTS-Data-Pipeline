@@ -103,7 +103,7 @@ selection仍从base建立，绝不以annotation分支为父。采样权重由训
 | --- | --- | --- |
 | 8001 | not_selected_by_parent | 本规则逐行检查后入选，但父 selection 未选该行；只替换父原因 4001/4002/7001，其他父原因与本规则不一致即拒绝发布 |
 
-字典 version 5（规则含 speaker_inputs 或 speaker_metadata 时使用；否则仍发布 version 2）在 version 2 之上新增下码；
+字典 version 5（规则含 speaker_inputs 时使用；否则仍发布 version 2）在 version 2 之上新增下码；
 6001、8001 与 flag bit 13/14 只属于 version 3/4，version 5 的 codes 不列出它们，bits 保留其名称但不使用：
 
 | 码 | 名称 | 含义 |
@@ -115,6 +115,11 @@ selection仍从base建立，绝不以annotation分支为父。采样权重由训
 | 码 | 名称 | 含义 |
 | --- | --- | --- |
 | 1009 | text_disagreement | 入选的 ASR 文本与 base 的固定文本变体不一致（超过规则的编辑距离比例），或该行没有可比的参考文本；flag bit 11 |
+
+执行器另支持两项尚无已发布规则使用的选项：`speaker_metadata` 从 base `metadata_json` 的键路径取说话人数（按 6002 判定，
+每个数据集在 speaker_inputs 与 speaker_metadata 中恰好出现一次）；文本来源的 `verification` 要求 ASR 文本与 base `text_variants`
+中指定 kind 的文本一致（比较前两边做 NFKC、casefold、去组合附加符、取 `[a-z0-9']+` 词并按 fold_words 映射、去撇号无分隔连接，
+按码位 Levenshtein 距离不超过 floor(max_edit_ratio × 参考长度)；只适用于英文；ASR 失败或空文本的行记 unchecked 不比较）。
 
 6000–6999 其余码为后续质量策略保留，其他未分配码不得擅用；需要更多原因可正式扩展字典。
 主原因优先级固定为：已确认音频/配对问题 → 缺音频/文本 → 用途要求的语言/时长/参考规则 →
@@ -282,10 +287,10 @@ seen_speaker 和 unseen_speaker 分开声明；目标与参考都检查隔离。
 
 ## 用途规则版本
 
-规则版本按 `selection-v<N>` 顺序命名，在 rules.json 中写 rules_version；selection-v3 是未发布的草案（名称保留），selection-v4 为 emilia、hifitts2 单说话人子集（逐步加入数据集），下一套规则为 selection-v5。
+规则版本按 `selection-v<N>` 顺序命名，在 rules.json 中写 rules_version；selection-v3 是未发布的草案（名称保留），selection-v4 为 emilia 单说话人子集，下一套规则为 selection-v5。
 同一版本的判定口径固定，阈值、来源或判定变化须使用新版本。
 发布的 selection 以其 rules.json 原文件和 SHA256 为准；已发布文件不因改名重写，本节说明各版本的含义。
-各版都是 purpose=supervised_tts，从固定 base 建立，不检查近重复或独立语言识别；selection-v1/v2/v4 不检查音质，selection-v3 只用固定的上游 DNSMOS 分数，selection-v4 另用固定的 MOSS 说话人结构（hifitts2 用上游说话人数）与 hifitts2 的上游文本一致性；
+各版都是 purpose=supervised_tts，从固定 base 建立，不检查近重复或独立语言识别；selection-v1/v2/v4 不检查音质，selection-v3 只用固定的上游 DNSMOS 分数，selection-v4 另用固定的 MOSS 说话人结构；
 规则通过不等于音文逐字验收。selection-v1 的 evaluation.status=not_assigned。
 
 ### selection-v1
@@ -393,10 +398,9 @@ pt 3.3202、zh 3.402）；`min_inclusive` 3.0 是绝对下限，低于所有语�
 
 ### selection-v4
 
-emilia 与 hifitts2 的单说话人子集，用于训练（之后与 selection-v2 的 emilia2 等组合）。第一次发布只有 emilia（字典 version 5）；
-第二次发布加入 hifitts2（字典 version 6）；emilia_yodas 的说话人结构完成后再按同样方式加入。
+emilia 的单说话人子集，用于训练（之后与 selection-v2 的 emilia2 等组合）。原因与 flag 使用字典 version 5。
 
-**输入。** source_priority 依次为 emilia、hifitts2，各自从固定 base 重建，不是 selection-v2 的派生结果。
+**输入。** 第一次发布只有 emilia（source_priority 仅此一项），从固定 base 重建，不是 selection-v2 的派生结果。
 rules 固定父 selection 为 selection-v2 的发布并完整继承其有效排除（含 v2 由区间核查证据加入的 105 条目，emilia 1,416 条；
 exclusion_id 方案不变，故不再引用区间核查证据本身）；属于其他数据集的样本级排除照常写入 exclusions.jsonl，在本次输入中没有对应行，
 不要求匹配。文本来自 v2 同一份转写 annotation `tts-ann-transcription-20261012T092945bjt-01`（text_source 2）；
@@ -412,25 +416,6 @@ ok 行须核对 audio_sha256。非 ok、空值、0 人（多为唱歌）、2 人
 
 manifest 把 speaker 输入写在 `speaker_inputs`（形状同 annotation_inputs 条目，另含 `role`、`columns`、`speaker_count`），
 `annotation_inputs` 仍每个数据集只含一个文本来源；coverage.speaker_structure 记录输入与 passed、unavailable、count_N 各结果计数。
-
-**hifitts2 的说话人（6002）。** hifitts2 没有 MOSS 结果，rules 的 `speaker_metadata` 改从 base `metadata_json` 的
-`parquet_fields.speaker_count`（上游 HiFiTTS-2 清单字段）取说话人数，同样要求等于 1；缺失或非整数记 unavailable，与 MOSS 的规则同记 6002。
-每个数据集在 speaker_inputs 与 speaker_metadata 中恰好出现一次，否则拒绝规划。manifest 另写 `speaker_metadata`，
-coverage.speaker_structure.inputs 对这类数据集记 `source: base metadata_json` 与键路径。上游约 0.22% 的行不是 1 人。
-
-**hifitts2 的文本（1009）。** 文本取 ASR annotation `tts-ann-transcription-20261019T143130bjt-01`（text_source 3，Qwen3-ASR，
-sglang-omni），语言、空文本、标记、重复、字符密度等规则与 text_source 2 相同；另要求与 base `text_variants` 中 kind=source_normalized
-的上游文本一致。上游文本是对齐到音频的书本或 MLS 文本，含 OCR 错误、朗读者改词、未朗读的标注；ASR 则会拼错少见人名，两者都不单独可信。
-比较前两边都做：NFKC、casefold、NFKD 后去掉组合附加符、U+2018/U+2019 改为撇号、按 `[a-z0-9']+` 取词并经 `fold_words`（少量英式拼写）映射、
-去撇号、无分隔连接；按码位计 Levenshtein 距离，上限为 floor(1/100 × 参考长度)，不超过即通过。没有该变体或参考为空记 1009。
-入选文本仍是 ASR 文本（下游按 annotation 文本来源核对），参考文本只用于判定。1009 排在 1008 之后：
-
-103, 102, 104, 105, 1002, 101, 1001, 1003, 2001, 2002, 2003, 2004, 1007, 1008, 1009, 1004, 1005, 1006, 3001, 3002, 6002, 5001, 4002, 7001, 4001。
-
-不在 `[a-z0-9']` 内的字符（含 NFKD 不分解的 œ、æ、ø 等）两边同样丢弃，只适用于英文来源。
-manifest text_sources 的 3 号来源带 `verification`，coverage.text_verification 记录 agree、disagree、no_reference 计数，
-ASR 失败（1003）或文本为空（1001）的行不比较，记 unchecked。
-发布前全量估计：hifitts2 12,809,875 行中 ASR 与上游文本一致（≤1%）9,042,745 行、24,443 小时。
 
 **与 selection-v2 的关系。** 只在 emilia 内部按完整 audio_sha256 去重，不保证是 v2 的子集：v2 跨数据集冲突组（emilia 与 emilia_yodas 共 87 组）
 在单数据集重建中可能不再冲突，且 6002 改变组内代表；这些新增入选行由发布记录逐个列出，其余行可直接按行筛选 selection-v2 的特征。
