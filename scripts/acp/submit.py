@@ -40,7 +40,7 @@ def snapshot(destination):
     return files
 
 
-def payload(platform, name, runtime, work, extra, cpu_script=None):
+def payload(platform, name, runtime, work, extra, cpu_script=None, spec=None):
     if cpu_script:
         launcher, extra = "scripts/acp/cpu_job.sh", [cpu_script, *extra]
     else:
@@ -52,7 +52,7 @@ def payload(platform, name, runtime, work, extra, cpu_script=None):
         "roles": [
             {
                 "name": "Worker",
-                "resource_spec": [{"name": platform["worker_spec"]}],
+                "resource_spec": [{"name": spec or platform["worker_spec"]}],
                 "total_replicas": 1,
                 "image_path": platform["image"],
                 "startup_script": shlex.join(command),
@@ -85,6 +85,7 @@ def main():
     parser.add_argument("--config", type=Path, default=PROJECT / "configs/acp.yaml")
     parser.add_argument("--submit", action="store_true", help="Create the job; else only render")
     parser.add_argument("--cpu-script", help="Run this repository script instead of the pipeline")
+    parser.add_argument("--spec", help="Resource spec instead of worker_spec, e.g. N3lS.Ii.I60.16c64g")
     args, extra = parser.parse_known_args()
     extra = [x for x in extra if x != "--"]
     platform = yaml.safe_load(args.config.read_text())
@@ -96,7 +97,7 @@ def main():
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     submission = work / "submissions" / stamp
     runtime = submission / "runtime"
-    body = payload(platform, args.name, runtime, work, extra, args.cpu_script)
+    body = payload(platform, args.name, runtime, work, extra, args.cpu_script, args.spec)
     print(json.dumps({"submit": args.submit, "url": jobs_url(platform), "body": body}, indent=2))
     if not args.submit:
         return
