@@ -5,7 +5,9 @@ Rules without `annotation_inputs`/`text_filter` reproduce selection-v1 exactly;
 selection-v2 adds pinned ASR text sources, strict ASR language and text-script checks,
 text length/repetition policy and sample-scoped source-timeline evidence;
 selection-v4 adds a pinned speaker_structure annotation: only rows with exactly the required
-speaker count pass (`speaker_inputs`, reason 6002).
+speaker count pass (`speaker_inputs`, reason 6002); a dataset without one may take its speaker
+count from base metadata (`speaker_metadata`), and an ASR text source may require agreement with a
+base text variant (`verification`, reason 1009).
 Reference pairing is deliberately unsupported.
 """
 
@@ -16,10 +18,12 @@ import json
 import math
 import multiprocessing
 import os
+import re
 import unicodedata
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
+from fractions import Fraction
 from pathlib import Path
 
 import lance
@@ -72,6 +76,7 @@ REASONS = {
     1006: "text_too_sparse",
     1007: "text_markup",
     1008: "asr_chunk_join",
+    1009: "text_disagreement",
     2001: "missing_language",
     2002: "unsupported_language",
     2003: "language_evidence_conflict",
@@ -106,6 +111,9 @@ FLAGS = [
 # Dictionary version 5 adds 6002 and flag bit 15 (bits 13/14 keep the names spec 12 gave them
 # for versions 3/4); rules without speaker_inputs publish version 2 unchanged.
 SPEAKER_CODES, SPEAKER_BIT = {6002}, 15
+# Dictionary version 6 adds 1009 (selected ASR text disagrees with a pinned base text variant).
+VERIFY_CODES = {1009}
+COMPARABLE_TOKEN = re.compile(r"[a-z0-9']+")
 SPEAKER_COLUMNS = ("sample_id", "status", "result.audio_sha256", "result.speaker_count")
 ASR_COLUMNS = {
     "sample_id": "sample_id",
@@ -201,6 +209,59 @@ def chosen_text(raw_text, asr):
     if asr["status"] != "ok":
         return ""
     return (asr["text"] or "").strip()
+
+
+def comparable(text, fold_words):
+    """Comparison form for text verification: NFKC, casefold, accents removed, curly apostrophes
+    straightened, [a-z0-9'] tokens folded by `fold_words`, apostrophes dropped, no separators.
+    Non-Latin letters vanish, so this suits English-only sources."""
+    s = unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", text).casefold())
+    s = "".join(c for c in s if not unicodedata.combining(c)).replace("\u2019", "'")
+    s = s.replace("\u2018", "'")
+    return "".join(fold_words.get(t, t).replace("'", "") for t in COMPARABLE_TOKEN.findall(s))
+
+
+def edits_within(a, b, k):
+    """Levenshtein distance of a and b when it is <= k, else k + 1 (banded dynamic program)."""
+    if a == b:
+        return 0
+    big = k + 1
+    if abs(len(a) - len(b)) > k:
+        return big
+    previous = [j if j <= k else big for j in range(len(b) + 1)]
+    for i in range(1, len(a) + 1):
+        current = [big] * (len(b) + 1)
+        current[0] = i if i <= k else big
+        for j in range(max(1, i - k), min(len(b), i + k) + 1):
+            value = min(
+                previous[j - 1] + (a[i - 1] != b[j - 1]), previous[j] + 1, current[j - 1] + 1
+            )
+            current[j] = min(value, big)
+        previous = current
+        if min(previous[max(0, i - k) : min(len(b), i + k) + 1]) > k:
+            return big
+    return previous[len(b)]
+
+
+def verify_text(text, variants, rule):
+    """agree / disagree / no_reference: selected text against the pinned base text variant."""
+    kind = rule["reference"]["kind"]
+    reference = next((v["text"] for v in variants or [] if v["kind"] == kind), None)
+    if reference is None:
+        return "no_reference"
+    a = comparable(reference, rule["fold_words"])
+    if not a:
+        return "no_reference"
+    limit = math.floor(Fraction(rule["max_edit_ratio"]) * len(a))
+    b = comparable(text, rule["fold_words"])
+    return "agree" if edits_within(a, b, limit) <= limit else "disagree"
+
+
+def metadata_value(metadata, path):
+    value = json.loads(metadata) if metadata else None
+    for key in path:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
 
 
 def now():
@@ -425,6 +486,11 @@ def speaker_input(p, name):
     return next((a for a in p.get("speaker_inputs", []) if a["dataset_id"] == name), None)
 
 
+def speaker_metadata(rules, name):
+    """Speaker evidence read from base metadata_json, for a dataset without a speaker annotation."""
+    return next((m for m in rules.get("speaker_metadata", []) if name in m["datasets"]), None)
+
+
 def aligned_key(item, offset):
     """Scratch name of one aligned scan slice; transcription keeps its original name."""
     kind = "speaker-" if item.get("role") == "speaker" else ""
@@ -518,17 +584,44 @@ def plan(root, work, rules_path, *, selection_id=None):
         )
     if rules["reference_policy"] != "self":
         raise ValueError("This executor supports self-reference selection only")
-    if rules.get("speaker_inputs"):
+    if rules.get("speaker_inputs") or rules.get("speaker_metadata"):
         if not SPEAKER_CODES <= set(rules["reason_priority"]):
             raise ValueError("Speaker rules need 6002 in reason_priority")
-        for item in rules["speaker_inputs"]:
+        for item in rules.get("speaker_inputs", []):
             count = item.get("speaker_count")
             if item["task"] != "speaker_structure" or type(count) is not int or count < 1:
                 raise ValueError("speaker_inputs need task speaker_structure and speaker_count >= 1")
-        covered = {n for item in rules["speaker_inputs"] for n in item["datasets"]}
-        if covered != set(rules["source_priority"]):
+        for item in rules.get("speaker_metadata", []):
+            count, path = item.get("speaker_count"), item.get("path")
+            if type(count) is not int or count < 1 or not path or not all(
+                isinstance(k, str) for k in path
+            ):
+                raise ValueError("speaker_metadata needs a key path and speaker_count >= 1")
+        covered = [
+            n
+            for item in rules.get("speaker_inputs", []) + rules.get("speaker_metadata", [])
+            for n in item["datasets"]
+        ]
+        if len(covered) != len(set(covered)) or set(covered) != set(rules["source_priority"]):
             # Speaker evidence is required: a dataset without it cannot pass 6002.
-            raise ValueError("speaker_inputs must cover every dataset in source_priority")
+            raise ValueError(
+                "speaker_inputs and speaker_metadata must cover every dataset in "
+                "source_priority exactly once"
+            )
+    for code, source in rules.get("text_sources", {}).items():
+        if "verification" not in source:
+            continue
+        if not VERIFY_CODES <= set(rules["reason_priority"]):
+            raise ValueError("Text verification needs 1009 in reason_priority")
+        rule = source["verification"]
+        ratio = Fraction(rule["max_edit_ratio"])
+        if not 0 <= ratio < 1:
+            raise ValueError(f"Text source {code}: max_edit_ratio must be in [0, 1)")
+        if rule["reference"]["column"] != "text_variants" or not all(
+            COMPARABLE_TOKEN.fullmatch(k) and COMPARABLE_TOKEN.fullmatch(v)
+            for k, v in rule["fold_words"].items()
+        ):
+            raise ValueError(f"Text source {code}: unsupported verification reference or fold")
     selection_id = selection_id or datetime.now(BEIJING).strftime(
         "tts-selection-supervised-tts-%Y%m%dT%H%M%Sbjt-01"
     )
@@ -665,6 +758,16 @@ def classify(
     if asr is not None and asr["status"] == "ok" and asr_language_conflict(asr, language, source):
         reasons.append(2003)
         flags |= (1 << 3) | (1 << 12)
+    if source is not None and "verification" in source:
+        # ASR failures (1003) and empty text (1001) are already excluded and not compared.
+        outcome = "unchecked"
+        if asr["status"] == "ok" and text:
+            outcome = verify_text(text, row["text_variants"], source["verification"])
+            if outcome != "agree":
+                reasons.append(1009)
+                flags |= 1 << 11
+        if evidence is not None:
+            evidence["verification"] = outcome
     if filtering and language in rules["supported_languages"]:
         share = script_share(text, language, filtering["script"])
         if share is not None and share < filtering["script"]["min_share"]:
@@ -768,6 +871,11 @@ def scan_part(args):
     text_source = transcription["text_source"] if transcription else 0
     speaker_item = speaker_input(p, task["dataset"])
     speakers = aligned_rows(p, task, speaker_item)
+    metadata_speaker = speaker_metadata(rules, task["dataset"])
+    verifying = transcription is not None and "verification" in (
+        rules["text_sources"][str(text_source)]
+    )
+    columns = COLUMNS + (["metadata_json"] if held_out_rule(rules) or metadata_speaker else [])
     languages = {lang: i + 1 for i, lang in enumerate(rules["supported_languages"])}
     counter, lang_counts, lang_seconds = Counter(), Counter(), Counter()
     raw_counts, raw_seconds = Counter(), Counter()
@@ -776,7 +884,7 @@ def scan_part(args):
     position = whitespace = 0
     # Lance 12 to_batches accepts **kwargs but drops `fragments`; use scanner directly.
     for batch in ds.scanner(
-        columns=COLUMNS + (["metadata_json"] if held_out_rule(p["rules"]) else []),
+        columns=columns + (["text_variants"] if verifying else []),
         fragments=fragments,
         scan_in_order=True,
         batch_size=8192,
@@ -790,6 +898,16 @@ def scan_part(args):
             speaker = None
             if speakers is not None:
                 speaker = speakers[position] | {"required": speaker_item["speaker_count"]}
+            elif metadata_speaker is not None:
+                count = metadata_value(row["metadata_json"], metadata_speaker["path"])
+                valid = type(count) is int
+                speaker = {
+                    "sample_id": row["sample_id"],
+                    "status": "ok" if valid else "missing",
+                    "audio_sha256": row["audio_sha256"],
+                    "speaker_count": count if valid else None,
+                    "required": metadata_speaker["speaker_count"],
+                }
             reason, flags, lang, text = classify(
                 row, task["dataset"], rules, audio, samples, asr, evidence, speaker
             )
@@ -816,6 +934,8 @@ def scan_part(args):
                 checks["asr_" + str(asr["status"])] += 1
             if speaker is not None:
                 checks["speaker_" + evidence["speaker"]] += 1
+            if "verification" in evidence:
+                checks["verification_" + evidence["verification"]] += 1
             ids.update(sid.encode() + b"\n")
             counter[str(reason)] += 1
             lang_counts[lang or "<missing>"] += 1
@@ -1346,7 +1466,8 @@ def text_sources(p):
                 "language_policy": rule["language_policy"],
                 "language_labels": rule["language_labels"],
                 "datasets": [],
-            },
+            }
+            | ({"verification": rule["verification"]} if "verification" in rule else {}),
         )
         entry["datasets"].append(item["dataset_id"])
     return sources
@@ -1433,9 +1554,15 @@ def publish(work, workers=16):
     )
     parts = json.loads((Path(work) / "scan.json").read_text())
     speaker_inputs = p.get("speaker_inputs")
-    version = 5 if speaker_inputs else 2
-    codes = {k: v for k, v in REASONS.items() if version == 5 or k not in SPEAKER_CODES}
-    bits = dict(enumerate(FLAGS if version == 5 else FLAGS[:13]))
+    metadata_speakers = p["rules"].get("speaker_metadata")
+    verifying = any("verification" in r for r in p["rules"].get("text_sources", {}).values())
+    version = 6 if verifying else 5 if speaker_inputs or metadata_speakers else 2
+    codes = {
+        k: v
+        for k, v in REASONS.items()
+        if (version >= 5 or k not in SPEAKER_CODES) and (version >= 6 or k not in VERIFY_CODES)
+    }
+    bits = dict(enumerate(FLAGS if version >= 5 else FLAGS[:13]))
     checks = sum((Counter(t.get("checks", {})) for t in parts), Counter())
     manifest = {
         "contract_version": "v0.1",
@@ -1455,7 +1582,8 @@ def publish(work, workers=16):
             "implementation_sha256": p["implementation_sha256"],
         },
         # Version 2 adds 105/1003-1008/2003/2004 and flag bits 10-12; version 5 adds 6002 and
-        # bit 15 (bits 13/14 keep spec 12's version 3/4 names, unused). Old codes keep meaning.
+        # bit 15 (bits 13/14 keep spec 12's version 3/4 names, unused); version 6 adds 1009.
+        # Old codes keep meaning.
         "reason_dictionary": {
             "version": version,
             "codes": codes,
@@ -1488,18 +1616,36 @@ def publish(work, workers=16):
         "normalization_statistics": parts,
         "evaluation": p["rules"].get("evaluation", {"status": "not_assigned"}),
     }
-    if speaker_inputs:
+    if speaker_inputs or metadata_speakers:
         # Keyed apart from annotation_inputs, so each dataset still has one text source there.
-        manifest["speaker_inputs"] = speaker_inputs
+        if speaker_inputs:
+            manifest["speaker_inputs"] = speaker_inputs
+        if metadata_speakers:
+            manifest["speaker_metadata"] = metadata_speakers
         manifest["coverage"]["speaker_structure"] = {
             "rule": "speaker_count_equals",
             "reason": 6002,
             "inputs": [
                 {k: a[k] for k in ("dataset_id", "run_id", "profile_id", "speaker_count")}
-                for a in speaker_inputs
+                for a in speaker_inputs or []
+            ]
+            + [
+                {"dataset_id": n, "source": "base metadata_json", "path": m["path"],
+                 "speaker_count": m["speaker_count"]}
+                for m in metadata_speakers or []
+                for n in m["datasets"]
             ],
             "outcomes": {
                 k.removeprefix("speaker_"): v for k, v in checks.items() if k.startswith("speaker_")
+            },
+        }
+    if verifying:
+        manifest["coverage"]["text_verification"] = {
+            "reason": 1009,
+            "outcomes": {
+                k.removeprefix("verification_"): v
+                for k, v in checks.items()
+                if k.startswith("verification_")
             },
         }
     # Scratch names and hashes are operational details, not consumption dependencies.

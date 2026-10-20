@@ -31,7 +31,8 @@
     "zh"
   ],
   "source_priority": [
-    "emilia"
+    "emilia",
+    "hifitts2"
   ],
   "representative_order": [
     "source_priority",
@@ -53,6 +54,7 @@
     2004,
     1007,
     1008,
+    1009,
     1004,
     1005,
     1006,
@@ -71,6 +73,14 @@
       "run_id": "tts-ann-transcription-20261012T092945bjt-01",
       "datasets": [
         "emilia"
+      ]
+    },
+    {
+      "text_source": 3,
+      "task": "transcription",
+      "run_id": "tts-ann-transcription-20261019T143130bjt-01",
+      "datasets": [
+        "hifitts2"
       ]
     }
   ],
@@ -104,7 +114,7 @@
     "wutheringwaves:32 one-frame records",
     "galgame:7 reviewed >300s transcript mismatches"
   ],
-  "initial_root_reason": "selection-v2 rules on emilia rebuilt from base, plus exactly one MOSS speaker; effective exclusions (incl. v2's source-timeline 105 entries) inherited from selection-v2.",
+  "initial_root_reason": "selection-v2 rules rebuilt from base on emilia and hifitts2, plus exactly one speaker (emilia: MOSS; hifitts2: upstream speaker_count) and, for hifitts2, ASR text agreeing with the upstream normalized text; effective exclusions (incl. v2's source-timeline 105 entries) inherited from selection-v2.",
   "rules_version": "selection-v4",
   "parent_selection": "tts-selection-supervised-tts-20261012T123927bjt-01",
   "text_sources": {
@@ -119,6 +129,36 @@
         "ko": "ko",
         "de": "de",
         "fr": "fr"
+      }
+    },
+    "3": {
+      "normalization": "python.str.strip",
+      "unavailable": "status != ok excludes (1003); no fallback to base text",
+      "language_policy": "exclude unless the single mapped ASR label equals the selected source language; any mismatch flag or language-candidate attempt (even empty/failed) also excludes",
+      "language_labels": {
+        "English": "en"
+      },
+      "verification": {
+        "reference": {
+          "column": "text_variants",
+          "kind": "source_normalized"
+        },
+        "comparison": "both texts: NFKC, casefold, NFKD with combining marks removed, U+2018/U+2019 to apostrophe, tokens [a-z0-9']+ mapped by fold_words, apostrophes removed, tokens joined without separator; Levenshtein distance over code points",
+        "fold_words": {
+          "colour": "color",
+          "colours": "colors",
+          "honour": "honor",
+          "favour": "favor",
+          "labour": "labor",
+          "neighbour": "neighbor",
+          "behaviour": "behavior",
+          "grey": "gray",
+          "towards": "toward"
+        },
+        "max_edit_ratio": "1/100",
+        "limit": "floor(max_edit_ratio * len(comparable reference)); pass when distance <= limit",
+        "unavailable": "no source_normalized variant or an empty comparable reference excludes (1009)",
+        "why": "upstream text is book/MLS text aligned to the audio (OCR errors, reader deviations, unspoken labels); ASR misses rare names; keep only rows where the two independent texts agree"
       }
     }
   },
@@ -181,5 +221,18 @@
       },
       "min_share": 0.5
     }
-  }
+  },
+  "speaker_metadata": [
+    {
+      "datasets": [
+        "hifitts2"
+      ],
+      "path": [
+        "parquet_fields",
+        "speaker_count"
+      ],
+      "speaker_count": 1,
+      "evidence": "upstream HiFiTTS-2 manifest speaker_count (LibriVox single-reader segments); no MOSS run; missing or non-integer values exclude (6002)"
+    }
+  ]
 }
