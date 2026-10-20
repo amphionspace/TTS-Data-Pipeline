@@ -85,7 +85,7 @@ def main():
     parser.add_argument("--config", type=Path, default=PROJECT / "configs/acp.yaml")
     parser.add_argument("--submit", action="store_true", help="Create the job; else only render")
     parser.add_argument("--cpu-script", help="Run this repository script instead of the pipeline")
-    parser.add_argument("--spec", help="Resource spec instead of worker_spec, e.g. N3lS.Ii.I60.16c64g")
+    parser.add_argument("--spec", help="Resource spec instead of worker_spec (N3lS.Ii.I60.16c64g)")
     args, extra = parser.parse_known_args()
     extra = [x for x in extra if x != "--"]
     platform = yaml.safe_load(args.config.read_text())
