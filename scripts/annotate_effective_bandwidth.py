@@ -22,6 +22,7 @@ def main():
     p = sub.add_parser("run")
     p.add_argument("--work", type=Path, required=True)
     p.add_argument("--workers", type=int, default=8)
+    p.add_argument("--no-publish", action="store_true", help="Stop after all checkpoints")
     args = parser.parse_args()
     if args.command == "prepare":
         plan = prepare(args.root, args.work, args.datasets, args.output_root, args.sample_rows)
@@ -34,7 +35,7 @@ def main():
             flush=True,
         )
     else:
-        run(args.work, args.workers)
+        run(args.work, args.workers, publish_results=not args.no_publish)
 
 
 if __name__ == "__main__":

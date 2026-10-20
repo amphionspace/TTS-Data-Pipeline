@@ -390,7 +390,7 @@ def publish(plan, work, checkpoints):
     return path
 
 
-def run(work, workers=8):
+def run(work, workers=8, publish_results=True):
     work = Path(work).resolve()
     pa.set_cpu_count(1)
     pa.set_io_thread_count(2)
@@ -486,6 +486,10 @@ def run(work, workers=8):
                         elapsed_seconds=round(elapsed, 2),
                         workers=workers,
                     )
+            if not publish_results:
+                # Compute-only hosts (ACP nodes) leave publication to a later run on the dev host.
+                event(work, "computed", verified_rows=verified, total_rows=total)
+                return
             path = publish(plan, work, checkpoints)
             event(
                 work,

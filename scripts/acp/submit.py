@@ -2,9 +2,10 @@
 
 Run from the repository root:
 `python -m scripts.acp.submit --work <work root with pipeline.json> --name <job> [--submit]`.
-Arguments after `--` are passed to `feature_pipeline.py run`. Default only renders the
-request. Submitting freezes src/scripts/configs into the work root so later repository
-edits cannot change a running job.
+Arguments after `--` are passed to `feature_pipeline.py run`; with `--cpu-script <script>`
+they go to that script instead (scripts/acp/cpu_job.sh, no GPU or pipeline.json needed).
+Default only renders the request. Submitting freezes src/scripts/configs into the work root
+so later repository edits cannot change a running job.
 """
 
 import argparse
@@ -39,8 +40,12 @@ def snapshot(destination):
     return files
 
 
-def payload(platform, name, runtime, work, extra):
-    command = ["bash", str(runtime / "scripts/acp/pipeline.sh"), str(runtime), str(work), *extra]
+def payload(platform, name, runtime, work, extra, cpu_script=None):
+    if cpu_script:
+        launcher, extra = "scripts/acp/cpu_job.sh", [cpu_script, *extra]
+    else:
+        launcher = "scripts/acp/pipeline.sh"
+    command = ["bash", str(runtime / launcher), str(runtime), str(work), *extra]
     return {
         "display_name": name,
         "framework": "PYTORCH",
@@ -79,18 +84,19 @@ def main():
     parser.add_argument("--name", required=True, help="ACP display name")
     parser.add_argument("--config", type=Path, default=PROJECT / "configs/acp.yaml")
     parser.add_argument("--submit", action="store_true", help="Create the job; else only render")
+    parser.add_argument("--cpu-script", help="Run this repository script instead of the pipeline")
     args, extra = parser.parse_known_args()
     extra = [x for x in extra if x != "--"]
     platform = yaml.safe_load(args.config.read_text())
     work = args.work.resolve()
-    if not (work / "pipeline.json").exists():
+    if not args.cpu_script and not (work / "pipeline.json").exists():
         parser.error("work has no pipeline.json; run scripts/feature_pipeline.py init first")
     if not work.is_relative_to(platform["mount_path"]):
         parser.error("work must be on the mounted ACP volume")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     submission = work / "submissions" / stamp
     runtime = submission / "runtime"
-    body = payload(platform, args.name, runtime, work, extra)
+    body = payload(platform, args.name, runtime, work, extra, args.cpu_script)
     print(json.dumps({"submit": args.submit, "url": jobs_url(platform), "body": body}, indent=2))
     if not args.submit:
         return
