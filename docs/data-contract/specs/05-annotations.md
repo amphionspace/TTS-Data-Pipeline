@@ -178,7 +178,7 @@ task 名称及其逻辑结果如下。每个任务在生产运行前须冻结 pr
 | `audio_quality` | DNSMOS P.835 的 SIG/BAK/OVRL、校准前后值、窗口范围及窗口均值/最低值/数量 |
 | `text_agreement` | 原始/规范化 CER、WER、分母、增删改数量、文本差异范围（ASR 一致性；未实现） |
 | `text_alignment` | 字词单元、文本范围、音频范围、时间异常 |
-| `effective_bandwidth` | 有效带宽：频谱能量实际覆盖的上限频率及其估计口径、分析范围（未实现） |
+| `effective_bandwidth` | 有效带宽：长期频谱相对语音带电平的上限频率、截止陡度与编码码率，见[有效带宽单表](#有效带宽单表) |
 | `utmos` | UTMOS 预测 MOS、模型与输入延拓方式、分析范围（未实现；与 DNSMOS 先对照，不直接混合） |
 | `speaker_consistency` | 片段内分窗 speaker x-vector 的离散度（如与片段均值的方差）、窗口数与范围（未实现） |
 | `speaker_structure` | 样本内 speaker 区间、估计人数、重叠区间及摘要，见[MOSS 说话人结构单表](#moss-说话人结构单表) |
@@ -596,3 +596,29 @@ input_fingerprint 为规范 JSON 的 SHA256：`speaker-structure-input-v1`、sam
 结果随服务端批处理变化时在 profile 记录并固定并发，不能让恢复混入两种行为。
 先固定完整任务计划，原始响应按样本写入可恢复的检查点，恢复时核验输入、profile、代码与检查点摘要；
 所有数据集完成覆盖、全字段回读、sample_id 索引和版本 tag 后，最后发布全局 complete manifest。
+
+## 有效带宽单表
+
+`effective-bandwidth-v1` 的 `effective_bandwidth` 使用 sample_table，形状与 audio_stats 相同（每个目标一行，失败行 result=null），
+只测量频谱实际覆盖到哪里，不判定质量；是否按带宽筛选由 selection 规则决定。上游有损编码（低码率 MP3/AAC）在编码前低通，
+截止频率以上在 mel、codec 等所有模型输入中为空，本任务用于发现这类样本。run 只覆盖 prepare 时点名的已发布 base。
+
+profile `welch-band-edge-v1`：
+
+| 项目 | 定义 |
+| --- | --- |
+| 解码 | 与 audio_stats 相同的整段 `soundfile.read(float32, always_2d)`，float32 声道均值，原生采样率，不重采样 |
+| 频谱 | Welch，Hann 窗，段长 `2 ** round(log2(rate / 24))`（16–48 kHz 下 21–31 Hz 分辨率），50% 重叠，去均值，density，float64 |
+| 基准电平 | 100 Hz ≤ f < 4 kHz 各频点 dB 的第 95 百分位（`method='lower'`）；`reference_level_db` 记录其绝对值 |
+| `edge_hz_40/50/60` | 相对基准电平高于 −40/−50/−60 dB 的最高频点（基准频点本身总满足，故不低于 100 Hz） |
+| `band_db_4_8k/8_12k/12_16k/16k_up` | 各频段相对 dB 的均值；频段起点不低于 Nyquist 时为空 |
+| `edge_drop_db` | `edge_hz_50` 频点相对 dB 减去其上方 [250, 750) Hz 的均值；该范围超出 Nyquist 时为空。编码器低通约 50–60 dB，自然衰减通常在 10 dB 以内 |
+| `encoded_kbps`、`container` | 原始字节数 × 8 ÷ 解码时长 ÷ 1000（含容器开销）；按文件头识别 mp3/flac/wav/ogg/mp4 |
+
+失败码：`audio_decode_failed`、`native_format_mismatch`、`audio_nonfinite`、`audio_too_short`（不足 8 个分析段，24 kHz 约 0.34 秒）、
+`audio_silent`（单声道全零，或基准电平低于 −150 dB：静音中的个别点击或抖动会让所有频点都贴近底噪而被误读为满带宽）。
+`num_samples_delta` 为实际解码帧数减 base num_frames。
+输入指纹为 `effective-bandwidth-input-v1`、sample_id、audio_sha256、整段解码与 profile_id 的摘要；profile 同时固定本任务代码与共用解码函数
+（audio_stats/metrics.py）的摘要。发布路径为 `datasets/<id>/<release>/annotations/effective_bandwidth/<run_id>/results.lance` 与全局
+`annotations/effective_bandwidth/<run_id>/manifest.json`。
+
