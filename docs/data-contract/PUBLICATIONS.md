@@ -45,6 +45,7 @@
 | Annotation | `tts-ann-transcription-20261012T092945bjt-01` | transcription；emilia；40,264,231 行 | 2026-10-12 09:39 | selection-v2 文本来源 |
 | Annotation | `tts-ann-transcription-20261010T161238bjt-01` | transcription；emilia_yodas；43,964,905 行（ok 43,964,455，failed 450）；vLLM + sglang 两段 | 2026-10-18 09:26 | |
 | Annotation | `tts-ann-speaker_structure-20261019T093525bjt-01` | speaker_structure（moss-transcribe-diarize-v1）；emilia；40,264,231 行（ok 40,220,982，failed 43,249） | 2026-10-19 09:58 | |
+| Annotation | `tts-ann-transcription-20261019T143130bjt-01` | transcription；hifitts2；12,809,875 行，全部 ok；sglang-omni | 2026-10-20 11:05 | |
 | Annotation | `tts-ann-upstream_quality-20261013T143341bjt-01` | upstream_quality（upstream-dnsmos-p835-ovrl-v1）；emilia、emilia_yodas、emilia2；184,069,533 行 | 2026-10-13 16:38 | |
 | Selection | `tts-selection-supervised-tts-20260929T151539bjt-01` | selection-v1；16 个数据集；入选 128,220,178 条，357,506.8 小时 | 2026-09-29 15:39 | 现有训练 build 使用 |
 | Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
@@ -283,6 +284,16 @@
   2026-10-19 按数据集拆成三个 run，各自完成即发布；本 run 接管原 run 的全部 emilia checkpoint（receipt 摘要、样本顺序、
   输入指纹逐一核对），profile_id 不变，manifest `execution.split_from` 记录来源。第 9 轮只重试了部分失败行即停止
   （失败多为确定性的时间戳越界，重发无改善），发布第 8/9 轮结果
+
+### 2026-10-20 · 发布 · tts-ann-transcription-20261019T143130bjt-01
+
+- 时间：2026-10-20 11:05（北京时间）
+- manifest：`annotations/transcription/tts-ann-transcription-20261019T143130bjt-01/manifest.json`
+- SHA256：`702fc9212103e3d0387c86cc50a96f43f945b7cad45531ec5c2ec4acfbc8b6d1`
+- 内容：transcription，qwen-asr-transcription-v2；hifitts2；12,809,875 行，全部 ok；回读行数与 ID 顺序和固定 base 一致
+- 说明：hifitts2 首次转写，全程 sglang-omni（qwen3-asr-1.7b-base-v2-sglang，DP2 GPU 5-6）。该 profile 没有截断检测，
+  超过 30 秒的分块音频不返回检测语言，分块拼接方式也不同于 vLLM 的换行拼接。抽样 3 万行对上游文本：
+  WER 3.06%、CER 1.36%，大部分差异来自上游 OCR/对齐/朗读偏差
 
 ## Selection
 
