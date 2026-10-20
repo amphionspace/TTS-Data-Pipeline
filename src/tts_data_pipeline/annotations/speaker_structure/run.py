@@ -4,13 +4,15 @@ prepare pins the base inputs, the service identity and the profile. Every `run` 
 it requests each sample that is not ok yet (all of them at first), with `concurrency` requests
 in flight, and rewrites that fragment's checkpoint. `publish` turns the checkpoints into one
 results.lance per dataset and the global manifest; failures of the last round are published
-as failed rows, and raw responses stay private in the checkpoints.
+as failed rows, and raw responses stay private in the checkpoints. `split` turns a
+multi-dataset run into one run per dataset so each publishes when it finishes.
 """
 
 import fcntl
 import hashlib
 import importlib.metadata
 import json
+import shutil
 import time
 from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -248,25 +250,37 @@ def fragment_rows(ds, task, keep):
                 yield row["sample_id"], row
 
 
-def run(work):
+def run(work, concurrency=None):
+    """One round. `concurrency` overrides the profile's request concurrency for this round only;
+    profile_id is unchanged and the value used is recorded in rounds.json (manifest
+    execution.rounds), since results vary slightly with server batching."""
     work = Path(work).resolve()
     with (work / "run.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        refuse_split(work)
         try:
-            return _run(work)
+            return _run(work, concurrency)
         except BaseException as exc:
             event(work, "stopped", error_type=type(exc).__name__, error=str(exc)[:500])
             raise
 
 
-def _run(work):
+def _run(work, concurrency=None):
     plan = json.loads((work / "plan.json").read_text())
     plan_hash = file_hash(work / "plan.json")
     check_inputs(plan)
     rounds = work / "rounds.json"
     history = json.loads(rounds.read_text()) if rounds.exists() else []
     round_number = len(history) + 1
-    history.append(dict(round=round_number, started_at=datetime.now(BEIJING).isoformat()))
+    pinned = plan["profile"]["request"]["concurrency"]
+    concurrency = concurrency or pinned
+    history.append(
+        dict(
+            round=round_number,
+            started_at=datetime.now(BEIJING).isoformat(),
+            concurrency=concurrency,
+        )
+    )
     write_json(rounds, history)
 
     def log(phase, **fields):
@@ -274,7 +288,8 @@ def _run(work):
 
     service = Service(plan["profile"], log)
     service.check_identity(force=True)
-    concurrency = plan["profile"]["request"]["concurrency"]
+    if concurrency != pinned:
+        log("concurrency_override", pinned=pinned, concurrency=concurrency)
     root = Path(plan["root"])
     totals = Counter()
     with ThreadPoolExecutor(concurrency) as pool:
@@ -377,10 +392,100 @@ def _run(work):
     return dict(totals)
 
 
+def split(work, targets):
+    """Move every dataset of a prepared multi-dataset run into its own run (work directory, plan,
+    run_id), so each dataset publishes as soon as it finishes. The profile and profile_id stay
+    the same; finished checkpoints are adopted after checking their receipt digest, base sample
+    order and input fingerprints, then re-receipted under the new plan. The old work directory is
+    left as it was except for split.json, which stops it from running or publishing again."""
+    work = Path(work).resolve()
+    with (work / "run.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        refuse_split(work)
+        plan = json.loads((work / "plan.json").read_text())
+        plan_hash = file_hash(work / "plan.json")
+        names = [s["dataset_id"] for s in plan["sources"]]
+        if sorted(targets) != sorted(names):
+            raise ValueError(f"Give a new work directory for each of {names}")
+        targets = {name: Path(path).resolve() for name, path in targets.items()}
+        for path in targets.values():
+            if path.exists():
+                raise FileExistsError(f"Use a new work directory: {path}")
+        root = Path(plan["root"])
+        for source in plan["sources"]:
+            if file_hash(root / source["manifest_path"]) != source["manifest_sha256"]:
+                raise ValueError(f"Base manifest changed: {source['dataset_id']}")
+        if dependencies() != plan["dependencies"]:
+            raise ValueError("Dependencies changed; do not mix checkpoints")
+        rounds = work / "rounds.json"
+        history = json.loads(rounds.read_text()) if rounds.exists() else []
+        now = datetime.now(BEIJING)
+        runs = {}
+        for number, source in enumerate(plan["sources"], 1):
+            name, new = source["dataset_id"], targets[source["dataset_id"]]
+            tasks = [t for t in plan["tasks"] if t["dataset_id"] == name]
+            child = dict(
+                plan,
+                sources=[source],
+                tasks=tasks,
+                implementation=implementation(),
+                run_id=f"tts-ann-{TASK}-" + now.strftime("%Y%m%dT%H%M%Sbjt") + f"-{number:02d}",
+                created_at=now.isoformat(),
+                split_from=dict(
+                    work=str(work),
+                    run_id=plan["run_id"],
+                    plan_sha256=plan_hash,
+                    implementation=plan["implementation"],
+                    split_at=now.isoformat(),
+                ),
+            )
+            new.mkdir(parents=True)
+            write_json(new / "plan.json", child)
+            child_hash = file_hash(new / "plan.json")
+            ds = lance.dataset(root / source["table_path"], version=source["lance_version"])
+            adopted = 0
+            for task in tasks:
+                table = load_checkpoint(work, task, plan_hash)
+                if table is None:
+                    continue
+                base = ds.get_fragment(task["fragment_id"]).to_table(
+                    columns=["sample_id", "audio_sha256"]
+                )
+                ids = base["sample_id"].to_pylist()
+                if table["sample_id"].to_pylist() != ids:
+                    raise ValueError(f"Checkpoint order differs from base: {task}")
+                expected = [
+                    fingerprint(dict(sample_id=s, audio_sha256=a), plan["profile_id"])
+                    for s, a in zip(ids, base["audio_sha256"].to_pylist())
+                ]
+                if table["input_fingerprint"].to_pylist() != expected:
+                    raise ValueError(f"Checkpoint fingerprints differ: {task}")
+                old = checkpoint_path(work, task)
+                receipt = json.loads(old.with_suffix(".json").read_text())
+                target = checkpoint_path(new, task)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(old, target)
+                if file_hash(target) != receipt["sha256"]:
+                    raise ValueError(f"Checkpoint copy mismatch: {target}")
+                write_json(target.with_suffix(".json"), dict(receipt, plan_sha256=child_hash))
+                adopted += 1
+            write_json(new / "rounds.json", history)
+            event(new, "split", from_run_id=plan["run_id"], fragments=adopted, of=len(tasks))
+            runs[name] = dict(work=str(new), run_id=child["run_id"], fragments=adopted, of=len(tasks))
+        write_json(work / "split.json", dict(at=now.isoformat(), runs=runs))
+        return runs
+
+
+def refuse_split(work):
+    if (work / "split.json").exists():
+        raise ValueError(f"{work} was split into per-dataset runs; see split.json")
+
+
 def publish(work):
     work = Path(work).resolve()
     with (work / "run.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        refuse_split(work)
         plan = json.loads((work / "plan.json").read_text())
         plan_hash = file_hash(work / "plan.json")
         check_inputs(plan)
@@ -429,6 +534,7 @@ def publish(work):
                 rounds=json.loads((work / "rounds.json").read_text()),
                 selection_scope="all_base_samples",
                 raw_responses="private checkpoints, not published",
+                **({"split_from": plan["split_from"]} if "split_from" in plan else {}),
             ),
         )
         path = Path(plan["root"]) / "annotations" / TASK / plan["run_id"] / "manifest.json"

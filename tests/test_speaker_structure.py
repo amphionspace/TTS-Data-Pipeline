@@ -210,6 +210,77 @@ def test_rounds_retry_failures_then_publish(tmp_path, monkeypatch):
     assert "raw_response" not in table.schema.names
 
 
+def test_split_publishes_each_dataset_on_its_own(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    for name, count in (("emilia", 5), ("emilia_yodas", 3)):
+        release = root / f"datasets/{name}/v0.1"
+        rows = [
+            dict(
+                sample_id=f"{name}-{i}",
+                audio_sha256=f"{name}-a{i}",
+                audio=dict(bytes=b"x", path=f"{name}-{i}.mp3"),
+                sample_rate=100,
+                num_frames=1000,
+            )
+            for i in range(count)
+        ]
+        ds = lance.write_dataset(
+            pa.Table.from_pylist(rows), release / "samples.lance", max_rows_per_file=2
+        )
+        write_json(
+            release / "manifest.json",
+            dict(status="complete", rows=count, table_path="samples.lance", lance_version=ds.version),
+        )
+    config = tmp_path / "server.json"
+    write_json(config, dict(model_id="moss", model_revision="r", served_name="m", serving={}))
+    requested = []
+
+    def handler(request):
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json=dict(data=[dict(id="m")]))
+        name = request.content.split(b'filename="')[1].split(b'"')[0].decode()
+        requested.append(name)
+        if name == "emilia-1.mp3":
+            return httpx.Response(200, text="garbled")
+        return httpx.Response(200, text=body((0.0, 9.9, "[S01]ok")))
+
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.Client
+    monkeypatch.setattr(httpx, "get", lambda url, **k: real_client(transport=transport).get(url))
+    monkeypatch.setattr(diar.Service, "__init__", _patched_init(Service.__init__, transport))
+    work = tmp_path / "work"
+    plan = diar.prepare(root, work, "http://moss", config, ("emilia", "emilia_yodas"))
+    assert diar.run(work) == {"ok": 7, "failed": 1}
+    # The last yodas fragment never finished in the combined run.
+    last = [t for t in plan["tasks"] if t["dataset_id"] == "emilia_yodas"][-1]
+    diar.checkpoint_path(work, last).with_suffix(".json").unlink()
+
+    targets = {"emilia": tmp_path / "w-emilia", "emilia_yodas": tmp_path / "w-yodas"}
+    runs = diar.split(work, targets)
+    assert runs["emilia"]["fragments"] == runs["emilia"]["of"] == 3
+    assert (runs["emilia_yodas"]["fragments"], runs["emilia_yodas"]["of"]) == (1, 2)
+    assert runs["emilia"]["run_id"] != runs["emilia_yodas"]["run_id"] != plan["run_id"]
+    with pytest.raises(ValueError, match="split"):
+        diar.run(work)
+    with pytest.raises(ValueError, match="split"):
+        diar.publish(work)
+
+    manifest = json.loads(diar.publish(targets["emilia"]).read_text())
+    assert manifest["run_id"] == runs["emilia"]["run_id"]
+    assert manifest["profile_id"] == plan["profile_id"]
+    assert manifest["execution"]["split_from"]["run_id"] == plan["run_id"]
+    assert [o["dataset_id"] for o in manifest["outputs"]] == ["emilia"]
+    assert manifest["outputs"][0]["coverage"]["failed"] == 1
+
+    requested.clear()
+    assert diar.run(targets["emilia_yodas"], concurrency=4) == {"ok": 3}
+    assert requested == ["emilia_yodas-2.mp3"]  # only the fragment that never finished
+    manifest = json.loads(diar.publish(targets["emilia_yodas"]).read_text())
+    assert [o["dataset_id"] for o in manifest["outputs"]] == ["emilia_yodas"]
+    assert manifest["outputs"][0]["coverage"]["ok"] == 3
+    assert [r["concurrency"] for r in manifest["execution"]["rounds"]] == [256, 4]
+
+
 def _patched_init(original, transport):
     def init(self, profile, log):
         original(self, profile, log)
