@@ -270,8 +270,10 @@
   回读行数与 ID 顺序和固定 base 一致
 - 说明：同一 run_id 分两段执行，manifest `segments` 逐段记录 profile。任务 [0, 15423) 用 vLLM 0.18.0
   （qwen3-asr-1.7b-base-v2）；该服务 2026-10-13 停止后，任务 [15423, 85869) 用 sglang-omni
-  （qwen3-asr-1.7b-base-v2-sglang）续跑。sglang 段没有截断检测，超过 30 秒的分块音频不返回检测语言，
-  分块拼接方式也不同于 vLLM 的换行拼接
+  （qwen3-asr-1.7b-base-v2-sglang）续跑。sglang 段：响应没有 finish_reason，无法判断输出是否到了客户端显式请求的
+  max_new_tokens=1024；服务端把超过 30 秒（默认阈值）的音频分块转写，分块后不汇总返回自动检测语言；合并文本里没有
+  分块边界标记（英文等加空格、中文等直接连接），边界只能从 raw_response_json 的 segments 恢复。实际影响：超过 30 秒的
+  228 行中 sglang 分块 163 行无检测语言；按 selection 规则，无语言行被 2003 排除，到 1024 token 的超长输出远超 1005 字符密度上限
 
 ### 2026-10-19 · 发布 · tts-ann-speaker_structure-20261019T093525bjt-01
 
@@ -292,8 +294,9 @@
 - SHA256：`702fc9212103e3d0387c86cc50a96f43f945b7cad45531ec5c2ec4acfbc8b6d1`
 - 内容：transcription，qwen-asr-transcription-v2；hifitts2；12,809,875 行，全部 ok；回读行数与 ID 顺序和固定 base 一致
 - 说明：hifitts2 首次转写，全程 sglang-omni（qwen3-asr-1.7b-base-v2-sglang，DP2 GPU 5-6）。该 profile 与 vLLM 版的差别：
-  没有截断检测（不知道输出是否被 max_new_tokens 截断）；超过 30 秒的音频会被服务端切成 30 秒分块，分块音频不返回检测语言，
-  各块文本的拼接方式也和 vLLM 的换行拼接不同。hifitts2 最长 20 秒，后两项不涉及。抽样 3 万行对上游文本：
+  响应没有 finish_reason，无法判断输出是否到了客户端显式请求的 max_new_tokens=1024；超过 30 秒（默认阈值）的音频由服务端
+  分块转写，分块后不汇总返回自动检测语言，合并文本里没有分块边界标记（边界可从 raw_response_json 的 segments 恢复）。
+  hifitts2 最长 20 秒，后两项不涉及。抽样 3 万行对上游文本：
   WER 3.06%、CER 1.36%，大部分差异来自上游 OCR/对齐/朗读偏差
 
 ## Selection
