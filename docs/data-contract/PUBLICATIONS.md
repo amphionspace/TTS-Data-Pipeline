@@ -47,6 +47,8 @@
 | Annotation | `tts-ann-speaker_structure-20261019T093525bjt-01` | speaker_structure（moss-transcribe-diarize-v1）；emilia；40,264,231 行（ok 40,220,982，failed 43,249） | 2026-10-19 09:58 | |
 | Annotation | `tts-ann-transcription-20261019T143130bjt-01` | transcription；hifitts2；12,809,875 行，全部 ok；sglang-omni | 2026-10-20 11:05 | |
 | Annotation | `tts-ann-upstream_quality-20261013T143341bjt-01` | upstream_quality（upstream-dnsmos-p835-ovrl-v1）；emilia、emilia_yodas、emilia2；184,069,533 行 | 2026-10-13 16:38 | |
+| Annotation | `tts-ann-effective_bandwidth-20261020T153104bjt-01` | effective_bandwidth（welch-band-edge-v1）；emilia；40,264,231 行 | 2026-10-21 10:36 | 带宽测量，不作质量判定 |
+| Annotation | `tts-ann-effective_bandwidth-20261020T155412bjt-01` | effective_bandwidth（welch-band-edge-v1）；emilia_yodas；43,964,905 行 | 2026-10-21 10:50 | 带宽测量，不作质量判定 |
 | Selection | `tts-selection-supervised-tts-20260929T151539bjt-01` | selection-v1；16 个数据集；入选 128,220,178 条，357,506.8 小时 | 2026-09-29 15:39 | 现有训练 build 使用 |
 | Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
 | Selection | `tts-selection-supervised-tts-20261019T103416bjt-01` | selection-v4；emilia；入选 33,992,131 条，84,158.5 小时；selection-v2 规则 + MOSS 单说话人 | 2026-10-19 11:02 | 训练（emilia 部分） |
@@ -298,6 +300,26 @@
   分块转写，分块后不汇总返回自动检测语言，合并文本里没有分块边界标记（边界可从 raw_response_json 的 segments 恢复）。
   hifitts2 最长 20 秒，后两项不涉及。抽样 3 万行对上游文本：
   WER 3.06%、CER 1.36%，大部分差异来自上游 OCR/对齐/朗读偏差
+
+### 2026-10-21 · 发布 · tts-ann-effective_bandwidth-20261020T153104bjt-01
+
+- 时间：2026-10-21 10:36（北京时间）
+- manifest：`annotations/effective_bandwidth/tts-ann-effective_bandwidth-20261020T153104bjt-01/manifest.json`
+- SHA256：`12e5abdbf3bf79557ee3fea21c686793b895bcd23e47c37f2629aec964de6ce2`
+- 内容：effective_bandwidth（welch-band-edge-v1）；emilia；40,264,231 行；输入 emilia/v0.1；schema effective-bandwidth-v1
+- 覆盖：`{"failed": 0, "missing": 0, "ok": 40264231, "skipped": 0, "total_targets": 40264231, "unsupported": 0}`
+- 核验：checkpoint 校验、完整内容回读、固定版本行数核对；两份计算全部完成后发布。
+
+
+### 2026-10-21 · 发布 · tts-ann-effective_bandwidth-20261020T155412bjt-01
+
+- 时间：2026-10-21 10:50（北京时间）
+- manifest：`annotations/effective_bandwidth/tts-ann-effective_bandwidth-20261020T155412bjt-01/manifest.json`
+- SHA256：`702996529c4eaf0a06d310665db50d699bd910b2d16007464e1cfb8dbaea6e02`
+- 内容：effective_bandwidth（welch-band-edge-v1）；emilia_yodas；43,964,905 行；输入 emilia_yodas/v0.1；schema effective-bandwidth-v1
+- 覆盖：`{"failed": 0, "missing": 0, "ok": 43964905, "skipped": 0, "total_targets": 43964905, "unsupported": 0}`
+- 核验：checkpoint 校验、完整内容回读、固定版本行数核对；两份计算全部完成后发布。
+
 
 ## Selection
 
