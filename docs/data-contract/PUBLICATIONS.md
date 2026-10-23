@@ -49,6 +49,8 @@
 | Annotation | `tts-ann-upstream_quality-20261013T143341bjt-01` | upstream_quality（upstream-dnsmos-p835-ovrl-v1）；emilia、emilia_yodas、emilia2；184,069,533 行 | 2026-10-13 16:38 | |
 | Annotation | `tts-ann-effective_bandwidth-20261020T153104bjt-01` | effective_bandwidth（welch-band-edge-v1）；emilia；40,264,231 行 | 2026-10-21 10:36 | 带宽测量，不作质量判定 |
 | Annotation | `tts-ann-effective_bandwidth-20261020T155412bjt-01` | effective_bandwidth（welch-band-edge-v1）；emilia_yodas；43,964,905 行 | 2026-10-21 10:50 | 带宽测量，不作质量判定 |
+| Annotation | `tts-ann-speaker_structure-20261021T124643bjt-01` | speaker_structure（moss-transcribe-diarize-v1）；genshin_voice、starrail_voice、wutheringwaves、zenless_voice；1,543,186 行（ok 1,537,846，failed 5,340） | 2026-10-22 09:23 | |
+| Annotation | `tts-ann-speaker_structure-20261019T093525bjt-02` | speaker_structure（moss-transcribe-diarize-v1）；emilia_yodas；43,964,905 行（ok 43,930,224，failed 34,681） | 2026-10-23 12:11 | |
 | Selection | `tts-selection-supervised-tts-20260929T151539bjt-01` | selection-v1；16 个数据集；入选 128,220,178 条，357,506.8 小时 | 2026-09-29 15:39 | 现有训练 build 使用 |
 | Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
 | Selection | `tts-selection-supervised-tts-20261019T103416bjt-01` | selection-v4；emilia；入选 33,992,131 条，84,158.5 小时；selection-v2 规则 + MOSS 单说话人 | 2026-10-19 11:02 | 训练（emilia 部分） |
@@ -319,6 +321,31 @@
 - 内容：effective_bandwidth（welch-band-edge-v1）；emilia_yodas；43,964,905 行；输入 emilia_yodas/v0.1；schema effective-bandwidth-v1
 - 覆盖：`{"failed": 0, "missing": 0, "ok": 43964905, "skipped": 0, "total_targets": 43964905, "unsupported": 0}`
 - 核验：checkpoint 校验、完整内容回读、固定版本行数核对；两份计算全部完成后发布。
+
+
+### 2026-10-22 · 发布 · tts-ann-speaker_structure-20261021T124643bjt-01
+
+- 时间：2026-10-22 09:23（北京时间）
+- manifest：`annotations/speaker_structure/tts-ann-speaker_structure-20261021T124643bjt-01/manifest.json`
+- SHA256：`75bd3456822b060fd10fe02d98e42c11b320c624df07cac2b58ad0291b269b21`
+- 内容：speaker_structure（moss-transcribe-diarize-v1）；genshin_voice、starrail_voice、wutheringwaves、zenless_voice；1,543,186 行（ok 1,537,846，failed 5,340）；输入为四个数据集 v0.1；schema speaker-structure-moss-v1
+- genshin_voice：覆盖 `{"failed": 1103, "missing": 0, "ok": 653149, "skipped": 0, "total_targets": 654252, "unsupported": 0}`；错误码 `{"model_invalid_output": 773, "output_truncated": 330}`
+- starrail_voice：覆盖 `{"failed": 1195, "missing": 0, "ok": 402242, "skipped": 0, "total_targets": 403437, "unsupported": 0}`；错误码 `{"model_invalid_output": 380, "output_truncated": 814, "request_timeout": 1}`
+- wutheringwaves：覆盖 `{"failed": 804, "missing": 0, "ok": 77973, "skipped": 0, "total_targets": 78777, "unsupported": 0}`；错误码 `{"model_invalid_output": 75, "output_truncated": 729}`
+- zenless_voice：覆盖 `{"failed": 2238, "missing": 0, "ok": 404482, "skipped": 0, "total_targets": 406720, "unsupported": 0}`；错误码 `{"model_invalid_output": 1600, "output_truncated": 563, "request_timeout": 75}`
+- 核验：checkpoint 校验、完整字段回读、样本 ID 顺序与固定 base 一致、固定 Lance 版本行数核对，missing 为 0。
+- 说明：用户授权直接发布首轮结果；与此前 Emilia MOSS 发布一致，保留失败样本的状态和错误码，不补跑失败样本。
+
+
+### 2026-10-23 · 发布 · tts-ann-speaker_structure-20261019T093525bjt-02
+
+- 时间：2026-10-23 12:11（北京时间）
+- manifest：`annotations/speaker_structure/tts-ann-speaker_structure-20261019T093525bjt-02/manifest.json`
+- SHA256：`e19431d9c3f0668252c42bd1501a50ebd6854317c372442646b2dd8aaa35d9bf`
+- 内容：speaker_structure（moss-transcribe-diarize-v1）；emilia_yodas；43,964,905 行（ok 43,930,224，failed 34,681）；输入为 emilia_yodas/v0.1；schema speaker-structure-moss-v1
+- emilia_yodas：覆盖 `{"failed": 34681, "missing": 0, "ok": 43930224, "skipped": 0, "total_targets": 43964905, "unsupported": 0}`；错误码 `{"model_invalid_output": 30523, "output_truncated": 4158}`
+- 核验：checkpoint 校验、完整字段回读、样本 ID 顺序与固定 base 一致、固定 Lance 版本行数核对，missing 为 0。
+- 说明：用户授权发布已完成的第 17 轮结果；与此前 Emilia MOSS 发布一致，保留失败样本的状态和错误码，不补跑失败样本。
 
 
 ## Selection
