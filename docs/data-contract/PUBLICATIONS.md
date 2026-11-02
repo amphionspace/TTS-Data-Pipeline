@@ -27,6 +27,7 @@
 | 基础数据集 | csemotions/v0.1 | 4,160 条，10.2 小时 | 2026-09-28 15:58 | |
 | 基础数据集 | emilia/v0.1 | 40,264,231 条，101,655.6 小时 | 2026-09-28 23:17 | |
 | 基础数据集 | emilia2/v0.1 | 99,840,397 条，146,325.0 小时 | 2026-10-12 03:10 | |
+| 基础数据集 | emilia_nv/v0.1 | 174,179 条，573.4 小时 | 2026-11-02 16:04 | |
 | 基础数据集 | emilia_yodas/v0.1 | 43,964,905 条，113,820.6 小时 | 2026-09-29 10:30 | |
 | 基础数据集 | galgame/v0.1 | 7,101,489 条，10,173.7 小时 | 2026-09-28 18:43 | |
 | 基础数据集 | genshin_voice/v0.1 | 654,252 条，1,039.7 小时 | 2026-09-28 19:00 | |
@@ -212,6 +213,14 @@
 - SHA256：原 `24779fb04467d1926d5ed7e90b310cffd1101059de6406c9eb6fbe424a1102c7` → 新 `873d584c19d70681c7fdb9af5c032259f1f0eccc9629382b81531a3a29849120`
 - 同时：接入证据 ingestion-candidates、ingestion-checkpoints、candidate-exclusions.jsonl 移出发布目录，发布目录与其他数据集一致
 - 证据：pipeline 仓库 `artifacts/emilia2-runs/emilia2-flac16-20261010/`（manifest.original.json、fix_manifest.py、release-evidence/）
+
+### 2026-11-02 · 发布 · emilia_nv/v0.1
+
+- 时间：2026-11-02 16:04（北京时间）
+- manifest：`datasets/emilia_nv/v0.1/manifest.json`
+- SHA256：`b0eecbf677507ad4e60674ff7ef2421dcccda74655c8db8e56b7f6476efe6be8`
+- 内容：174,179 条，573.4 小时；HF amphion/Emilia-NV 全部 18 个 webdataset tar，zh；text 为含内联副语言标签的上游 ASR 文本（text_kind=source_asr_paralinguistic），无 speaker
+- 说明：deep 验证，174,179 条全部完整解码；libmpg123 对部分 MP3 帧报告 part2_3_length 警告，不影响解码结果
 
 ## Annotation
 

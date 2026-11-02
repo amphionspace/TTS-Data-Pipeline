@@ -14,6 +14,7 @@ Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [�
 | CSEMOTIONS / csemotions.py ✓ | Parquet；保留 emotion；speaker 加数据集命名空间 | 缺上游 ID，以源文件哈希固定快照；完整转换结果见首批报告 |
 | Emilia / emilia.py ✓ | 分语言 tar；JSON+MP3；保留 dnsmos、源 speaker | 原 JSON wav 路径与实际 member 配对；说话人 ID 范围 |
 | Emilia-YODAS / emilia_yodas.py ✓ | 分语言 tar；JSON+MP3；支持 _id、phone_count | speaker 通常受视频范围约束；不能仅凭末尾编号跨视频合并 |
+| Emilia-NV / emilia_nv.py ✓ | 18 个 webdataset tar；wav(多数实为 MP3)+txt+json；文本含 18 类内联副语言标签 | 无 speaker/上游 Emilia ID；标签须与 category 集合一致；原始目录为用户指定 /workspace/workspace/yanglin/Emilia-NV |
 | Galgame / galgame.py ✓ | 各游戏配置的 Parquet；audio_ID、text | 此前缺的 6 个 shard 已补齐；无 speaker 列；源配置音频采样率声明需实测 |
 | HiFiTTS / hifitts.py ✓ | tar.gz 内多个 JSONL manifest；保留原文/规范化文本与 clean/other | manifest 全量读取与音频成员对应关系 |
 | HiFiTTS2 / hifitts2.py ✓ | 用户指定本地 22.05 kHz FLAC Parquet；保留原始 split、WER/CER 等 | 5,284 片 / 12,809,875 行；见 [映射与验证](design-review/recovery-and-hifitts2.md) |
@@ -97,3 +98,14 @@ Wenet 每包当前扫描共享清单，安全哈希校验也有额外开销；�
 7z 通过 [py7zr 自定义 WriterFactory](https://py7zr.readthedocs.io/en/latest/api.html) 解压到单个临时 spool，
 按成员范围读取，解压 CRC/字节长度错误会失败；预览只提取选定配对，完整转换每包顺序解压一次。
 完整转换单包需约 10–11.4 GB 解压临时空间，最多四包可独立并行；目录不写回 raw。
+
+## Emilia-NV 映射
+
+- 来源：HF `amphion/Emilia-NV`（NVSpeech，CC BY-NC-SA 4.0），18 个 `webdataset-NNNNNN.tar`，
+  每条 `<tar序号>_<序号>` 的 `.wav/.txt/.json` 三件套；174,179 条，573.4 小时，全部 zh。
+- source_key 为成员 stem（含 tar 序号，全局唯一）；`.wav` 实际 158,689 条为 MP3、15,490 条为 WAV
+  （16–48 kHz 单声道），原 bytes 与成员名不变。
+- text 保留上游 txt 原文（含 `[Laughter]` 等内联标签），text_kind=`source_asr_paralinguistic`
+  （上游为副语言感知 ASR 自动标注，不是人工转写）。上游 json 存 metadata.upstream，
+  排序去重后的标签存 metadata.paralinguistic_tags；适配器要求文本中的标签集合与 category 完全相同且属于 18 类。
+- 无 speaker、recording、group 信息；不推断与 Emilia 原样本的对应关系。source_config=all。
