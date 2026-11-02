@@ -4,6 +4,7 @@ from . import (
     aishell3,
     csemotions,
     emilia,
+    emilia_nv,
     emilia_yodas,
     galgame,
     genshin_voice,
@@ -22,6 +23,7 @@ from . import (
 
 ADAPTERS = {
     "emilia": emilia,
+    "emilia_nv": emilia_nv,
     "emilia_yodas": emilia_yodas,
     "aishell3": aishell3,
     "ljspeech": ljspeech,

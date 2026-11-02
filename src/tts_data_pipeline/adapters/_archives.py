@@ -24,6 +24,19 @@ def inputs(root, pattern, config):
     return files
 
 
+def check_tar_end(handle, archive, path, label):
+    """Plain tar must end with at least two zero blocks. Check all padding,
+    including content after an early zero header; tarfile alone stops there."""
+    handle.seek(archive.offset)
+    trailer_bytes = 0
+    while block := handle.read(1024 * 1024):
+        trailer_bytes += len(block)
+        if block.strip(b"\0"):
+            raise ValueError(f"Nonzero content after {label} tar terminator: {path}")
+    if trailer_bytes < 1024 or trailer_bytes % 512:
+        raise ValueError(f"Missing or truncated {label} tar terminator: {path}")
+
+
 def lines(archive, member):
     with archive.extractfile(member) as handle:
         for index, line in enumerate(handle):

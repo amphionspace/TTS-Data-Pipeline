@@ -4,7 +4,7 @@ import json
 import tarfile
 from pathlib import Path
 
-from ._archives import pairs, safe_member
+from ._archives import check_tar_end, pairs, safe_member
 
 LANGUAGES = {code: code.lower() for code in ("DE", "EN", "FR", "JA", "KO", "ZH")}
 
@@ -51,16 +51,7 @@ def archive_pairs(path):
                     yield key + ".mp3", key + ".json", audio, metadata
                 # Do not accumulate TarInfo objects for the entire archive.
                 archive.members.clear()
-            # Plain tar must end with at least two zero blocks. Check all padding,
-            # including content after an early zero header; tarfile alone stops there.
-            handle.seek(archive.offset)
-            trailer_bytes = 0
-            while block := handle.read(1024 * 1024):
-                trailer_bytes += len(block)
-                if block.strip(b"\0"):
-                    raise ValueError(f"Nonzero content after Emilia tar terminator: {path}")
-            if trailer_bytes < 1024 or trailer_bytes % 512:
-                raise ValueError(f"Missing or truncated Emilia tar terminator: {path}")
+            check_tar_end(handle, archive, path, "Emilia")
         store.finish()
 
 
