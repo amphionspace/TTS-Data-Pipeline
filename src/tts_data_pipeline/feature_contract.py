@@ -21,7 +21,7 @@ def make_feature_run_id(dataset_id, kind, profile_name, created_at, sequence=1):
     validate_profile_name(profile_name)
     if not isinstance(dataset_id, str) or re.fullmatch(r"[a-z][a-z0-9_]*", dataset_id) is None:
         raise ValueError("Invalid dataset_id")
-    if kind not in {"codec", "speaker_embedding", "text", "merged"}:
+    if kind not in {"codec", "speaker_embedding", "dots_vae", "text", "merged"}:
         raise ValueError("Invalid feature kind")
     if type(sequence) is not int or sequence < 1:
         raise ValueError("Run sequence must be a positive integer")

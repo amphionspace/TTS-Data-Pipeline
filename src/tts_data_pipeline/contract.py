@@ -135,6 +135,49 @@ def speaker_embedding_schema(dimension):
     )
 
 
+def dots_vae_schema(latent_dim=128, xvector_dim=512):
+    """dots.tts AudioVAE posterior (T x latent_dim mean and logstd) and one x-vector."""
+    strings = [
+        "target_kind",
+        "target_id",
+        "parent_sample_id",
+        "feature_key",
+        "input_fingerprint",
+        "profile_id",
+        "audio_sha256",
+        "timeline_profile_id",
+        "status",
+        "error_code",
+        "text",
+        "text_kind",
+        "language",
+        "latents_sha256",
+        "xvector_sha256",
+    ]
+    frames = [
+        "start_frame",
+        "end_frame",
+        "resampled_frames",
+        "edge_leading_delta",
+        "edge_trailing_delta",
+        "processed_frames",
+        "padded_frames",
+        "xvector_fbank_frames",
+        "num_latent_frames",
+    ]
+    latent = pa.list_(pa.list_(pa.float32(), latent_dim))
+    return pa.schema(
+        [
+            *[pa.field(k, pa.string()) for k in strings],
+            pa.field("native_sample_rate", pa.int32()),
+            *[pa.field(k, pa.int64()) for k in frames],
+            pa.field("vae_mean", latent),
+            pa.field("vae_logstd", latent),
+            pa.field("xvector", pa.list_(pa.float32(), xvector_dim)),
+        ]
+    )
+
+
 def feature_targets_schema():
     return pa.schema(
         [
@@ -213,4 +256,5 @@ def contract_types():
             "note": "D=3 illustrates storage; actual D comes from the selected speaker encoder",
             "fields": schema_description(speaker_embedding_schema(3)),
         },
+        "dots_vae": schema_description(dots_vae_schema()),
     }
