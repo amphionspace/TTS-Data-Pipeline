@@ -76,6 +76,7 @@
 | Features | merged · `merged-reference-features-v1-20261019T143526bjt-01` | 1 个数据集（emilia），33,992,131 行 | 2026-10-19 14:51 | selection-v4 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261019T150157bjt-01` | 2 个数据集（emilia、emilia_yodas），75,844,468 行；prefix reference | 2026-10-19 17:41 | selection-v2（prefix） |
 | Features | merged · `merged-prefix-reference-features-v1-20261019T174217bjt-01` | 2 个数据集（emilia、emilia_yodas），75,844,468 行；prefix reference | 2026-10-19 18:01 | selection-v2（prefix） |
+| Features | dots_vae · `emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v1-20261102T173741bjt-01` | 1 个数据集（emilia_nv），174,179 行全部 ok；all_samples；dots.tts-soar VAE posterior + CAM++ x-vector | 2026-11-02 20:54 | dots.tts 副语言微调 |
 
 ## 基础数据集
 
@@ -625,6 +626,16 @@
 - SHA256：`ddccdf600e0cb1aa799afb9ec7b88c4ae4d99a504811d6f05326f9ea0954a11a`
 - 内容：emilia_yodas，38,415,488 行，无排除；绑定 selection `tts-selection-supervised-tts-20261012T123927bjt-01`（selection-v2）；profile `prefix-reference-features-v1`
 - 说明：ACP 任务 pt-pzl532uk（work `artifacts/feature-runs/selection-v2-emilia-yodas-prefix-20261019`），固定 selection-v2 的 codec/text 发布，emilia 与 emilia_yodas 同一任务计算；作为 selection-v4 及之后含 emilia_yodas 的 v4 的 prefix speaker 复用来源；发布后审计 CLEAN（40 份 final、559.7M 行 / 2079.8 GB）
+
+### 2026-11-02 · 发布 · dots_vae · emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v1-20261102T173741bjt-01
+
+- 时间：2026-11-02 20:54（北京时间）
+- manifest：`datasets/emilia_nv/v0.1/features/dots_vae/emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v1-20261102T173741bjt-01/manifest.json`
+- SHA256：`58abf8c8e6ee0673adefb11b19029b354a63fb1ca53a037bf99ff93f7e73b5d0`
+- 内容：emilia_nv，174,179 行（all_samples，不绑定 selection），全部 ok；profile `dots-tts-soar-vae-xvec-48k-fp32-v1`（`045359a75b8b08fae37a0fb2aa453e2a60714e655b47e1414df7654157d0326b`）；
+  每行 25 Hz AudioVAE posterior（vae_mean/vae_logstd 各 128 维，共 53,552,708 帧）+ CAM++ 512 维 x-vector，带原文本（含副语言标签）
+- 说明：按 dots.tts 训练波形链（48k kaiser 重采样、边缘静音 250 ms、7680 对齐）调用上游 4cf7d6b 函数生成，fp32；x-vector 取前 10 s（训练为随机 10 s）；
+  latent_stats 未施加，由训练端归一化；表 52 GB，target_id/feature_key BTREE 索引
 
 ## 统一根维护
 

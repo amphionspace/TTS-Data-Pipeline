@@ -636,5 +636,165 @@
         "size": 3
       }
     ]
-  }
+  },
+  "dots_vae": [
+    {
+      "name": "target_kind",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "target_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "parent_sample_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "feature_key",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "input_fingerprint",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "profile_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "audio_sha256",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "timeline_profile_id",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "status",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "error_code",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "text_kind",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "language",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "latents_sha256",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "xvector_sha256",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "native_sample_rate",
+      "nullable": true,
+      "type": "int32"
+    },
+    {
+      "name": "start_frame",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "end_frame",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "resampled_frames",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "edge_leading_delta",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "edge_trailing_delta",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "processed_frames",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "padded_frames",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "xvector_fbank_frames",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "num_latent_frames",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "vae_mean",
+      "nullable": true,
+      "type": "list",
+      "item": {
+        "type": "list",
+        "item": {
+          "type": "float"
+        },
+        "size": 128
+      }
+    },
+    {
+      "name": "vae_logstd",
+      "nullable": true,
+      "type": "list",
+      "item": {
+        "type": "list",
+        "item": {
+          "type": "float"
+        },
+        "size": 128
+      }
+    },
+    {
+      "name": "xvector",
+      "nullable": true,
+      "type": "list",
+      "item": {
+        "type": "float"
+      },
+      "size": 512
+    }
+  ]
 }
