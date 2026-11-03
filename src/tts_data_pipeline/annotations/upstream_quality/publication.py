@@ -29,11 +29,14 @@ def equal_batches(left, right):
     return a is None and b is None
 
 
-def publish_output(root, source, run_id, work, batches, counts, stats):
-    """Stage, write and fully read back one dataset's table, then expose a pinned snapshot."""
+def publish_output(root, source, run_id, work, batches, counts, stats, *, task=TASK, schema=None):
+    """Stage, write and fully read back one dataset's table, then expose a pinned snapshot.
+
+    Other sample_table tasks reuse this with their own task name and schema.
+    """
     root, work = Path(root), Path(work)
     name = source["dataset_id"]
-    final = root / "datasets" / name / source["release_id"] / "annotations" / TASK / run_id
+    final = root / "datasets" / name / source["release_id"] / "annotations" / task / run_id
     stage = final.with_name(final.name + ".incomplete")
     receipt = work / (name + ".publication.json")
     if sum(counts.values()) != source["rows"]:
@@ -50,7 +53,7 @@ def publish_output(root, source, run_id, work, batches, counts, stats):
             # published, so start clean rather than stacking versions onto stale files.
             shutil.rmtree(stage)
         stage.mkdir(parents=True)
-        schema = annotation_schema()
+        schema = schema or annotation_schema()
 
         def write_batches():
             # Lance 12's struct encoder mishandles sliced nullable-struct bitmaps.
