@@ -1,7 +1,7 @@
 # 数据集接入表
 
 所有 21 个目录均已盘点。这里区分“有转换规则”与“已实现转换器”。
-目前实现 16 个适配器（下表 ✓），完成状态以发布 manifest 和状态脚本为准。
+目前实现 21 个适配器（下表 ✓），完成状态以发布 manifest 和状态脚本为准。
 写入后端为 Lance，release 固定 v0.1；旧产物已清理，全量转换已启动，进度以状态脚本为准。
 最新来源复核见 [LibriHeavy / MLS 核查](design-review/libriheavy-mls-check.md)。
 Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [本地核查](design-review/emilia-local-check.md)。
@@ -15,6 +15,9 @@ Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [�
 | Emilia / emilia.py ✓ | 分语言 tar；JSON+MP3；保留 dnsmos、源 speaker | 原 JSON wav 路径与实际 member 配对；说话人 ID 范围 |
 | Emilia-YODAS / emilia_yodas.py ✓ | 分语言 tar；JSON+MP3；支持 _id、phone_count | speaker 通常受视频范围约束；不能仅凭末尾编号跨视频合并 |
 | Emilia-NV / emilia_nv.py ✓ | 18 个 webdataset tar；wav(多数实为 MP3)+txt+json；文本含 18 类内联副语言标签 | 无 speaker/上游 Emilia ID；标签须与 category 集合一致；原始目录为用户指定 /workspace/workspace/yanglin/Emilia-NV |
+| NonverbalTTS / nonverbaltts.py ✓ | HF `deepvk/NonverbalTTS` Parquet，train/dev/test/other；文本含 emoji 非语言标签 | 上游融合文本 Result 为主文本，ASR 初稿为变体；speaker 来自 VoxCeleb/Expresso ID |
+| DisfluencySpeech / disfluencyspeech.py ✓ | HF `amaai-lab/DisfluencySpeech` Parquet，train/validation/test；单说话人 | 主文本为含 Switchboard 不流利标注与 `<laughter>` 等事件的标注转写，三种删减转写为变体 |
+| NonVerbalSpeech-38K / nonverbalspeech38k.py ✓ | HF `nonverbalspeech/nonverbalspeech38k` Parquet 46 片；zh/en 混合，每条一个 `[tag]` | 无上游 ID 与 speaker，以 shard+row 为身份；caption（08-31 版）为主文本，v1_caption 为变体 |
 | Galgame / galgame.py ✓ | 各游戏配置的 Parquet；audio_ID、text | 此前缺的 6 个 shard 已补齐；无 speaker 列；源配置音频采样率声明需实测 |
 | HiFiTTS / hifitts.py ✓ | tar.gz 内多个 JSONL manifest；保留原文/规范化文本与 clean/other | manifest 全量读取与音频成员对应关系 |
 | HiFiTTS2 / hifitts2.py ✓ | 用户指定本地 22.05 kHz FLAC Parquet；保留原始 split、WER/CER 等 | 5,284 片 / 12,809,875 行；见 [映射与验证](design-review/recovery-and-hifitts2.md) |
@@ -109,3 +112,34 @@ Wenet 每包当前扫描共享清单，安全哈希校验也有额外开销；�
   （上游为副语言感知 ASR 自动标注，不是人工转写）。上游 json 存 metadata.upstream，
   排序去重后的标签存 metadata.paralinguistic_tags；适配器要求文本中的标签集合与 category 完全相同且属于 18 类。
 - 无 speaker、recording、group 信息；不推断与 Emilia 原样本的对应关系。source_config=all。
+
+## NonverbalTTS 映射
+
+- 来源：HF `deepvk/NonverbalTTS`（Apache-2.0），`default/{train,dev,test,other}/*.parquet`；
+  英文，VoxCeleb（16 kHz）与 Expresso（48 kHz）片段，10 类非语言发声以 emoji 内联在文本中。
+- source_key 为上游 `index`。text 为 `Result`（三位标注者结果的上游融合），
+  text_kind=`source_transcript_paralinguistic`；空白 Result 记为无文本。
+  `Initial text`（ASR + 自动 NV 检测）为变体 `source_asr_paralinguistic`；三份标注者结果、emotion、dnsmos、
+  gender、上游 duration 与来源语料存 metadata。
+- speaker_id=`nonverbaltts:<speaker_id>`（数据集范围）。原 split 存 metadata.original_split/original_split_group，
+  test 由 selection 的上游测试集留出规则处理。
+
+## DisfluencySpeech 映射
+
+- 来源：HF `amaai-lab/DisfluencySpeech`（Apache-2.0），`data/{train,validation,test}-*.parquet`；
+  单个录音棚说话人复述 Switchboard 对话轮次，22.05 kHz，英文。`MFA.zip` 对齐文件不接入。
+- source_key 为音频文件名 stem（数字）。text 为 `transcript_annotated`（保留 `{D ...}`、`[ ... + ... ]`、
+  `<laughter>` 等标注），text_kind=`source_transcript_annotated`；transcript_a/b/c 依次为变体
+  `source_transcript_no_events`、`source_transcript_no_fillers`、`source_transcript_no_false_starts`。
+- speaker_id=`disfluencyspeech:speaker`；原 split 存 metadata。
+
+## NonVerbalSpeech-38K 映射
+
+- 来源：HF `nonverbalspeech/nonverbalspeech38k`（CC BY-NC 4.0），`data/train-NNNNN-of-00046.parquet`；
+  影视、广播剧、相声小品等野外音频，绝大多数为中文，少量英文；每条一个非语言类别（10 类）。
+- 上游无样本 ID，source_key=`<shard>#row=<行号>`，音频名按 shard 与行号生成。language 由 `ZH/EN` 映射为 `zh/en`，
+  其他值拒绝。
+- text 为 `caption`（2025-08-31 版，标签与文本重新对齐），text_kind=`source_asr_paralinguistic`；
+  `v1_caption`（初版，含 `<B>` 区间标记）为变体 `source_asr_paralinguistic_v1`。
+  label、non_verbal_region（秒）、来源类型与上游 duration 存 metadata。无 speaker 信息。
+

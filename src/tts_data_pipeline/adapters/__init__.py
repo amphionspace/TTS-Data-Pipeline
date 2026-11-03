@@ -3,6 +3,7 @@
 from . import (
     aishell3,
     csemotions,
+    disfluencyspeech,
     emilia,
     emilia_nv,
     emilia_yodas,
@@ -14,6 +15,8 @@ from . import (
     libritts_r,
     ljspeech,
     mls_sidon,
+    nonverbalspeech38k,
+    nonverbaltts,
     starrail_voice,
     vctk,
     wenetspeech4tts,
@@ -40,6 +43,9 @@ ADAPTERS = {
     "libriheavy": libriheavy,
     "mls_sidon": mls_sidon,
     "zenless_voice": zenless_voice,
+    "nonverbaltts": nonverbaltts,
+    "disfluencyspeech": disfluencyspeech,
+    "nonverbalspeech38k": nonverbalspeech38k,
 }
 
 
