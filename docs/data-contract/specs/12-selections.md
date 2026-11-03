@@ -457,6 +457,12 @@ disfluencyspeech。父 selection 为 selection-v4 发布，只继承其已核实
 nonverbalspeech38k 上游有 2,100 组相同音频（同一片段被收录 2–6 次）：文本相同时保留代表（4001），标签不同（如同一片段一次标 throatclearing、
 一次标 coughing）时整组按 4002 排除。
 
+### selection-game-zhen-v1
+
+dots.tts 副语言实验的通用中英文数据：selection-v2 的全部规则只用于四个游戏数据集（genshin_voice、starrail_voice、zenless_voice、wutheringwaves），
+supported_languages 限为 en/zh，原因与 flag 使用字典 version 2。父 selection 为 selection-v2，继承其有效排除（含区间核查 105 条目），
+不再单独引用区间核查证据；重复只在这四个数据集内按完整 audio_sha256 裁决。与 emilia_nv 的重编码重复不在此处理，由训练端去重。
+
 ## 写入、发布、恢复与清理
 
 从固定 main version 创建同根分支，按片段流式 add_columns，回调显式读取 sample_id 和所需小列。

@@ -61,6 +61,7 @@
 | Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
 | Selection | `tts-selection-supervised-tts-20261019T103416bjt-01` | selection-v4；emilia；入选 33,992,131 条，84,158.5 小时；selection-v2 规则 + MOSS 单说话人 | 2026-10-19 11:02 | 训练（emilia 部分） |
 | Selection | `tts-selection-supervised-tts-20261103T173114bjt-01` | selection-nv-v1；5 个数据集；入选 230,083 条，730.8 小时；nv-canonical-v1 文本，test/spk_test 留出 | 2026-11-03 17:31 | dots.tts 副语言训练 |
+| Selection | `tts-selection-supervised-tts-20261103T190044bjt-01` | selection-game-zhen-v1；4 个游戏数据集，仅 en/zh；入选 680,109 条，1,090.6 小时 | 2026-11-03 19:01 | dots.tts NV 实验的通用数据 |
 | Features | text · `text-selection-text-v1-20260930T153654bjt-01` | 16 个数据集，128,220,178 行 | 2026-09-30 17:01 | selection-v1 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-packed-v1-20260930T130829bjt-01` | 16 个数据集，128,220,178 行 | 2026-10-01 05:34 | selection-v1 |
 | Features | codec · `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20260930T181155bjt-01` | 12 个数据集，49,918,118 行 | 2026-10-01 13:33 | selection-v1 |
@@ -84,6 +85,7 @@
 | Features | merged · `merged-prefix-reference-features-v1-20261019T174217bjt-01` | 2 个数据集（emilia、emilia_yodas），75,844,468 行；prefix reference | 2026-10-19 18:01 | selection-v2（prefix） |
 | Features | dots_vae · `emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T095118bjt-01` | 1 个数据集（emilia_nv），174,179 行全部 ok；all_samples；dots.tts-soar VAE posterior + CAM++ x-vector + 参考段 x-vector（dots-reference-v1:codec-grid-v1-on-patches） | 2026-11-03 11:25 | dots.tts 副语言微调 |
 | Features | dots_vae · `<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T173207bjt-01` | 5 个数据集，230,083 行全部 ok；selection_branch（selection-nv-v1），text_kind=nv-canonical-v1 | 2026-11-03 18:34 | dots.tts 副语言训练（nv26 分词器） |
+| Features | dots_vae · `<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T190254bjt-01` | 4 个游戏数据集，680,109 行全部 ok；selection_branch（selection-game-zhen-v1），text_kind=asr_transcription | 2026-11-03 22:46 | dots.tts NV 实验的通用数据 |
 
 ## 基础数据集
 
@@ -517,6 +519,17 @@
 - 说明：规则见 [12 · selection-nv-v1](specs/12-selections.md#selection-nv-v1)。同日 17:21 曾发布 `tts-selection-supervised-tts-20261103T172155bjt-01`，
   其实现摘要对应未提交的中间代码，未登记、未被引用，已删除分支、tag 与目录后按提交代码重新发布（结果相同）
 
+### 2026-11-03 · 发布 · tts-selection-supervised-tts-20261103T190044bjt-01
+
+- 时间：2026-11-03 19:01（北京时间）
+- manifest：`selections/tts-selection-supervised-tts-20261103T190044bjt-01/manifest.json`
+- SHA256：`a1a88c83d00b94ce4e3b5bae2339d788e90c7d572dc59444e4a638780f2d01f8`
+- 内容：selection-game-zhen-v1（selection-v2 规则只用于 genshin_voice、starrail_voice、zenless_voice、wutheringwaves，语言限 en/zh；
+  文本为 v2 同一转写 annotation `tts-ann-transcription-20261010T111659bjt-01`；父 selection 为 selection-v2，继承其排除）；
+  入选 680,109 条 / 1,090.6 小时：genshin 293,546、starrail 184,843、zenless 165,223、wutheringwaves 36,497
+- 说明：重复只在这四个数据集内按 audio_sha256 裁决。与 emilia_nv 的重编码重复（genshin/starrail 约 1.15 万条，音频哈希不同）
+  不在 selection 处理，由训练端 build 去重；配对证据 `reports/nv-game-overlap/loose_pairs.jsonl`（不入统一根）
+
 ## Features
 
 ### 2026-09-30 · 发布 · text · text-selection-text-v1-20260930T153654bjt-01
@@ -732,6 +745,17 @@
   核对全部文本只含 26 个标签、无残留标记；profile 同 `dots-tts-soar-vae-xvec-48k-fp32-v2`
 - 说明：emilia_nv 的 x-vector 与 `emilia_nv-…-v2-20261103T095118bjt-01` 逐行一致；13,506 行 latent 有 fp32 舍入级差异（最大 1.3e-5），
   因 selection 去掉部分行后 GPU batch 组成不同，与批量/单条差异同量级
+
+### 2026-11-03 · 发布 · dots_vae · <dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T190254bjt-01
+
+- 时间：2026-11-03 22:46（北京时间）
+- manifest：`datasets/<dataset_id>/v0.1/features/dots_vae/<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T190254bjt-01/manifest.json`
+- SHA256：genshin_voice `ceee5f13dbdd61a35dffbf820e8dddea9445cde0d69ea31476e8e17a30c14222`；
+  starrail_voice `f9f31a025f6fb51be09d9aecbe77df8338a7d022a554c1262ffbfda0315109b0`；
+  wutheringwaves `0cea665b8d8139776df4a86bab07c332a56703304cb06a0ff66c11aee16b75fb`；
+  zenless_voice `f7e6568aff6d6b607baa8fad8b029cbe30f68f8cb9f05eff88119df0a3f97ee0`
+- 内容：680,109 行全部 ok；selection_branch 绑定 `tts-selection-supervised-tts-20261103T190044bjt-01`；text 为选用的 ASR 转写（逐行与 selection 一致），
+  text_kind=`asr_transcription`；language 列保留基础原始标签（en-US、zh-CN 等）
 
 ## 统一根维护
 
