@@ -174,3 +174,58 @@ def test_all_samples_publication(tmp_path, monkeypatch):
     assert sorted_set_hash(ids) == d["target_set_sha256"]
     validate_table(published.to_table())
     assert not stage.exists()
+
+
+def test_selection_branch_publication_carries_selected_text(tmp_path, monkeypatch):
+    from test_selection_filter import row as selection_row
+    from test_selection_filter import write_base, write_parent
+    from test_selection_revision import revision_rules, write_revision
+
+    from tts_data_pipeline.selection import plan, publish, resolve_duplicates, scan, write_json
+
+    root = tmp_path / "unified"
+    wide = {
+        "sample_rate": 48000,
+        "num_frames": 96000,
+        "channels": 1,
+        "audio": {"bytes": b"x", "path": "a.wav"},
+        "text_kind": "source_transcript_paralinguistic",
+    }
+    records = [
+        selection_row(f"s{i}", text=f"好<crying>的{i}", language="zh") | wide for i in range(4)
+    ]
+    records[3] |= {"sample_rate": 16000, "num_frames": 32000}  # below the sample-rate rule
+    base = write_base(root, "alpha", records)
+    revised = [("ok", "replace", f"好[Crying]的{i}") for i in range(3)] + [("ok", "keep", None)]
+    write_revision(root, "rev-run", base, records, revised)
+    (root / "annotations/nv_tag_text/rev-run/manifest.json").write_text(
+        json.dumps(
+            json.loads((root / "annotations/nv_tag_text/rev-run/manifest.json").read_text())
+            | {"profile": {"name": "nv-canonical-v1"}}
+        )
+    )
+    write_parent(root, [])
+    write_json(tmp_path / "rules.json", revision_rules())
+    plan(root, tmp_path / "selection", tmp_path / "rules.json", selection_id="nv")
+    scan(tmp_path / "selection", workers=1)
+    resolve_duplicates(tmp_path / "selection")
+    selection = publish(tmp_path / "selection", workers=1)
+    manifest_path = root / "selections" / selection["selection_id"] / "manifest.json"
+    monkeypatch.setattr(run, "profile", lambda model_root: dict(DEFINITION))
+    p = run.prepare_selection(root, manifest_path, tmp_path / "work", tmp_path, task_size=2)
+    (d,) = p["datasets"]
+    assert d["target_count"] == 3 and d["selection"]["text"]["text_kind"] == "nv-canonical-v1"
+    for task in d["tasks"]:
+        prepared = run.read_task(d, task)
+        assert all(r["text"].startswith("好[Crying]") for r in prepared["rows"])
+        assert {r["text_kind"] for r in prepared["rows"]} == {"nv-canonical-v1"}
+        values = [value(28, 0, r["sample_id"]) for r in prepared["rows"]]
+        run.Path(d["stage"]).mkdir(parents=True, exist_ok=True)
+        run.write_task(p, d, task, prepared, values, {})
+    manifest = run.finalize(p, d)
+    assert manifest["selection"]["mode"] == "selection_branch"
+    assert manifest["selection"]["filter"] == "selection_reason = 0"
+    assert manifest["text"]["mapping_version"] == "nv-canonical-v1"
+    assert manifest["inputs"][0]["branch"] == selection["outputs"][0]["branch"]
+    texts = lance.dataset(run.Path(d["final"]) / "features.lance").to_table(columns=["text"])
+    assert sorted(texts["text"].to_pylist()) == [f"好[Crying]的{i}" for i in range(3)]

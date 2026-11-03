@@ -1,8 +1,9 @@
-"""All samples of one base release -> GPU workers -> resumable, audited dots_vae table.
+"""Base release or selection -> GPU workers -> resumable, audited dots_vae tables.
 
-Targets are every row of the pinned base snapshot (`all_samples`). Tasks are fixed slices of
-its fragments; each worker writes an uncommitted fragment plus a hashed checkpoint, and only
-the coordinator commits and publishes.
+Targets are every row of a pinned base snapshot (`all_samples`), or the selected rows of a
+published selection's branches (`selection_branch`), whose selected text replaces the base
+text. Tasks are fixed slices of fragments; each worker writes an uncommitted fragment plus a
+hashed checkpoint, and only the coordinator commits and publishes.
 """
 
 import fcntl
@@ -54,8 +55,41 @@ INPUT_COLUMNS = [
 ]
 
 
+SELECTED = "selection_reason = 0"
+
+
 def open_base(d):
-    return lance.dataset(d["source"]["table_path"], version=d["source"]["lance_version"])
+    source = d["source"]
+    if source["branch"] is None:
+        return lance.dataset(source["table_path"], version=source["lance_version"])
+    ds = lance.dataset(source["table_path"], version=source["base_version"])
+    return ds.checkout_version((source["branch"], source["lance_version"]))
+
+
+def fragment_tasks(dataset, ds, task_size, scan_filter=None):
+    """Fixed slices of each fragment's (selected) rows, in scan order."""
+    tasks, ids = [], []
+    for fragment in ds.get_fragments():
+        fragment_ids = (
+            ds.scanner(
+                fragments=[fragment], columns=["sample_id"], filter=scan_filter, scan_in_order=True
+            )
+            .to_table()["sample_id"]
+            .to_pylist()
+        )
+        ids.append(np.asarray(fragment_ids, dtype="S64"))
+        for offset in range(0, len(fragment_ids), task_size):
+            selected = fragment_ids[offset : offset + task_size]
+            task = dict(
+                dataset=dataset,
+                fragment=fragment.fragment_id,
+                offset=offset,
+                rows=len(selected),
+                ordered_ids_sha256=ordered_hash(selected),
+            )
+            task["id"] = digest(task)
+            tasks.append(task)
+    return tasks, np.concatenate(ids) if ids else np.empty(0, dtype="S64")
 
 
 def prepare(root, dataset, work, model_root, *, release="v0.1", task_size=1024, output_root=None):
@@ -78,26 +112,7 @@ def prepare(root, dataset, work, model_root, *, release="v0.1", task_size=1024, 
     ds = lance.dataset(source["table_path"], version=source["lance_version"])
     if ds.count_rows() != base["rows"]:
         raise ValueError("Base snapshot row count differs from its manifest")
-    tasks, ids = [], []
-    for fragment in ds.get_fragments():
-        fragment_ids = (
-            ds.scanner(fragments=[fragment], columns=["sample_id"], scan_in_order=True)
-            .to_table()["sample_id"]
-            .to_pylist()
-        )
-        ids.append(np.asarray(fragment_ids, dtype="S64"))
-        for offset in range(0, len(fragment_ids), task_size):
-            selected = fragment_ids[offset : offset + task_size]
-            task = dict(
-                dataset=dataset,
-                fragment=fragment.fragment_id,
-                offset=offset,
-                rows=len(selected),
-                ordered_ids_sha256=ordered_hash(selected),
-            )
-            task["id"] = digest(task)
-            tasks.append(task)
-    ids = np.concatenate(ids)
+    tasks, ids = fragment_tasks(dataset, ds, task_size)
     if len(ids) != base["rows"]:
         raise ValueError("Base fragments do not cover the manifest rows")
     created = datetime.now(BEIJING).isoformat()
@@ -134,6 +149,111 @@ def prepare(root, dataset, work, model_root, *, release="v0.1", task_size=1024, 
     return p
 
 
+def text_binding(root, selection, dataset):
+    """How the selected text of one dataset was made: base text only, or a text revision."""
+    sources = [
+        (code, s)
+        for code, s in selection["text_sources"].items()
+        if code != "0" and dataset in s["datasets"]
+    ]
+    if not sources:
+        return dict(source="base_normalization", text_kind=None)
+    ((code, s),) = sources
+    if s["kind"] != "annotation_text_revision":
+        raise ValueError(f"dots_vae only binds base or text-revision text: {dataset}")
+    path = Path("annotations") / s["task"] / s["run_id"] / "manifest.json"
+    if file_hash(Path(root) / path) != s["manifest_sha256"]:
+        raise ValueError("Text revision manifest changed")
+    revision = json.loads((Path(root) / path).read_text())
+    return dict(
+        source="annotation_text_revision",
+        text_source=int(code),
+        task=s["task"],
+        run_id=s["run_id"],
+        manifest_path=str(path),
+        manifest_sha256=s["manifest_sha256"],
+        mapping_version=revision["profile"]["name"],
+        text_kind=revision["profile"]["name"],
+        rule="selected_text when not null, else base text stripped (selection contract)",
+    )
+
+
+def prepare_selection(
+    root, selection_path, work, model_root, *, datasets=None, task_size=1024, output_root=None
+):
+    """One dots_vae run per selection output; targets are its selection_reason = 0 rows."""
+    root, work = Path(root).resolve(), Path(work).resolve()
+    selection_path = Path(selection_path).resolve()
+    selection = json.loads(selection_path.read_text())
+    if selection["status"] != "complete":
+        raise ValueError("Selection is not published")
+    outputs = [o for o in selection["outputs"] if datasets is None or o["dataset_id"] in datasets]
+    if datasets is not None and {o["dataset_id"] for o in outputs} != set(datasets):
+        raise ValueError("Requested dataset is absent from the selection")
+    definition = profile(model_root)
+    created = datetime.now(BEIJING).isoformat()
+    output_root = Path(output_root or root).resolve()
+    plans = []
+    for o in outputs:
+        dataset = o["dataset_id"]
+        base = next(i for i in selection["inputs"] if i["dataset_id"] == dataset)
+        source = dict(
+            dataset_id=dataset,
+            release_id=o["release_id"],
+            table_path=str(root / o["table_path"]),
+            branch=o["branch"],
+            lance_version=o["lance_version"],
+            base_version=o["base_version"],
+            rows=o["rows"],
+            manifest_path=base["manifest_path"],
+            manifest_sha256=base["manifest_sha256"],
+        )
+        if file_hash(root / base["manifest_path"]) != base["manifest_sha256"]:
+            raise ValueError(f"Base manifest changed: {dataset}")
+        d = dict(source=source)
+        tasks, ids = fragment_tasks(dataset, open_base(d), task_size, SELECTED)
+        if len(ids) != o["selected_rows"]:
+            raise ValueError(f"Selected rows differ from the selection manifest: {dataset}")
+        run_id = make_feature_run_id(dataset, KIND, PROFILE_NAME, created)
+        final = output_root / "datasets" / dataset / o["release_id"] / "features" / KIND / run_id
+        plans.append(
+            d
+            | dict(
+                selection=dict(
+                    manifest_path=str(selection_path.relative_to(root)),
+                    manifest_sha256=file_hash(selection_path),
+                    selection_id=selection["selection_id"],
+                    text=text_binding(root, selection, dataset),
+                ),
+                target_count=len(ids),
+                target_set_sha256=sorted_set_hash(ids),
+                tasks=tasks,
+                run_id=run_id,
+                final=str(final),
+                stage=str(final.with_name(run_id + ".incomplete")),
+                state=str(work / "state" / dataset),
+            )
+        )
+    p = dict(
+        root=str(root),
+        output_root=str(output_root),
+        work=str(work),
+        model_root=str(Path(model_root).resolve()),
+        created_at=created,
+        profile=definition,
+        profile_id=digest(definition),
+        profile_name=PROFILE_NAME,
+        execution_code_sha256=file_hash(__file__),
+        datasets=sorted(plans, key=lambda d: d["source"]["dataset_id"]),
+    )
+    work.mkdir(parents=True, exist_ok=False)
+    write_json(work / "plan.json", p)
+    validate_plan(p)
+    total = sum(d["target_count"] for d in plans)
+    event(work, "planned", rows_total=total, tasks=sum(len(d["tasks"]) for d in plans))
+    return p
+
+
 def validate_plan(p):
     if (
         file_hash(__file__) != p["execution_code_sha256"]
@@ -144,17 +264,24 @@ def validate_plan(p):
         manifest = Path(p["root"]) / d["source"]["manifest_path"]
         if file_hash(manifest) != d["source"]["manifest_sha256"]:
             raise ValueError("Base manifest changed")
+        selection = d.get("selection")
+        if selection and (
+            file_hash(Path(p["root"]) / selection["manifest_path"]) != selection["manifest_sha256"]
+        ):
+            raise ValueError("Selection manifest changed")
 
 
 def read_task(d, task):
     started = time.perf_counter()
     ds = open_base(d)
+    selection = d.get("selection")
     rows = (
         ds.scanner(
             fragments=[ds.get_fragment(task["fragment"])],
             offset=task["offset"],
             limit=task["rows"],
-            columns=INPUT_COLUMNS,
+            columns=INPUT_COLUMNS + (["selected_text"] if selection else []),
+            filter=SELECTED if selection else None,
             scan_in_order=True,
             batch_readahead=1,
             fragment_readahead=1,
@@ -162,6 +289,16 @@ def read_task(d, task):
         .to_table()
         .to_pylist()
     )
+    if selection:
+        kind = selection["text"]["text_kind"]
+        for r in rows:
+            # Selected text: an override when present (even ""), otherwise stripped base text.
+            chosen = r.pop("selected_text")
+            r["text"] = chosen if chosen is not None else (r["text"] or "").strip()
+            if not r["text"]:
+                raise ValueError(f"Selected row has no text: {r['sample_id']}")
+            if kind is not None:
+                r["text_kind"] = kind
     ids = [r["sample_id"] for r in rows]
     if len(rows) != task["rows"] or ordered_hash(ids) != task["ordered_ids_sha256"]:
         raise ValueError("Task target set changed")
@@ -275,6 +412,24 @@ def published_manifest(p, d):
     return manifest
 
 
+def selection_block(d, count):
+    block = {
+        "mode": "selection_branch" if d.get("selection") else "all_samples",
+        "input_alias": "samples",
+        "available_target_rows": d["source"]["rows"],
+        "target_count": count,
+        "target_set_sha256": d["target_set_sha256"],
+    }
+    if d.get("selection"):
+        block.update(
+            filter=SELECTED,
+            manifest_path=d["selection"]["manifest_path"],
+            manifest_sha256=d["selection"]["manifest_sha256"],
+            selection_id=d["selection"]["selection_id"],
+        )
+    return block
+
+
 def finalize(p, d):
     stage, final = Path(d["stage"]), Path(d["final"])
     if final.exists():
@@ -353,19 +508,16 @@ def finalize(p, d):
                 "dataset_id": source["dataset_id"],
                 "release_id": source["release_id"],
                 "table_path": "samples.lance",
-                "branch": None,
+                "branch": source["branch"],
                 "lance_version": source["lance_version"],
                 "manifest_path": source["manifest_path"],
                 "manifest_sha256": source["manifest_sha256"],
             }
+            | ({"base_version": source["base_version"]} if source["branch"] else {})
         ],
-        "selection": {
-            "mode": "all_samples",
-            "input_alias": "samples",
-            "available_target_rows": source["rows"],
-            "target_count": count,
-            "target_set_sha256": d["target_set_sha256"],
-        },
+        "selection": selection_block(d, count),
+        "text": (d.get("selection") or {}).get("text")
+        or {"source": "base", "rule": "base text and text_kind as published"},
         "coverage": {
             "total_targets": count,
             "ok": status["ok"],

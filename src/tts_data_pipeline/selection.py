@@ -83,6 +83,7 @@ REASONS = {
     2004: "text_script_mismatch",
     3001: "below_duration_policy",
     3002: "above_duration_policy",
+    3003: "below_sample_rate_policy",
     4001: "duplicate_not_selected",
     4002: "conflicting_duplicate",
     5001: "reference_identity_unavailable",
@@ -107,12 +108,25 @@ FLAGS = [
     "quality_policy",
     "parent_policy",
     "speaker_policy",
+    "sample_rate_policy",
 ]
 # Dictionary version 5 adds 6002 and flag bit 15 (bits 13/14 keep the names spec 12 gave them
 # for versions 3/4); rules without speaker_inputs publish version 2 unchanged.
 SPEAKER_CODES, SPEAKER_BIT = {6002}, 15
 # Dictionary version 6 adds 1009 (selected ASR text disagrees with a pinned base text variant).
 VERIFY_CODES = {1009}
+# Dictionary version 7 adds 3003 (native sample rate below a dataset-scoped minimum) and flag
+# bit 16; text-revision annotations reuse 1003 for rows the revision does not provide.
+RATE_CODES, RATE_BIT = {3003}, 16
+REVISION_COLUMNS = {
+    "sample_id": "sample_id",
+    "status": "status",
+    "error_code": "error_code",
+    "audio_sha256": "result.audio_sha256",
+    "source_language": "result.source_language",
+    "action": "result.action",
+    "text": "result.text",
+}
 COMPARABLE_TOKEN = re.compile(r"[a-z0-9']+")
 SPEAKER_COLUMNS = ("sample_id", "status", "result.audio_sha256", "result.speaker_count")
 ASR_COLUMNS = {
@@ -461,7 +475,15 @@ def pin_annotations(root, rules, inputs):
                 "base_lance_version": source["lance_version"],
             }
             if role == "transcription":
-                pinned.append({"text_source": item["text_source"], **entry})
+                kind = rules["text_sources"][str(item["text_source"])].get("kind", "asr")
+                if kind == "text_revision":
+                    result = next(c for c in table["schema"] if c["name"] == "result")
+                    if not {"action", "text"} <= {f["name"] for f in result["fields"]}:
+                        raise ValueError(f"Text revision has no action/text: {name}")
+                    entry["columns"] = sorted(REVISION_COLUMNS.values())
+                elif kind != "asr":
+                    raise ValueError(f"Unknown text source kind: {kind}")
+                pinned.append({"text_source": item["text_source"], "kind": kind, **entry})
                 continue
             result = next(c for c in table["schema"] if c["name"] == "result")
             if "speaker_count" not in {f["name"] for f in result["fields"]}:
@@ -517,14 +539,22 @@ def align_annotations(work):
         name = item["dataset_id"]
         source = next(s for s in p["inputs"] if s["dataset_id"] == name)
         base = open_base(p["root"], source)
-        ids = base.to_table(columns=["sample_id"], scan_in_order=True)["sample_id"].cast(
-            pa.large_string()
+        revision = item.get("kind") == "text_revision"
+        base_rows = base.to_table(
+            columns=["sample_id", "text"] if revision else ["sample_id"], scan_in_order=True
         )
+        ids = base_rows["sample_id"].cast(pa.large_string())
         table = lance.dataset(Path(p["root"]) / item["table_path"], version=item["lance_version"])
         if table.count_rows() != item["rows"]:
             raise ValueError("Annotation row count changed")
         if item.get("role") == "speaker":
-            names, columns = ["sample_id", "status", "audio_sha256", "speaker_count"], item["columns"]
+            names, columns = (
+                ["sample_id", "status", "audio_sha256", "speaker_count"],
+                item["columns"],
+            )
+        elif revision:
+            names = list(REVISION_COLUMNS)
+            columns = [REVISION_COLUMNS[k] for k in names]
         else:
             names = list(ASR_COLUMNS)
             columns = [ASR_COLUMNS[k] for k in names]
@@ -546,6 +576,8 @@ def align_annotations(work):
         aligned = ann.take(index)
         if not aligned["sample_id"].equals(ids):
             raise ValueError("Annotation alignment failed")
+        if revision:
+            aligned = revision_as_text(aligned, base_rows["text"])
         for task in (t for t in p["tasks"] if t["dataset"] == name):
             path = folder / f"{aligned_key(item, task['offset'])}.parquet"
             pq.write_table(aligned.slice(task["offset"], task["rows"]), path)
@@ -553,6 +585,43 @@ def align_annotations(work):
         event(work, "annotation_aligned", dataset=name, rows=len(aligned), role=item.get("role"))
     write_json(checkpoint, done)
     return done
+
+
+def revision_as_text(aligned, base_text):
+    """Text revision in the ASR text-source shape: ok keep -> base text, ok replace -> result
+    text, anything else -> no text (1003). Language evidence is not part of a revision."""
+    texts = []
+    rows = zip(
+        aligned["status"].to_pylist(),
+        aligned["action"].to_pylist(),
+        aligned["text"].to_pylist(),
+        base_text.to_pylist(),
+        strict=True,
+    )
+    for status, action, text, base in rows:
+        if status != "ok":
+            texts.append(None)
+        elif action == "keep" and text is None:
+            texts.append(base)
+        elif action == "replace" and text is not None and text.strip():
+            texts.append(text)
+        else:
+            raise ValueError(f"Invalid text revision: {action!r}")
+    n = len(aligned)
+    return pa.table(
+        {
+            "sample_id": aligned["sample_id"],
+            "status": aligned["status"],
+            "error_code": aligned["error_code"],
+            "audio_sha256": aligned["audio_sha256"],
+            "source_language": aligned["source_language"],
+            "text": pa.array(texts, pa.large_string()),
+            "language": pa.nulls(n, pa.large_string()),
+            "language_mismatch": pa.array([False] * n),
+            "candidate_text": pa.nulls(n, pa.large_string()),
+            "candidate_response": pa.nulls(n, pa.large_string()),
+        }
+    )
 
 
 def aligned_rows(p, task, item):
@@ -755,7 +824,12 @@ def classify(
     if language not in rules["supported_languages"]:
         reasons.append(2001 if not language else 2002)
         flags |= 1 << 3
-    if asr is not None and asr["status"] == "ok" and asr_language_conflict(asr, language, source):
+    if (
+        asr is not None
+        and asr["status"] == "ok"
+        and source.get("kind") != "text_revision"
+        and asr_language_conflict(asr, language, source)
+    ):
         reasons.append(2003)
         flags |= (1 << 3) | (1 << 12)
     if source is not None and "verification" in source:
@@ -831,6 +905,10 @@ def classify(
             flags |= 1 << SPEAKER_BIT
         if evidence is not None:
             evidence["speaker"] = outcome
+    rate = rules.get("sample_rate_policy", {}).get(dataset)
+    if rate is not None and row["sample_rate"] < rate["min_inclusive"]:
+        reasons.append(3003)
+        flags |= 1 << RATE_BIT
     bounds = rules["duration_seconds"]
     if duration < bounds["min_inclusive"]:
         reasons.append(3001)
@@ -1453,6 +1531,22 @@ def text_sources(p):
     for item in transcription_inputs(p):
         code = str(item["text_source"])
         rule = p["rules"]["text_sources"][code]
+        if item.get("kind") == "text_revision":
+            entry = sources.setdefault(
+                code,
+                {
+                    "kind": "annotation_text_revision",
+                    "task": item["task"],
+                    "run_id": item["run_id"],
+                    "manifest_sha256": item["manifest_sha256"],
+                    "column": "result.text when result.action=replace; base text when keep",
+                    "normalization": rule["normalization"],
+                    "unavailable": rule["unavailable"],
+                    "datasets": [],
+                },
+            )
+            entry["datasets"].append(item["dataset_id"])
+            continue
         entry = sources.setdefault(
             code,
             {
@@ -1556,13 +1650,16 @@ def publish(work, workers=16):
     speaker_inputs = p.get("speaker_inputs")
     metadata_speakers = p["rules"].get("speaker_metadata")
     verifying = any("verification" in r for r in p["rules"].get("text_sources", {}).values())
-    version = 6 if verifying else 5 if speaker_inputs or metadata_speakers else 2
+    rating = bool(p["rules"].get("sample_rate_policy"))
+    version = 7 if rating else 6 if verifying else 5 if speaker_inputs or metadata_speakers else 2
     codes = {
         k: v
         for k, v in REASONS.items()
-        if (version >= 5 or k not in SPEAKER_CODES) and (version >= 6 or k not in VERIFY_CODES)
+        if (version >= 5 or k not in SPEAKER_CODES)
+        and (version >= 6 or k not in VERIFY_CODES)
+        and (version >= 7 or k not in RATE_CODES)
     }
-    bits = dict(enumerate(FLAGS if version >= 5 else FLAGS[:13]))
+    bits = dict(enumerate(FLAGS if version >= 7 else FLAGS[:16] if version >= 5 else FLAGS[:13]))
     checks = sum((Counter(t.get("checks", {})) for t in parts), Counter())
     manifest = {
         "contract_version": "v0.1",
@@ -1582,8 +1679,8 @@ def publish(work, workers=16):
             "implementation_sha256": p["implementation_sha256"],
         },
         # Version 2 adds 105/1003-1008/2003/2004 and flag bits 10-12; version 5 adds 6002 and
-        # bit 15 (bits 13/14 keep spec 12's version 3/4 names, unused); version 6 adds 1009.
-        # Old codes keep meaning.
+        # bit 15 (bits 13/14 keep spec 12's version 3/4 names, unused); version 6 adds 1009;
+        # version 7 adds 3003 and bit 16. Old codes keep meaning.
         "reason_dictionary": {
             "version": version,
             "codes": codes,
