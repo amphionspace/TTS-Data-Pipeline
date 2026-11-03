@@ -25,6 +25,7 @@
 | --- | --- | --- | --- | --- |
 | 基础数据集 | aishell3/v0.1 | 88,035 条，85.6 小时 | 2026-09-28 18:58 | |
 | 基础数据集 | csemotions/v0.1 | 4,160 条，10.2 小时 | 2026-09-28 15:58 | |
+| 基础数据集 | disfluencyspeech/v0.1 | 5,000 条，9.5 小时 | 2026-11-03 14:52 | |
 | 基础数据集 | emilia/v0.1 | 40,264,231 条，101,655.6 小时 | 2026-09-28 23:17 | |
 | 基础数据集 | emilia2/v0.1 | 99,840,397 条，146,325.0 小时 | 2026-10-12 03:10 | |
 | 基础数据集 | emilia_nv/v0.1 | 174,179 条，573.4 小时 | 2026-11-02 16:04 | |
@@ -37,6 +38,9 @@
 | 基础数据集 | libritts_r/v0.1 | 374,999 条，583.1 小时 | 2026-09-28 17:39 | |
 | 基础数据集 | ljspeech/v0.1 | 13,100 条，23.9 小时 | 2026-09-28 16:44 | |
 | 基础数据集 | mls_sidon/v0.1 | 12,288,862 条，50,834.3 小时 | 2026-09-29 04:23 | |
+| 基础数据集 | nonverbalspeech38k/v0.1 | 38,718 条，130.6 小时 | 2026-11-03 14:59 | |
+| 基础数据集 | nonverbaltts/v0.1 | 6,256 条，17.6 小时 | 2026-11-03 14:57 | |
+| 基础数据集 | smiip_nv/v0.1 | 17,377 条，33.1 小时 | 2026-11-03 15:26 | |
 | 基础数据集 | starrail_voice/v0.1 | 403,437 条，692.6 小时 | 2026-09-28 19:00 | |
 | 基础数据集 | vctk/v0.1 | 88,328 条，82.7 小时 | 2026-09-28 17:46 | |
 | 基础数据集 | wenetspeech4tts/v0.1 | 3,932,472 条，7,232.2 小时 | 2026-09-28 20:10 | |
@@ -222,6 +226,42 @@
 - SHA256：`b0eecbf677507ad4e60674ff7ef2421dcccda74655c8db8e56b7f6476efe6be8`
 - 内容：174,179 条，573.4 小时；HF amphion/Emilia-NV 全部 18 个 webdataset tar，zh；text 为含内联副语言标签的上游 ASR 文本（text_kind=source_asr_paralinguistic），无 speaker
 - 说明：deep 验证，174,179 条全部完整解码；libmpg123 对部分 MP3 帧报告 part2_3_length 警告，不影响解码结果
+
+### 2026-11-03 · 发布 · disfluencyspeech/v0.1
+
+- 时间：2026-11-03 14:52（北京时间）
+- manifest：`datasets/disfluencyspeech/v0.1/manifest.json`
+- SHA256：`b4cca0ca06bf4380ad7714756a87524f6b99d12c9d606e12eab9b3dd34969828`
+- 内容：5,000 条，9.5 小时；HF amaai-lab/DisfluencySpeech（Apache-2.0）train/validation/test，单说话人，en；
+  text 为含 Switchboard 不流利标注与事件标签的标注转写（source_transcript_annotated），三种删减转写为变体
+- 说明：deep 验证；原 split 存 metadata，test 250 条由 selection 留出
+
+### 2026-11-03 · 发布 · nonverbaltts/v0.1
+
+- 时间：2026-11-03 14:57（北京时间）
+- manifest：`datasets/nonverbaltts/v0.1/manifest.json`
+- SHA256：`c5061d0ea4f96cafeb9cd7e1b50112da8cddb4e4218ac28e7deaf9e157f3f9fe`
+- 内容：6,256 条，17.6 小时；HF deepvk/NonverbalTTS（Apache-2.0）train/dev/test/other，en（VoxCeleb、Expresso）；
+  text 为三人标注融合文本（emoji 非语言标签，source_transcript_paralinguistic），ASR 初稿为变体，speaker 来自上游
+- 说明：deep 验证；原 split 存 metadata
+
+### 2026-11-03 · 发布 · nonverbalspeech38k/v0.1
+
+- 时间：2026-11-03 14:59（北京时间）
+- manifest：`datasets/nonverbalspeech38k/v0.1/manifest.json`
+- SHA256：`1c47e099d778ad492b44a2d3185a7788329048001d97a4fe84c2afa884e6e4d0`
+- 内容：38,718 条，130.6 小时；HF nonverbalspeech/nonverbalspeech38k（CC BY-NC 4.0）全部 46 片；
+  zh 36,925 条 / 126.4 小时，en 1,793 条 / 4.2 小时；text 为 08-31 版 caption（每条一个 `[tag]`，source_asr_paralinguistic），v1_caption 为变体；无 speaker
+- 说明：deep 验证；上游无样本 ID，身份为 shard+row
+
+### 2026-11-03 · 发布 · smiip_nv/v0.1
+
+- 时间：2026-11-03 15:26（北京时间）
+- manifest：`datasets/smiip_nv/v0.1/manifest.json`
+- SHA256：`0156e010c86961666e9212cd0d829fc2030d2ba2da0f5eca2ceaab497c1bb932`
+- 内容：17,377 条，33.1 小时；HF xunyi/SMIIP-NV（CC BY-NC-SA 4.0，gated）SMIIP_NV.zip，37 位说话人，zh，5 类情感；
+  text 为点式标注（`<laughter>/<cough>/<crying>`，source_transcript_paralinguistic），区间式标注为变体，全部标注与时间区间存 metadata；3 条无标注
+- 说明：deep 验证；SMIIP_NV_SPK_finetune.zip（同一批音频，CRC 一致）作为语义依赖，只提供 spk_train/spk_test，spk_test 2,607 条由 selection 留出
 
 ## Annotation
 

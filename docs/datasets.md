@@ -1,7 +1,7 @@
 # 数据集接入表
 
 所有 21 个目录均已盘点。这里区分“有转换规则”与“已实现转换器”。
-目前实现 21 个适配器（下表 ✓），完成状态以发布 manifest 和状态脚本为准。
+目前实现 22 个适配器（下表 ✓），完成状态以发布 manifest 和状态脚本为准。
 写入后端为 Lance，release 固定 v0.1；旧产物已清理，全量转换已启动，进度以状态脚本为准。
 最新来源复核见 [LibriHeavy / MLS 核查](design-review/libriheavy-mls-check.md)。
 Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [本地核查](design-review/emilia-local-check.md)。
@@ -18,6 +18,7 @@ Emilia / Emilia-YODAS 已实现 adapter 并完成本地接入前核查；见 [�
 | NonverbalTTS / nonverbaltts.py ✓ | HF `deepvk/NonverbalTTS` Parquet，train/dev/test/other；文本含 emoji 非语言标签 | 上游融合文本 Result 为主文本，ASR 初稿为变体；speaker 来自 VoxCeleb/Expresso ID |
 | DisfluencySpeech / disfluencyspeech.py ✓ | HF `amaai-lab/DisfluencySpeech` Parquet，train/validation/test；单说话人 | 主文本为含 Switchboard 不流利标注与 `<laughter>` 等事件的标注转写，三种删减转写为变体 |
 | NonVerbalSpeech-38K / nonverbalspeech38k.py ✓ | HF `nonverbalspeech/nonverbalspeech38k` Parquet 46 片；zh/en 混合，每条一个 `[tag]` | 无上游 ID 与 speaker，以 shard+row 为身份；caption（08-31 版）为主文本，v1_caption 为变体 |
+| SMIIP-NV / smiip_nv.py ✓ | HF `xunyi/SMIIP-NV`（gated）两个 zip；GBK 文件名；说话人/情感目录 + annotation.txt | 点式 `<crying>` 与区间式 `<crying/>…</crying>` 两种标注；finetune zip 只提供 spk_train/spk_test 划分 |
 | Galgame / galgame.py ✓ | 各游戏配置的 Parquet；audio_ID、text | 此前缺的 6 个 shard 已补齐；无 speaker 列；源配置音频采样率声明需实测 |
 | HiFiTTS / hifitts.py ✓ | tar.gz 内多个 JSONL manifest；保留原文/规范化文本与 clean/other | manifest 全量读取与音频成员对应关系 |
 | HiFiTTS2 / hifitts2.py ✓ | 用户指定本地 22.05 kHz FLAC Parquet；保留原始 split、WER/CER 等 | 5,284 片 / 12,809,875 行；见 [映射与验证](design-review/recovery-and-hifitts2.md) |
@@ -142,4 +143,19 @@ Wenet 每包当前扫描共享清单，安全哈希校验也有额外开销；�
 - text 为 `caption`（2025-08-31 版，标签与文本重新对齐），text_kind=`source_asr_paralinguistic`；
   `v1_caption`（初版，含 `<B>` 区间标记）为变体 `source_asr_paralinguistic_v1`。
   label、non_verbal_region（秒）、来源类型与上游 duration 存 metadata。无 speaker 信息。
+
+## SMIIP-NV 映射
+
+- 来源：HF `xunyi/SMIIP-NV`（CC BY-NC-SA 4.0，需在 HF 申请访问），`SMIIP_NV.zip` 与 `SMIIP_NV_SPK_finetune.zip`；
+  37 位普通话说话人朗读脚本并加入笑声、咳嗽、哭泣，17,377 条（48 kHz 为主，611 条 16 kHz）。
+- 主 zip 的成员名为无 UTF-8 标志的 GBK，按 GBK 解码；目录为 `SMIIP_NV_Up/<说话人>/<情感>/`，
+  情感 高兴/伤心/中性/生气/惊讶 映射为 happy/sad/neutral/angry/surprised。source_key 为音频 stem，
+  speaker_id=`smiip_nv:<MIC-XXXX>`。
+- annotation.txt 每行 `wav\t文本\t[起,止],...`（秒）。点式行在事件处插入 `<laughter>/<cough>/<crying>`，每个标签一个区间；
+  区间式行用 `<x/>…</x>` 标出伴随该发声说话的范围。主文本取点式行（17,087 条），没有点式时取第一条区间式行（287 条），
+  text_kind=`source_transcript_paralinguistic`；其余行作为变体 `source_transcript_paralinguistic_{point,span}`（918 条有一个变体）。
+  全部行及其区间存 metadata.annotations，文本保留上游原样（含一处 `<aughter>` 笔误）；44 条点式行的标签数与区间数不一致，照录。
+  3 条音频无标注，text 为空并记 metadata.missing_annotation。
+- `SMIIP_NV_SPK_finetune.zip` 是同一批音频（CRC 逐条一致）按 spk_train/spk_test 重新打包，作为语义依赖读取，
+  只用于 metadata.original_split；spk_test（2,607 条）的 original_split_group=test，由 selection 留出。
 

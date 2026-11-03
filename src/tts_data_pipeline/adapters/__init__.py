@@ -17,6 +17,7 @@ from . import (
     mls_sidon,
     nonverbalspeech38k,
     nonverbaltts,
+    smiip_nv,
     starrail_voice,
     vctk,
     wenetspeech4tts,
@@ -46,6 +47,7 @@ ADAPTERS = {
     "nonverbaltts": nonverbaltts,
     "disfluencyspeech": disfluencyspeech,
     "nonverbalspeech38k": nonverbalspeech38k,
+    "smiip_nv": smiip_nv,
 }
 
 
