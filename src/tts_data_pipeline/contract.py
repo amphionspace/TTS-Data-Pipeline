@@ -136,7 +136,8 @@ def speaker_embedding_schema(dimension):
 
 
 def dots_vae_schema(latent_dim=128, xvector_dim=512):
-    """dots.tts AudioVAE posterior (T x latent_dim mean and logstd) and one x-vector."""
+    """dots.tts AudioVAE posterior (T x latent_dim mean and logstd), a whole-utterance x-vector
+    and an x-vector of the trainer's reference span."""
     strings = [
         "target_kind",
         "target_id",
@@ -153,6 +154,7 @@ def dots_vae_schema(latent_dim=128, xvector_dim=512):
         "language",
         "latents_sha256",
         "xvector_sha256",
+        "reference_xvector_sha256",
     ]
     frames = [
         "start_frame",
@@ -164,6 +166,7 @@ def dots_vae_schema(latent_dim=128, xvector_dim=512):
         "padded_frames",
         "xvector_fbank_frames",
         "num_latent_frames",
+        "reference_fbank_frames",
     ]
     latent = pa.list_(pa.list_(pa.float32(), latent_dim))
     return pa.schema(
@@ -171,9 +174,12 @@ def dots_vae_schema(latent_dim=128, xvector_dim=512):
             *[pa.field(k, pa.string()) for k in strings],
             pa.field("native_sample_rate", pa.int32()),
             *[pa.field(k, pa.int64()) for k in frames],
+            pa.field("reference_start_patch", pa.int32()),
+            pa.field("reference_end_patch", pa.int32()),
             pa.field("vae_mean", latent),
             pa.field("vae_logstd", latent),
             pa.field("xvector", pa.list_(pa.float32(), xvector_dim)),
+            pa.field("reference_xvector", pa.list_(pa.float32(), xvector_dim)),
         ]
     )
 

@@ -29,9 +29,10 @@ def base_row(i, frames=48000):
     )
 
 
-def value(frames, seed):
+def value(frames, seed, target_id=None):
     g = np.random.default_rng(seed)
     padded = frames * model.HOP
+    span = model.reference_patches(target_id or base_row(seed)["sample_id"], frames)
     info = dict(
         end_frame=48000,
         resampled_frames=48000,
@@ -42,12 +43,24 @@ def value(frames, seed):
         xvector_fbank_frames=98,
     )
     posterior = g.normal(size=(frames, 256)).astype(np.float32)
-    return info, posterior, g.normal(size=512).astype(np.float32), None
+    reference = None
+    if span is not None:
+        info.update(
+            reference_start_patch=span[0],
+            reference_end_patch=span[1],
+            reference_fbank_frames=(span[1] - span[0]) * 16,
+        )
+        reference = g.normal(size=512).astype(np.float32)
+    return info, posterior, g.normal(size=512).astype(np.float32), reference, None
 
 
 def test_table_roundtrip_keeps_arrays_text_and_failures():
     rows = [base_row(i) for i in range(3)]
-    values = [value(28, 0), (dict(end_frame=48000), None, None, "silent_audio"), value(32, 1)]
+    values = [
+        value(28, 0),
+        (dict(end_frame=48000), None, None, None, "silent_audio"),
+        value(200, 2),
+    ]
     table = make_table(rows, values, DEFINITION, "p" * 64)
     validate_table(table)
     first = table.slice(0, 1).to_pylist()[0]
@@ -56,17 +69,56 @@ def test_table_roundtrip_keeps_arrays_text_and_failures():
     assert first["num_latent_frames"] == 28 and first["text"] == rows[0]["text"]
     failed = table.slice(1, 1).to_pylist()[0]
     assert failed["status"] == "failed" and failed["vae_mean"] is None and failed["xvector"] is None
-    assert failed["error_code"] == "silent_audio"
+    assert failed["error_code"] == "silent_audio" and failed["reference_start_patch"] is None
+    assert first["reference_start_patch"] is None and first["reference_xvector"] is None
+    last = table.slice(2, 1).to_pylist()[0]
+    span = (last["reference_start_patch"], last["reference_end_patch"])
+    assert span == model.reference_patches(rows[2]["sample_id"], 200)
+    assert np.array_equal(np.asarray(last["reference_xvector"], np.float32), values[2][3])
 
 
-@pytest.mark.parametrize("damage", ["frames", "sha", "offsets"])
+def test_reference_rule():
+    import hashlib
+    import math
+
+    seen = set()
+    for i in range(3000):
+        target, frames = f"{i:064x}", 4 * (i % 300)
+        n = frames // 4
+        lo, hi = max(4, math.ceil(0.1 * n)), n // 2
+        span = model.reference_patches(target, frames)
+        if lo > hi:
+            assert span is None
+            continue
+        h = hashlib.sha256(f"dots-reference-v1:{target}".encode()).digest()
+        length = lo + int.from_bytes(h[0:8], "big") % (hi - lo + 1)
+        start = int.from_bytes(h[8:16], "big") % (n - length + 1)
+        assert span == (start, start + length)
+        assert 0 <= span[0] < span[1] <= n and lo <= span[1] - span[0] <= hi
+        seen.add(span[0] == 0)
+    assert model.reference_patches("a" * 64, 7 * 4) is None
+    start, end = model.reference_patches("a" * 64, 8 * 4)
+    assert end - start == 4 and 0 <= start <= 4
+    assert seen == {True, False}
+
+
+@pytest.mark.parametrize("damage", ["frames", "sha", "offsets", "span", "reference_sha"])
 def test_validation_rejects_inconsistent_rows(damage):
     rows = [base_row(0)]
-    info, posterior, xvector, _ = value(28, 0)
+    info, posterior, xvector, reference, _ = value(200, 0)
+    assert reference is not None
     if damage == "frames":
-        posterior = posterior[:27]
-        info = dict(info, padded_frames=27 * model.HOP)
-    table = make_table(rows, [(info, posterior, xvector, None)], DEFINITION, "p" * 64)
+        posterior = posterior[:199]
+        info = dict(info, padded_frames=199 * model.HOP)
+    if damage == "span":
+        info = dict(info, reference_start_patch=info["reference_start_patch"] + 1)
+    table = make_table(rows, [(info, posterior, xvector, reference, None)], DEFINITION, "p" * 64)
+    if damage == "reference_sha":
+        table = table.set_column(
+            table.schema.get_field_index("reference_xvector_sha256"),
+            "reference_xvector_sha256",
+            pa.array(["0" * 64]),
+        )
     if damage == "sha":
         table = table.set_column(
             table.schema.get_field_index("xvector_sha256"),
@@ -112,7 +164,7 @@ def test_all_samples_publication(tmp_path, monkeypatch):
     stage = tmp_path / "out"
     for task in d["tasks"]:
         prepared = run.read_task(d, task)
-        values = [value(28, i) for i in range(task["rows"])]
+        values = [value(200, i, r["sample_id"]) for i, r in enumerate(prepared["rows"])]
         (run.Path(d["stage"])).mkdir(parents=True, exist_ok=True)
         run.write_task(p, d, task, prepared, values, {})
     manifest = run.finalize(p, d)

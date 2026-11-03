@@ -714,6 +714,11 @@
       "type": "string"
     },
     {
+      "name": "reference_xvector_sha256",
+      "nullable": true,
+      "type": "string"
+    },
+    {
       "name": "native_sample_rate",
       "nullable": true,
       "type": "int32"
@@ -764,6 +769,21 @@
       "type": "int64"
     },
     {
+      "name": "reference_fbank_frames",
+      "nullable": true,
+      "type": "int64"
+    },
+    {
+      "name": "reference_start_patch",
+      "nullable": true,
+      "type": "int32"
+    },
+    {
+      "name": "reference_end_patch",
+      "nullable": true,
+      "type": "int32"
+    },
+    {
       "name": "vae_mean",
       "nullable": true,
       "type": "list",
@@ -789,6 +809,15 @@
     },
     {
       "name": "xvector",
+      "nullable": true,
+      "type": "list",
+      "item": {
+        "type": "float"
+      },
+      "size": 512
+    },
+    {
+      "name": "reference_xvector",
       "nullable": true,
       "type": "list",
       "item": {

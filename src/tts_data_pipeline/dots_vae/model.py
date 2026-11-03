@@ -6,10 +6,13 @@ decode -> channel mean -> kaiser resample to 48 kHz -> edge silence to 250 ms ->
 a multiple of 7680. Latents come from that padded waveform plus a zero tail, so the last two
 frames see a computed lookahead as in a dots batch row that is not the longest. The x-vector
 uses the training fbank (kaiser 48k->16k), cropped to the first 10 s in place of dots' random
-crop, then CAM++.
+crop, then CAM++. A second x-vector covers only the trainer's reference span: patches
+[reference_start_patch, reference_end_patch) of the edge-normalized waveform, whole.
 """
 
+import hashlib
 import io
+import math
 import os
 import sys
 from pathlib import Path
@@ -51,6 +54,8 @@ HOP = 1920
 ALIGN = 7680
 LOOKAHEAD_TAIL = 2 * HOP
 XVEC_SECONDS = 10.0
+# Reference span, agreed with the trainer: 1 patch = 4 latent frames = 7680 samples = 0.16 s.
+REFERENCE_RULE = "dots-reference-v1:codec-grid-v1-on-patches"
 # One encoder call holds at most this many padded 48 kHz samples (about 4 minutes).
 BATCH_SAMPLES = 48000 * 240
 MAX_BATCH = 32
@@ -93,6 +98,23 @@ def edge_deltas(waveform, up):
     loud = torch.nonzero(amplitude > threshold, as_tuple=False).flatten()
     first, last = int(loud[0]), int(loud[-1])
     return target - first, target - (waveform.size(-1) - last - 1)
+
+
+def reference_patches(target_id, num_latent_frames):
+    """Half-open patch span [S, S+L) or None: the codec-grid-reference-v1 policy on patches.
+
+    L is uniform over legal lengths (at least 4 patches = 0.64 s and 10% of the patches, at
+    most half), then S uniform over legal starts, both from sha256 of the target id.
+    """
+    patches = num_latent_frames // 4
+    lo = max(4, math.ceil(0.1 * patches))
+    hi = patches // 2
+    if lo > hi:
+        return None
+    h = hashlib.sha256(f"dots-reference-v1:{target_id}".encode()).digest()
+    length = lo + int.from_bytes(h[0:8], "big") % (hi - lo + 1)
+    start = int.from_bytes(h[8:16], "big") % (patches - length + 1)
+    return start, start + length
 
 
 def load_strict(module, path):
@@ -139,8 +161,6 @@ class Encoder:
 
     def waveform(self, row):
         """Training waveform with its alignment to the decoded native audio."""
-        import hashlib
-
         raw = row["audio"]["bytes"]
         if hashlib.sha256(raw).hexdigest() != row["audio_sha256"]:
             raise ValueError("Audio bytes differ from audio_sha256")
@@ -184,36 +204,63 @@ class Encoder:
         return self.up["fbank"](waveform, sample_rate=SAMPLE_RATE)
 
     @torch.no_grad()
-    def campplus(self, waveform, fbank):
-        """One sample at a time: CAM++ does not mask zero-padded fbank batches."""
+    def campplus(self, waveform, fbank, crop=True):
+        """One sample at a time: CAM++ does not mask zero-padded fbank batches.
+
+        With `crop`, waveforms over 10 s keep their first 10 s; otherwise the whole input.
+        """
         length = torch.tensor([waveform.size(-1)])
+        keep = torch.clamp(length, max=round(SAMPLE_RATE * XVEC_SECONDS)) if crop else length
         cropped, frames = self.speaker._crop_fbank(
             fbank[None],
             torch.tensor([fbank.size(0)]),
             length,
-            torch.clamp(length, max=round(SAMPLE_RATE * XVEC_SECONDS)),
+            keep,
             torch.zeros_like(length),
         )
         out = self.speaker.model(cropped.to(self.device), lengths=frames.to(self.device))
         return out[0].float().cpu(), int(frames[0])
 
     def extract(self, rows, pool=None):
-        """[(info, posterior[T,256] | None, xvector[512] | None, error | None)] in row order.
+        """[(info, posterior[T,256], xvector[512], reference_xvector[512], error)] in row order.
 
+        Arrays are None for failed rows; reference_xvector is None without a reference span.
         `pool` runs the CPU waveform chain (decode, kaiser resample, fbank) in threads.
         """
         mapper = pool.map if pool is not None else map
         prepared = list(mapper(self.waveform, rows))
         good = [i for i, (_, _, e) in enumerate(prepared) if e is None]
-        results = [(info, None, None, error) for _, info, error in prepared]
+        results = [(info, None, None, None, error) for _, info, error in prepared]
+        spans = {
+            i: reference_patches(rows[i]["sample_id"], prepared[i][0].size(-1) // HOP) for i in good
+        }
+        # The reference audio is the edge-normalized waveform; the alignment pad is excluded.
+        references = {
+            i: prepared[i][0][
+                :,
+                spans[i][0] * ALIGN : min(spans[i][1] * ALIGN, prepared[i][1]["processed_frames"]),
+            ]
+            for i in good
+            if spans[i] is not None
+        }
         fbanks = dict(zip(good, mapper(lambda i: self.fbank(prepared[i][0]), good), strict=True))
+        reference_fbanks = dict(
+            zip(references, mapper(lambda i: self.fbank(references[i]), references), strict=True)
+        )
         for chunk in batches([prepared[i][0].size(-1) for i in good]):
             idx = [good[j] for j in chunk]
             posteriors = self.latents([prepared[i][0] for i in idx])
             for i, post in zip(idx, posteriors, strict=True):
                 vector, frames = self.campplus(prepared[i][0], fbanks[i])
                 info = dict(prepared[i][1], xvector_fbank_frames=frames)
-                results[i] = (info, post.numpy(), vector.numpy(), None)
+                reference = None
+                if spans[i] is not None:
+                    info["reference_start_patch"], info["reference_end_patch"] = spans[i]
+                    reference, info["reference_fbank_frames"] = self.campplus(
+                        references[i], reference_fbanks[i], crop=False
+                    )
+                    reference = reference.numpy()
+                results[i] = (info, post.numpy(), vector.numpy(), reference, None)
         return results
 
 

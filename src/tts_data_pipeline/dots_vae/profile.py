@@ -15,7 +15,7 @@ from ..feature_runtime import file_hash
 from ..schema import digest
 from . import model
 
-PROFILE_NAME = "dots-tts-soar-vae-xvec-48k-fp32-v1"
+PROFILE_NAME = "dots-tts-soar-vae-xvec-48k-fp32-v2"
 KIND = "dots_vae"
 LATENT_DIM = 128
 XVECTOR_DIM = 512
@@ -114,6 +114,21 @@ def profile(model_root):
             "(dots training crops a random 10 s window)",
             "model": "CAM++ 512, fp32",
         },
+        "reference_rule": model.REFERENCE_RULE,
+        "reference_xvector": {
+            "span": "N = num_latent_frames // 4 patches; lo = max(4, ceil(0.1 N)); hi = N // 2; "
+            "lo > hi -> none; h = sha256('dots-reference-v1:' + target_id); "
+            "L = lo + u64be(h[0:8]) % (hi - lo + 1); S = u64be(h[8:16]) % (N - L + 1); "
+            "patches [S, S + L)",
+            "patch_samples": model.ALIGN,
+            "audio": "edge-normalized 48 kHz waveform [S * 7680, min((S + L) * 7680, "
+            "processed_frames)); the alignment pad is excluded",
+            "fbank": "same as xvector",
+            "crop": "none (whole span)",
+            "model": "CAM++ 512, fp32, one sample at a time",
+            "empty": "reference_start_patch, reference_end_patch and reference_xvector null "
+            "without a span",
+        },
         "inference": {
             "precision": "float32",
             "tf32": False,
@@ -139,7 +154,9 @@ IDENTITY_KEYS = (
 )
 
 
-def feature_row(row, definition, info, error, profile_id, posterior=None, xvector=None):
+def feature_row(
+    row, definition, info, error, profile_id, posterior=None, xvector=None, reference_xvector=None
+):
     identity = dict(
         task="audio-feature-v1",
         kind=KIND,
@@ -182,11 +199,27 @@ def feature_row(row, definition, info, error, profile_id, posterior=None, xvecto
         if posterior is None
         else array_sha256(posterior, ["time", "posterior_channel"]),
         xvector_sha256=None if xvector is None else array_sha256(xvector, ["embedding"]),
+        reference_start_patch=info.get("reference_start_patch"),
+        reference_end_patch=info.get("reference_end_patch"),
+        reference_fbank_frames=info.get("reference_fbank_frames"),
+        reference_xvector_sha256=None
+        if reference_xvector is None
+        else array_sha256(reference_xvector, ["embedding"]),
     )
     return result
 
 
-def validate_row(row, mean=None, logstd=None, xvector=None):
+def valid_vector(vector, sha256):
+    return (
+        vector is not None
+        and vector.shape == (XVECTOR_DIM,)
+        and np.isfinite(vector).all()
+        and np.linalg.norm(vector) != 0
+        and array_sha256(vector, ["embedding"]) == sha256
+    )
+
+
+def validate_row(row, mean=None, logstd=None, xvector=None, reference_xvector=None):
     identity = {k: row[k] for k in IDENTITY_KEYS}
     identity.update(task="audio-feature-v1", kind=KIND)
     key = [
@@ -217,18 +250,32 @@ def validate_row(row, mean=None, logstd=None, xvector=None):
             < row["processed_frames"] + model.ALIGN
             or not np.isfinite(posterior).all()
             or array_sha256(posterior, ["time", "posterior_channel"]) != row["latents_sha256"]
-            or xvector is None
-            or xvector.shape != (XVECTOR_DIM,)
-            or not np.isfinite(xvector).all()
-            or np.linalg.norm(xvector) == 0
-            or array_sha256(xvector, ["embedding"]) != row["xvector_sha256"]
+            or not valid_vector(xvector, row["xvector_sha256"])
         ):
+            raise ValueError(f"Invalid stored dots_vae result: {row['target_id']}")
+        span = model.reference_patches(row["target_id"], frames)
+        stored = (row["reference_start_patch"], row["reference_end_patch"])
+        if span is not None:
+            reference_ok = (
+                stored == span
+                and valid_vector(reference_xvector, row["reference_xvector_sha256"])
+                and bool(row["reference_fbank_frames"])
+            )
+        else:
+            reference_ok = stored == (None, None) and (
+                reference_xvector is None
+                and row["reference_xvector_sha256"] is None
+                and row["reference_fbank_frames"] is None
+            )
+        if not reference_ok:
             raise ValueError(f"Invalid stored dots_vae result: {row['target_id']}")
     elif (
         row["status"] != "failed"
         or not row["error_code"]
         or mean is not None
         or xvector is not None
+        or reference_xvector is not None
         or row["latents_sha256"] is not None
+        or row["reference_start_patch"] is not None
     ):
         raise ValueError("Invalid dots_vae failure record")

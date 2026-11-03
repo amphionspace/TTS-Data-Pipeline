@@ -205,7 +205,7 @@ def write_task(p, d, task, prepared, values, hardware):
         wall_seconds=time.perf_counter() - prepared["started"],
         payloads_validated=True,
         hardware=dict(hardware),
-        error_counts=dict(Counter(v[3] for v in values if v[3])),
+        error_counts=dict(Counter(v[4] for v in values if v[4])),
     )
     write_json(Path(d["state"]) / "checkpoints" / f"{task['id']}.json", checkpoint)
     return checkpoint
