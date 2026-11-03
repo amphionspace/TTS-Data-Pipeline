@@ -76,7 +76,7 @@
 | Features | merged · `merged-reference-features-v1-20261019T143526bjt-01` | 1 个数据集（emilia），33,992,131 行 | 2026-10-19 14:51 | selection-v4 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261019T150157bjt-01` | 2 个数据集（emilia、emilia_yodas），75,844,468 行；prefix reference | 2026-10-19 17:41 | selection-v2（prefix） |
 | Features | merged · `merged-prefix-reference-features-v1-20261019T174217bjt-01` | 2 个数据集（emilia、emilia_yodas），75,844,468 行；prefix reference | 2026-10-19 18:01 | selection-v2（prefix） |
-| Features | dots_vae · `emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v1-20261102T173741bjt-01` | 1 个数据集（emilia_nv），174,179 行全部 ok；all_samples；dots.tts-soar VAE posterior + CAM++ x-vector | 2026-11-02 20:54 | dots.tts 副语言微调 |
+| Features | dots_vae · `emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T095118bjt-01` | 1 个数据集（emilia_nv），174,179 行全部 ok；all_samples；dots.tts-soar VAE posterior + CAM++ x-vector + 参考段 x-vector（dots-reference-v1:codec-grid-v1-on-patches） | 2026-11-03 11:25 | dots.tts 副语言微调 |
 
 ## 基础数据集
 
@@ -636,6 +636,23 @@
   每行 25 Hz AudioVAE posterior（vae_mean/vae_logstd 各 128 维，共 53,552,708 帧）+ CAM++ 512 维 x-vector，带原文本（含副语言标签）
 - 说明：按 dots.tts 训练波形链（48k kaiser 重采样、边缘静音 250 ms、7680 对齐）调用上游 4cf7d6b 函数生成，fp32；x-vector 取前 10 s（训练为随机 10 s）；
   latent_stats 未施加，由训练端归一化；表 52 GB，target_id/feature_key BTREE 索引
+
+### 2026-11-03 · 发布 · dots_vae · emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T095118bjt-01
+
+- 时间：2026-11-03 11:25（北京时间）
+- manifest：`datasets/emilia_nv/v0.1/features/dots_vae/emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T095118bjt-01/manifest.json`
+- SHA256：`4d8f40ad400b90bee1c1740019c7a7fcc6451b5a6a4e986de20dbb1cacbcecad`
+- 内容：emilia_nv，174,179 行（all_samples，不绑定 selection），全部 ok；profile `dots-tts-soar-vae-xvec-48k-fp32-v2`；
+  v1 的全部列（逐行与 v1 的 latents_sha256、xvector_sha256 一致）加训练端参考段：reference_start_patch/reference_end_patch（半开，1 patch = 7680 采样 = 0.16 s）
+  与该段的 CAM++ x-vector（reference_xvector，不截 10 s，不含对齐补零）；规则 `dots-reference-v1:codec-grid-v1-on-patches`
+  （codec-grid-reference-v1 移到 patch 网格：长度在 [max(4, ceil(0.1 N)), N // 2] 均匀，再起点均匀，取自 sha256(target_id)）；67 行过短无参考段（三列为空）
+- 说明：替代 v1；参考段 x-vector 防止整句 x-vector 泄露目标句韵律与副语言事件。表 52 GB
+
+### 2026-11-03 · 删除 · dots_vae · emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v1-20261102T173741bjt-01
+
+- 原因：x-vector 取整句前 10 s，泄露目标内容；用户要求删除
+- 替代：`emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T095118bjt-01`
+- 前提：训练端已删除引用它的 build（data/builds/dots-emilia-nv-20261102）并确认改用 v2；统一根内无其他引用；v2 发布并逐行核对后删除
 
 ## 统一根维护
 
