@@ -229,3 +229,29 @@ def test_selection_branch_publication_carries_selected_text(tmp_path, monkeypatc
     assert manifest["inputs"][0]["branch"] == selection["outputs"][0]["branch"]
     texts = lance.dataset(run.Path(d["final"]) / "features.lance").to_table(columns=["text"])
     assert sorted(texts["text"].to_pylist()) == [f"好[Crying]的{i}" for i in range(3)]
+
+
+def test_text_binding_names_asr_and_revision_sources(tmp_path):
+    for kind, task, name in (
+        ("annotation", "transcription", "qwen3-asr"),
+        ("annotation_text_revision", "nv_tag_text", "nv-canonical-v1"),
+    ):
+        path = tmp_path / "annotations" / task / "r" / "manifest.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"profile": {"name": name}}))
+        selection = {
+            "text_sources": {
+                "0": {"kind": "base_normalization"},
+                "1": {
+                    "kind": kind,
+                    "task": task,
+                    "run_id": "r",
+                    "manifest_sha256": run.file_hash(path),
+                    "datasets": ["alpha"],
+                },
+            }
+        }
+        binding = run.text_binding(tmp_path, selection, "alpha")
+        assert binding["text_kind"] == ("asr_transcription" if task == "transcription" else name)
+        assert binding["profile_name"] == name
+        assert run.text_binding(tmp_path, selection, "beta")["source"] == "base_normalization"

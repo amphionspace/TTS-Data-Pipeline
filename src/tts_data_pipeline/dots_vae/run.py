@@ -159,23 +159,28 @@ def text_binding(root, selection, dataset):
     if not sources:
         return dict(source="base_normalization", text_kind=None)
     ((code, s),) = sources
-    if s["kind"] != "annotation_text_revision":
-        raise ValueError(f"dots_vae only binds base or text-revision text: {dataset}")
+    kinds = {"annotation_text_revision": None, "annotation": "asr_transcription"}
+    if s["kind"] not in kinds:
+        raise ValueError(f"dots_vae binds base, text-revision or ASR text only: {dataset}")
     path = Path("annotations") / s["task"] / s["run_id"] / "manifest.json"
     if file_hash(Path(root) / path) != s["manifest_sha256"]:
-        raise ValueError("Text revision manifest changed")
-    revision = json.loads((Path(root) / path).read_text())
-    return dict(
-        source="annotation_text_revision",
+        raise ValueError("Text source manifest changed")
+    annotation = json.loads((Path(root) / path).read_text())
+    binding = dict(
+        source=s["kind"],
         text_source=int(code),
         task=s["task"],
         run_id=s["run_id"],
         manifest_path=str(path),
         manifest_sha256=s["manifest_sha256"],
-        mapping_version=revision["profile"]["name"],
-        text_kind=revision["profile"]["name"],
+        profile_name=annotation["profile"]["name"],
         rule="selected_text when not null, else base text stripped (selection contract)",
     )
+    if s["kind"] == "annotation":
+        # Plain ASR text (no paralinguistic tags); the profile names the ASR model.
+        return binding | dict(text_kind="asr_transcription")
+    name = annotation["profile"]["name"]
+    return binding | dict(mapping_version=name, text_kind=name)
 
 
 def prepare_selection(
