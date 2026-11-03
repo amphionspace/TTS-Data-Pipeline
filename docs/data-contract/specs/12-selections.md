@@ -82,7 +82,7 @@ selection仍从base建立，绝不以annotation分支为父。采样权重由训
 | 码 | 名称 | 含义 |
 | --- | --- | --- |
 | 105 | source_timeline_unverified | 固定区间核查证据指出来源时长与实际音频不符，缺口位置未知 |
-| 1003 | text_source_unavailable | 规则要求的转写 annotation 非 ok；不回退基础文本 |
+| 1003 | text_source_unavailable | 规则要求的转写或文本修订 annotation 非 ok；不回退基础文本 |
 | 1004 | text_repetition | 单个 n-gram 次数与全文覆盖率同时达到门槛 |
 | 1005 | text_too_dense | 实际秒数 / 有效字符数低于语言下限 |
 | 1006 | text_too_sparse | 实际秒数 / 有效字符数高于语言上限 |
@@ -116,6 +116,15 @@ selection仍从base建立，绝不以annotation分支为父。采样权重由训
 | --- | --- | --- |
 | 1009 | text_disagreement | 入选的 ASR 文本与 base 的固定文本变体不一致（超过规则的编辑距离比例），或该行没有可比的参考文本；flag bit 11 |
 
+字典 version 7（规则含 `sample_rate_policy` 时使用）在 version 6 之上新增：
+
+| 码 | 名称 | 含义 |
+| --- | --- | --- |
+| 3003 | below_sample_rate_policy | 原生采样率低于规则按数据集给出的下限；不自动称为坏音频；flag bit 16 |
+
+文本来源可为 text revision annotation（`text_sources` 条目 `kind=text_revision`）：ok 且 action=replace 用 result.text，
+action=keep 用基础文本，非 ok 记 1003；修订不带语言证据，不执行 2003。
+
 执行器另支持两项尚无已发布规则使用的选项：`speaker_metadata` 从 base `metadata_json` 的键路径取说话人数（按 6002 判定，
 每个数据集在 speaker_inputs 与 speaker_metadata 中恰好出现一次）；文本来源的 `verification` 要求 ASR 文本与 base `text_variants`
 中指定 kind 的文本一致（比较前两边做 NFKC、casefold、去组合附加符、取 `[a-z0-9']+` 词并按 fold_words 映射、去撇号无分隔连接，
@@ -127,7 +136,7 @@ selection仍从base建立，绝不以annotation分支为父。采样权重由训
 
 flags 独立分配 bit：0 音频问题，1 缺文本，2 配对问题，3 语言规则，4 时长规则，
 5 重复成员，6 未解决重复冲突，7 参考规则，8 留出评估，9 已确认排除；
-version 2 起 10 来源时间轴，11 文本策略，12 语言证据；version 3 起 13 质量策略；version 4 起 14 父 selection 未选（凡父未选的行都置位，不论主原因）；version 5 起 15 说话人策略。16–31 保留。
+version 2 起 10 来源时间轴，11 文本策略，12 语言证据；version 3 起 13 质量策略；version 4 起 14 父 selection 未选（凡父未选的行都置位，不论主原因）；version 5 起 15 说话人策略；version 7 起 16 采样率策略。17–31 保留。
 不能使用 `1 << reason_code`；一个入选代表可以 reason=0 且 bit5=1。
 flags=0 只说明此次已执行检查未命中，不代表检查过所有质量维度；coverage 必须区分未检查和通过。
 遇到未知字典版本、未知码或未知 bit 的消费者须拒绝解释，而非默认入选。
@@ -424,6 +433,29 @@ emilia 与 emilia2 没有相同音频，emilia 也没有留出组，故与 v2 �
 **后续加入 emilia_yodas。** 同一规则版本的下一次发布加入 emilia_yodas：文本改用其转写 annotation
 `tts-ann-transcription-20261010T161238bjt-01`，说话人用其 speaker_structure 发布，并以新的 selection_id 替代本次发布。
 发布前须先规定 emilia 与 emilia_yodas 同音频组（约 541 万组）两份 ASR 文本不同时的裁决，并复查 yodas 与他处测试集的副本。
+
+### selection-nv-v1
+
+副语言（NV）TTS 子集：emilia_nv 与 smiip_nv、nonverbalspeech38k、nonverbaltts、disfluencyspeech。原因与 flag 使用字典 version 7。
+
+**文本。** 五个数据集都以 text revision annotation `nv_tag_text`（映射 nv-canonical-v1，见 [NV 标签对齐](../../nv-tags.md)）为文本来源 1，
+text_sources 条目 `kind=text_revision`：ok 且 action=replace 选用 result.text，action=keep 选用基础文本；非 ok（smiip_nv 仅区间式标注、
+上游空文本）记 1003，不回退基础文本。修订没有语言证据，不执行 2003；annotation 行须核对 audio_sha256 与来源语言。
+manifest 的 text_sources 记 `kind=annotation_text_revision`。selected_text 覆盖规则不变：replace 写覆盖值，keep 回退基础文本。
+
+**不设 text_filter。** `[Laughter]` 等标签会命中 1007 标记字符、按字符计秒等规则，本版本不做文本质量过滤；标签外的文本内容按上游原样。
+
+**采样率（3003）。** `sample_rate_policy` 按数据集给出原生采样率下限：nonverbaltts 要求 ≥ 44,100 Hz，排除 VoxCeleb 来源的 16 kHz 片段，
+只保留 Expresso 48 kHz（目标是 48 kHz 的 dots.tts VAE）。低于下限记 3003 below_sample_rate_policy，flag bit 16 sample_rate_policy。
+字典 version 7 在 version 6 的码表上增加 3003 与 bit 16，主原因优先级在 3002 之后插入 3003：
+
+103, 102, 104, 105, 1002, 101, 1001, 1003, 2001, 2002, 2003, 2004, 1007, 1008, 1004, 1005, 1006, 3001, 3002, 3003, 5001, 4002, 7001, 4001。
+
+**其余规则。** 语言 zh/en；时长 1–120 秒；留出 original_split ∈ {test, spk_test}（nonverbaltts/disfluencyspeech 的 test、smiip_nv 的 spk_test），
+dev/validation/other 留在训练侧；去重按完整 audio_sha256、source_priority 依次为 emilia_nv、smiip_nv、nonverbalspeech38k、nonverbaltts、
+disfluencyspeech。父 selection 为 selection-v4 发布，只继承其已核实排除，均不落在这五个数据集。
+nonverbalspeech38k 上游有 2,100 组相同音频（同一片段被收录 2–6 次）：文本相同时保留代表（4001），标签不同（如同一片段一次标 throatclearing、
+一次标 coughing）时整组按 4002 排除。
 
 ## 写入、发布、恢复与清理
 

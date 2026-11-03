@@ -56,9 +56,11 @@
 | Annotation | `tts-ann-effective_bandwidth-20261020T155412bjt-01` | effective_bandwidth（welch-band-edge-v1）；emilia_yodas；43,964,905 行 | 2026-10-21 10:50 | 带宽测量，不作质量判定 |
 | Annotation | `tts-ann-speaker_structure-20261021T124643bjt-01` | speaker_structure（moss-transcribe-diarize-v1）；genshin_voice、starrail_voice、wutheringwaves、zenless_voice；1,543,186 行（ok 1,537,846，failed 5,340） | 2026-10-22 09:23 | |
 | Annotation | `tts-ann-speaker_structure-20261019T093525bjt-02` | speaker_structure（moss-transcribe-diarize-v1）；emilia_yodas；43,964,905 行（ok 43,930,224，failed 34,681） | 2026-10-23 12:11 | |
+| Annotation | `tts-ann-nv_tag_text-20261103T171702bjt-01` | nv_tag_text（nv-canonical-v1，text revision）；emilia_nv、smiip_nv、nonverbalspeech38k、nonverbaltts、disfluencyspeech；241,530 行（ok 241,235，skipped 295） | 2026-11-03 17:17 | selection-nv-v1 文本来源 |
 | Selection | `tts-selection-supervised-tts-20260929T151539bjt-01` | selection-v1；16 个数据集；入选 128,220,178 条，357,506.8 小时 | 2026-09-29 15:39 | 现有训练 build 使用 |
 | Selection | `tts-selection-supervised-tts-20261012T123927bjt-01` | selection-v2；18 个数据集；入选 203,998,904 条，477,595.7 小时；上游测试集留出 | 2026-10-12 13:31 | 当前一阶段预训练 |
 | Selection | `tts-selection-supervised-tts-20261019T103416bjt-01` | selection-v4；emilia；入选 33,992,131 条，84,158.5 小时；selection-v2 规则 + MOSS 单说话人 | 2026-10-19 11:02 | 训练（emilia 部分） |
+| Selection | `tts-selection-supervised-tts-20261103T173114bjt-01` | selection-nv-v1；5 个数据集；入选 230,083 条，730.8 小时；nv-canonical-v1 文本，test/spk_test 留出 | 2026-11-03 17:31 | dots.tts 副语言训练 |
 | Features | text · `text-selection-text-v1-20260930T153654bjt-01` | 16 个数据集，128,220,178 行 | 2026-09-30 17:01 | selection-v1 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-packed-v1-20260930T130829bjt-01` | 16 个数据集，128,220,178 行 | 2026-10-01 05:34 | selection-v1 |
 | Features | codec · `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20260930T181155bjt-01` | 12 个数据集，49,918,118 行 | 2026-10-01 13:33 | selection-v1 |
@@ -81,6 +83,7 @@
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-prefix-reference-v1-20261019T150157bjt-01` | 2 个数据集（emilia、emilia_yodas），75,844,468 行；prefix reference | 2026-10-19 17:41 | selection-v2（prefix） |
 | Features | merged · `merged-prefix-reference-features-v1-20261019T174217bjt-01` | 2 个数据集（emilia、emilia_yodas），75,844,468 行；prefix reference | 2026-10-19 18:01 | selection-v2（prefix） |
 | Features | dots_vae · `emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T095118bjt-01` | 1 个数据集（emilia_nv），174,179 行全部 ok；all_samples；dots.tts-soar VAE posterior + CAM++ x-vector + 参考段 x-vector（dots-reference-v1:codec-grid-v1-on-patches） | 2026-11-03 11:25 | dots.tts 副语言微调 |
+| Features | dots_vae · `<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T173207bjt-01` | 5 个数据集，230,083 行全部 ok；selection_branch（selection-nv-v1），text_kind=nv-canonical-v1 | 2026-11-03 18:34 | dots.tts 副语言训练（nv26 分词器） |
 
 ## 基础数据集
 
@@ -397,6 +400,15 @@
 - 核验：checkpoint 校验、完整字段回读、样本 ID 顺序与固定 base 一致、固定 Lance 版本行数核对，missing 为 0。
 - 说明：用户授权发布已完成的第 17 轮结果；与此前 Emilia MOSS 发布一致，保留失败样本的状态和错误码，不补跑失败样本。
 
+### 2026-11-03 · 发布 · tts-ann-nv_tag_text-20261103T171702bjt-01
+
+- 时间：2026-11-03 17:17（北京时间）
+- manifest：`annotations/nv_tag_text/tts-ann-nv_tag_text-20261103T171702bjt-01/manifest.json`
+- SHA256：`a5c100f9dd6876cbd95241217968d6b73b7469c95c13c5415dd12f7cc60f22e9`
+- 内容：text revision `{action, text}`，映射 nv-canonical-v1（18 个 NVSpeech 标签 + 8 个扩展标签）；emilia_nv 174,179 行全 keep；
+  smiip_nv 17,377（ok 17,087，skipped 290：仅区间式标注 287、无文本 3）；nonverbalspeech38k 38,718 全 ok；nonverbaltts 6,256（ok 6,251，无文本 5）；
+  disfluencyspeech 5,000 全 ok。每行记 source_tags、target_tags、extended、fixes
+- 说明：映射表、计数、上游笔误修复与推断项（NonverbalTTS emoji 含义按频次顺序推断）见 [NV 标签对齐](../nv-tags.md)
 
 ## Selection
 
@@ -492,6 +504,18 @@
   这 293 条没有 selection-v2 的特征，训练构建按用户决定跳过，清单见 pipeline 仓库工作区
   `reports/selection-v4/selected-without-v2-features.tsv`（与 reports/interval-audit 一样不入 git）（SHA256 `d113358f3de1d3dda29dc3bd63144cbd24f1ec740dfcee5c7b9d395e6678c8e4`）；
   其余行可直接按行筛选 selection-v2 的 emilia 特征。emilia_yodas 的 diarization 完成后以新的 selection_id 发布含 emilia_yodas 的 v4
+
+### 2026-11-03 · 发布 · tts-selection-supervised-tts-20261103T173114bjt-01
+
+- 时间：2026-11-03 17:31（北京时间）
+- manifest：`selections/tts-selection-supervised-tts-20261103T173114bjt-01/manifest.json`
+- SHA256：`cef4d2efc79ec5fb410a269788d4bee9d7790237fe815b337d91506eb3d1edbe`
+- 内容：selection-nv-v1，字典 version 7；入选 230,083 条 / 730.8 小时：emilia_nv 173,487、nonverbalspeech38k 35,589、smiip_nv 14,513、
+  disfluencyspeech 4,750、nonverbaltts 1,744（仅 Expresso 48 kHz）。文本来自 `tts-ann-nv_tag_text-20261103T171702bjt-01`；
+  主要排除：nonverbaltts 16 kHz 4,452（3003）、smiip_nv spk_test 2,574 与 disfluencyspeech test 250（7001）、
+  nonverbalspeech38k 上游重复 3,129（4001/4002）、smiip_nv 无可用标注 290（1003）
+- 说明：规则见 [12 · selection-nv-v1](specs/12-selections.md#selection-nv-v1)。同日 17:21 曾发布 `tts-selection-supervised-tts-20261103T172155bjt-01`，
+  其实现摘要对应未提交的中间代码，未登记、未被引用，已删除分支、tag 与目录后按提交代码重新发布（结果相同）
 
 ## Features
 
@@ -693,6 +717,21 @@
 - 原因：x-vector 取整句前 10 s，泄露目标内容；用户要求删除
 - 替代：`emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T095118bjt-01`
 - 前提：训练端已删除引用它的 build（data/builds/dots-emilia-nv-20261102）并确认改用 v2；统一根内无其他引用；v2 发布并逐行核对后删除
+
+### 2026-11-03 · 发布 · dots_vae · <dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T173207bjt-01
+
+- 时间：2026-11-03 18:34（北京时间）
+- manifest：`datasets/<dataset_id>/v0.1/features/dots_vae/<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T173207bjt-01/manifest.json`
+- SHA256：disfluencyspeech `08c55817697ab8f787923484ce57b3eef6eb8a163d5cb65f08ed1f1196131648`；
+  emilia_nv `8a046c970de675e8595c0f2ea6101a27400d6bc0d6f49c36b738b8359c664527`；
+  nonverbalspeech38k `2c322f351d1cc727d18c4ebf1575206bc9e090fa4a89da82e7184d0031fbf02e`；
+  nonverbaltts `7bb6bf9d69a1bfe2b23910034e3295646d6ac5e922c6a55584b8427657a2d13e`；
+  smiip_nv `afdc8b3cb2b903a68eed4ebe49edd2b7f2d3274886572c05ccbc66708e6a08e0`
+- 内容：5 个数据集 230,083 行全部 ok；selection_branch 绑定 `tts-selection-supervised-tts-20261103T173114bjt-01`；
+  text 为选用文本（逐行与 selection 一致），text_kind=`nv-canonical-v1`，manifest.text 记 annotation run 与映射版本；
+  核对全部文本只含 26 个标签、无残留标记；profile 同 `dots-tts-soar-vae-xvec-48k-fp32-v2`
+- 说明：emilia_nv 的 x-vector 与 `emilia_nv-…-v2-20261103T095118bjt-01` 逐行一致；13,506 行 latent 有 fp32 舍入级差异（最大 1.3e-5），
+  因 selection 去掉部分行后 GPU batch 组成不同，与批量/单条差异同量级
 
 ## 统一根维护
 
