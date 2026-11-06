@@ -78,11 +78,13 @@ def vector_rows(column):
     return [None if null else vector for null, vector in zip(nulls, flat, strict=True)]
 
 
-def validate_table(table):
+def validate_table(table, rule):
     if table.schema != dots_vae_schema(LATENT_DIM, XVECTOR_DIM):
         raise ValueError("Unexpected dots_vae schema")
     table = table.combine_chunks()
     mean, logstd = table["vae_mean"].chunk(0), table["vae_logstd"].chunk(0)
     xvectors, references = vector_rows(table["xvector"]), vector_rows(table["reference_xvector"])
     for i, row in enumerate(table.drop(list(ARRAYS)).to_pylist()):
-        validate_row(row, row_arrays(mean, i), row_arrays(logstd, i), xvectors[i], references[i])
+        validate_row(
+            row, row_arrays(mean, i), row_arrays(logstd, i), xvectors[i], references[i], rule
+        )

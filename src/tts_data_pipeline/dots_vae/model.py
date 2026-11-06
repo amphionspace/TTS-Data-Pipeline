@@ -54,7 +54,12 @@ HOP = 1920
 ALIGN = 7680
 LOOKAHEAD_TAIL = 2 * HOP
 XVEC_SECONDS = 10.0
-# Reference span, agreed with the trainer: 1 patch = 4 latent frames = 7680 samples = 0.16 s.
+# Reference spans, agreed with the trainer: 1 patch = 4 latent frames = 7680 samples = 0.16 s.
+# Each rule maps to its minimum length in patches; v2 lifts it to 3 s, capped at half the utterance.
+REFERENCE_RULES = {
+    "dots-reference-v1:codec-grid-v1-on-patches": 4,
+    "dots-reference-v2:min-3s-on-patches": 19,
+}
 REFERENCE_RULE = "dots-reference-v1:codec-grid-v1-on-patches"
 # One encoder call holds at most this many padded 48 kHz samples (about 4 minutes).
 BATCH_SAMPLES = 48000 * 240
@@ -100,18 +105,22 @@ def edge_deltas(waveform, up):
     return target - first, target - (waveform.size(-1) - last - 1)
 
 
-def reference_patches(target_id, num_latent_frames):
-    """Half-open patch span [S, S+L) or None: the codec-grid-reference-v1 policy on patches.
+def reference_patches(target_id, num_latent_frames, rule=REFERENCE_RULE):
+    """Half-open patch span [S, S+L) or None under a reference rule.
 
-    L is uniform over legal lengths (at least 4 patches = 0.64 s and 10% of the patches, at
-    most half), then S uniform over legal starts, both from sha256 of the target id.
+    v1 is the codec-grid-reference-v1 policy on patches: L is uniform over legal lengths (at least
+    4 patches = 0.64 s and 10% of the patches, at most half), then S uniform over legal starts,
+    both from sha256 of the rule's version and the target id. v2 also requires min(19 patches =
+    3.04 s, half) so the x-vector sees enough speech; a row has a span exactly when v1 gives one.
     """
     patches = num_latent_frames // 4
     lo = max(4, math.ceil(0.1 * patches))
     hi = patches // 2
     if lo > hi:
         return None
-    h = hashlib.sha256(f"dots-reference-v1:{target_id}".encode()).digest()
+    lo = max(lo, min(REFERENCE_RULES[rule], hi))
+    version = rule.partition(":")[0]
+    h = hashlib.sha256(f"{version}:{target_id}".encode()).digest()
     length = lo + int.from_bytes(h[0:8], "big") % (hi - lo + 1)
     start = int.from_bytes(h[8:16], "big") % (patches - length + 1)
     return start, start + length
@@ -127,7 +136,7 @@ def load_strict(module, path):
 
 
 class Encoder:
-    def __init__(self, model_root, device):
+    def __init__(self, model_root, device, reference_rule=REFERENCE_RULE):
         import json
 
         torch.backends.cuda.matmul.allow_tf32 = False
@@ -138,6 +147,7 @@ class Encoder:
         root = Path(model_root)
         config = self.up["ModelConfig"](**json.loads((root / "config.json").read_text()))
         self.device = torch.device(device)
+        self.reference_rule = reference_rule
         vae = self.up["AudioVAE"](config.vocoder).eval()
         # Released weights are stored with weight norm folded.
         vae.remove_weight_norm()
@@ -232,7 +242,10 @@ class Encoder:
         good = [i for i, (_, _, e) in enumerate(prepared) if e is None]
         results = [(info, None, None, None, error) for _, info, error in prepared]
         spans = {
-            i: reference_patches(rows[i]["sample_id"], prepared[i][0].size(-1) // HOP) for i in good
+            i: reference_patches(
+                rows[i]["sample_id"], prepared[i][0].size(-1) // HOP, self.reference_rule
+            )
+            for i in good
         }
         # The reference audio is the edge-normalized waveform; the alignment pad is excluded.
         references = {

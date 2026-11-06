@@ -38,7 +38,8 @@ from ..manifests import read_base_manifest
 from ..schema import digest
 from ..timestamps import BEIJING
 from ..writer import remove_uncommitted_data_files
-from .profile import KIND, PROFILE_NAME, profile
+from .model import REFERENCE_RULE
+from .profile import KIND, PROFILE_NAMES, profile
 from .storage import make_table, validate_table
 
 INPUT_COLUMNS = [
@@ -92,13 +93,24 @@ def fragment_tasks(dataset, ds, task_size, scan_filter=None):
     return tasks, np.concatenate(ids) if ids else np.empty(0, dtype="S64")
 
 
-def prepare(root, dataset, work, model_root, *, release="v0.1", task_size=1024, output_root=None):
+def prepare(
+    root,
+    dataset,
+    work,
+    model_root,
+    *,
+    release="v0.1",
+    task_size=1024,
+    output_root=None,
+    reference_rule=REFERENCE_RULE,
+):
     work = Path(work).resolve()
     release_dir = Path(root) / "datasets" / dataset / release
     base = read_base_manifest(release_dir)
     if base["status"] != "complete":
         raise ValueError("Base release is not complete")
-    definition = profile(model_root)
+    definition = profile(model_root, reference_rule)
+    profile_name = PROFILE_NAMES[reference_rule]
     source = dict(
         dataset_id=dataset,
         release_id=release,
@@ -116,7 +128,7 @@ def prepare(root, dataset, work, model_root, *, release="v0.1", task_size=1024, 
     if len(ids) != base["rows"]:
         raise ValueError("Base fragments do not cover the manifest rows")
     created = datetime.now(BEIJING).isoformat()
-    run_id = make_feature_run_id(dataset, KIND, PROFILE_NAME, created)
+    run_id = make_feature_run_id(dataset, KIND, profile_name, created)
     output_root = Path(output_root or root).resolve()
     final = output_root / "datasets" / dataset / release / "features" / KIND / run_id
     p = dict(
@@ -127,7 +139,7 @@ def prepare(root, dataset, work, model_root, *, release="v0.1", task_size=1024, 
         created_at=created,
         profile=definition,
         profile_id=digest(definition),
-        profile_name=PROFILE_NAME,
+        profile_name=profile_name,
         execution_code_sha256=file_hash(__file__),
         datasets=[
             dict(
@@ -184,7 +196,15 @@ def text_binding(root, selection, dataset):
 
 
 def prepare_selection(
-    root, selection_path, work, model_root, *, datasets=None, task_size=1024, output_root=None
+    root,
+    selection_path,
+    work,
+    model_root,
+    *,
+    datasets=None,
+    task_size=1024,
+    output_root=None,
+    reference_rule=REFERENCE_RULE,
 ):
     """One dots_vae run per selection output; targets are its selection_reason = 0 rows."""
     root, work = Path(root).resolve(), Path(work).resolve()
@@ -195,7 +215,8 @@ def prepare_selection(
     outputs = [o for o in selection["outputs"] if datasets is None or o["dataset_id"] in datasets]
     if datasets is not None and {o["dataset_id"] for o in outputs} != set(datasets):
         raise ValueError("Requested dataset is absent from the selection")
-    definition = profile(model_root)
+    definition = profile(model_root, reference_rule)
+    profile_name = PROFILE_NAMES[reference_rule]
     created = datetime.now(BEIJING).isoformat()
     output_root = Path(output_root or root).resolve()
     plans = []
@@ -219,7 +240,7 @@ def prepare_selection(
         tasks, ids = fragment_tasks(dataset, open_base(d), task_size, SELECTED)
         if len(ids) != o["selected_rows"]:
             raise ValueError(f"Selected rows differ from the selection manifest: {dataset}")
-        run_id = make_feature_run_id(dataset, KIND, PROFILE_NAME, created)
+        run_id = make_feature_run_id(dataset, KIND, profile_name, created)
         final = output_root / "datasets" / dataset / o["release_id"] / "features" / KIND / run_id
         plans.append(
             d
@@ -247,7 +268,7 @@ def prepare_selection(
         created_at=created,
         profile=definition,
         profile_id=digest(definition),
-        profile_name=PROFILE_NAME,
+        profile_name=profile_name,
         execution_code_sha256=file_hash(__file__),
         datasets=sorted(plans, key=lambda d: d["source"]["dataset_id"]),
     )
@@ -262,7 +283,7 @@ def prepare_selection(
 def validate_plan(p):
     if (
         file_hash(__file__) != p["execution_code_sha256"]
-        or profile(p["model_root"]) != p["profile"]
+        or profile(p["model_root"], p["profile"]["reference_rule"]) != p["profile"]
     ):
         raise ValueError("Pinned implementation, model or numerical profile changed")
     for d in p["datasets"]:
@@ -317,7 +338,7 @@ def write_task(p, d, task, prepared, values, hardware):
     table = make_table(rows, values, p["profile"], p["profile_id"])
     if table["target_id"].to_pylist() != ids:
         raise ValueError("Task table order differs from the pinned targets")
-    validate_table(table)
+    validate_table(table, p["profile"]["reference_rule"])
     destination = Path(d["stage"]) / "features.lance"
     fragments = write_fragments(
         table,
@@ -372,7 +393,7 @@ def worker(gpu, p, jobs, results, cpu_threads):
         torch.set_num_threads(2)
         pa.set_cpu_count(2)
         pa.set_io_thread_count(2)
-        encoder = Encoder(p["model_root"], f"cuda:{gpu}")
+        encoder = Encoder(p["model_root"], f"cuda:{gpu}", p["profile"]["reference_rule"])
         sources = {d["source"]["dataset_id"]: d for d in p["datasets"]}
         with (
             ThreadPoolExecutor(max_workers=cpu_threads) as pool,

@@ -62,7 +62,7 @@ def test_table_roundtrip_keeps_arrays_text_and_failures():
         value(200, 2),
     ]
     table = make_table(rows, values, DEFINITION, "p" * 64)
-    validate_table(table)
+    validate_table(table, model.REFERENCE_RULE)
     first = table.slice(0, 1).to_pylist()[0]
     assert np.array_equal(np.asarray(first["vae_mean"], np.float32), values[0][1][:, :128])
     assert np.array_equal(np.asarray(first["vae_logstd"], np.float32), values[0][1][:, 128:])
@@ -102,6 +102,27 @@ def test_reference_rule():
     assert seen == {True, False}
 
 
+def test_reference_rule_v2_lifts_the_minimum_to_3s():
+    v2 = "dots-reference-v2:min-3s-on-patches"
+    for i in range(3000):
+        target, frames = f"{i:064x}", 4 * (i % 300)
+        n = frames // 4
+        v1, span = (
+            model.reference_patches(target, frames),
+            model.reference_patches(target, frames, v2),
+        )
+        assert (span is None) == (v1 is None)
+        if span is not None:
+            assert 0 <= span[0] < span[1] <= n
+            assert min(19, n // 2) <= span[1] - span[0] <= n // 2
+    # Under 6 s the span is half the utterance; v1 spans are unchanged.
+    start, end = model.reference_patches("a" * 64, 30 * 4, v2)
+    assert end - start == 15
+    assert model.reference_patches("a" * 64, 8 * 4) == model.reference_patches(
+        "a" * 64, 8 * 4, "dots-reference-v1:codec-grid-v1-on-patches"
+    )
+
+
 @pytest.mark.parametrize("damage", ["frames", "sha", "offsets", "span", "reference_sha"])
 def test_validation_rejects_inconsistent_rows(damage):
     rows = [base_row(0)]
@@ -132,7 +153,7 @@ def test_validation_rejects_inconsistent_rows(damage):
             pa.array([5], pa.int64()),
         )
     with pytest.raises(ValueError):
-        validate_table(table)
+        validate_table(table, model.REFERENCE_RULE)
 
 
 def test_feature_key_ignores_text_but_binds_audio_and_profile():
@@ -154,7 +175,11 @@ def test_all_samples_publication(tmp_path, monkeypatch):
     (release / "manifest.json").write_text(
         json.dumps(dict(status="complete", rows=5, table_path="samples.lance", lance_version=1))
     )
-    monkeypatch.setattr(run, "profile", lambda model_root: dict(DEFINITION, model=str(model_root)))
+    monkeypatch.setattr(
+        run,
+        "profile",
+        lambda model_root, rule: dict(DEFINITION, model=str(model_root), reference_rule=rule),
+    )
     monkeypatch.setattr(
         run, "read_base_manifest", lambda r: json.loads((r / "manifest.json").read_text())
     )
@@ -172,7 +197,7 @@ def test_all_samples_publication(tmp_path, monkeypatch):
     published = lance.dataset(run.Path(d["final"]) / "features.lance")
     ids = np.asarray(published.to_table(columns=["target_id"])["target_id"].to_pylist(), "S64")
     assert sorted_set_hash(ids) == d["target_set_sha256"]
-    validate_table(published.to_table())
+    validate_table(published.to_table(), model.REFERENCE_RULE)
     assert not stage.exists()
 
 
@@ -211,7 +236,9 @@ def test_selection_branch_publication_carries_selected_text(tmp_path, monkeypatc
     resolve_duplicates(tmp_path / "selection")
     selection = publish(tmp_path / "selection", workers=1)
     manifest_path = root / "selections" / selection["selection_id"] / "manifest.json"
-    monkeypatch.setattr(run, "profile", lambda model_root: dict(DEFINITION))
+    monkeypatch.setattr(
+        run, "profile", lambda model_root, rule: dict(DEFINITION, reference_rule=rule)
+    )
     p = run.prepare_selection(root, manifest_path, tmp_path / "work", tmp_path, task_size=2)
     (d,) = p["datasets"]
     assert d["target_count"] == 3 and d["selection"]["text"]["text_kind"] == "nv-canonical-v1"

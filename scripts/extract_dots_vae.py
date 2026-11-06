@@ -19,6 +19,7 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import argparse
 from pathlib import Path
 
+from tts_data_pipeline.dots_vae.model import REFERENCE_RULE, REFERENCE_RULES
 from tts_data_pipeline.dots_vae.run import prepare, prepare_selection, run
 
 ROOT = Path("/workspace/data/DATA-TTS-UNIFIED")
@@ -34,6 +35,7 @@ def main():
     plan.add_argument("--root", type=Path, default=ROOT)
     plan.add_argument("--output-root", type=Path, help="publish elsewhere, e.g. a smoke test")
     plan.add_argument("--task-size", type=int, default=1024)
+    plan.add_argument("--reference-rule", choices=REFERENCE_RULES, default=REFERENCE_RULE)
     chosen = sub.add_parser("plan-selection")
     chosen.add_argument("--selection", type=Path, required=True, help="selection manifest.json")
     chosen.add_argument("--datasets", nargs="+", help="subset of the selection's datasets")
@@ -42,6 +44,7 @@ def main():
     chosen.add_argument("--root", type=Path, default=ROOT)
     chosen.add_argument("--output-root", type=Path, help="publish elsewhere, e.g. a smoke test")
     chosen.add_argument("--task-size", type=int, default=1024)
+    chosen.add_argument("--reference-rule", choices=REFERENCE_RULES, default=REFERENCE_RULE)
     go = sub.add_parser("run")
     go.add_argument("--work", type=Path, required=True)
     go.add_argument("--gpus", type=int, nargs="+", required=True)
@@ -57,6 +60,7 @@ def main():
             args.model,
             task_size=args.task_size,
             output_root=args.output_root,
+            reference_rule=args.reference_rule,
         )
     elif args.command == "plan-selection":
         prepare_selection(
@@ -67,6 +71,7 @@ def main():
             datasets=args.datasets,
             task_size=args.task_size,
             output_root=args.output_root,
+            reference_rule=args.reference_rule,
         )
     else:
         run(

@@ -16,12 +16,27 @@ from ..schema import digest
 from . import model
 
 PROFILE_NAME = "dots-tts-soar-vae-xvec-48k-fp32-v2"
+# Profile name of each reference rule; the default rule keeps the original name.
+PROFILE_NAMES = {
+    "dots-reference-v1:codec-grid-v1-on-patches": PROFILE_NAME,
+    "dots-reference-v2:min-3s-on-patches": "dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s",
+}
+REFERENCE_SPANS = {
+    "dots-reference-v1:codec-grid-v1-on-patches": "N = num_latent_frames // 4 patches; "
+    "lo = max(4, ceil(0.1 N)); hi = N // 2; lo > hi -> none; "
+    "h = sha256('dots-reference-v1:' + target_id); L = lo + u64be(h[0:8]) % (hi - lo + 1); "
+    "S = u64be(h[8:16]) % (N - L + 1); patches [S, S + L)",
+    "dots-reference-v2:min-3s-on-patches": "N = num_latent_frames // 4 patches; "
+    "lo = max(4, ceil(0.1 N)); hi = N // 2; lo > hi -> none; lo = max(lo, min(19, hi)); "
+    "h = sha256('dots-reference-v2:' + target_id); L = lo + u64be(h[0:8]) % (hi - lo + 1); "
+    "S = u64be(h[8:16]) % (N - L + 1); patches [S, S + L)",
+}
 KIND = "dots_vae"
 LATENT_DIM = 128
 XVECTOR_DIM = 512
 
 
-def profile(model_root):
+def profile(model_root, reference_rule=model.REFERENCE_RULE):
     root = Path(model_root)
     source = model.DOTS_SOURCE
     revision = subprocess.check_output(
@@ -114,12 +129,9 @@ def profile(model_root):
             "(dots training crops a random 10 s window)",
             "model": "CAM++ 512, fp32",
         },
-        "reference_rule": model.REFERENCE_RULE,
+        "reference_rule": reference_rule,
         "reference_xvector": {
-            "span": "N = num_latent_frames // 4 patches; lo = max(4, ceil(0.1 N)); hi = N // 2; "
-            "lo > hi -> none; h = sha256('dots-reference-v1:' + target_id); "
-            "L = lo + u64be(h[0:8]) % (hi - lo + 1); S = u64be(h[8:16]) % (N - L + 1); "
-            "patches [S, S + L)",
+            "span": REFERENCE_SPANS[reference_rule],
             "patch_samples": model.ALIGN,
             "audio": "edge-normalized 48 kHz waveform [S * 7680, min((S + L) * 7680, "
             "processed_frames)); the alignment pad is excluded",
@@ -219,7 +231,9 @@ def valid_vector(vector, sha256):
     )
 
 
-def validate_row(row, mean=None, logstd=None, xvector=None, reference_xvector=None):
+def validate_row(
+    row, mean=None, logstd=None, xvector=None, reference_xvector=None, rule=model.REFERENCE_RULE
+):
     identity = {k: row[k] for k in IDENTITY_KEYS}
     identity.update(task="audio-feature-v1", kind=KIND)
     key = [
@@ -253,7 +267,7 @@ def validate_row(row, mean=None, logstd=None, xvector=None, reference_xvector=No
             or not valid_vector(xvector, row["xvector_sha256"])
         ):
             raise ValueError(f"Invalid stored dots_vae result: {row['target_id']}")
-        span = model.reference_patches(row["target_id"], frames)
+        span = model.reference_patches(row["target_id"], frames, rule)
         stored = (row["reference_start_patch"], row["reference_end_patch"])
         if span is not None:
             reference_ok = (
