@@ -60,6 +60,8 @@ def payload(platform, name, runtime, work, extra, cpu_script=None, spec=None):
         ],
         "env": [
             {"key": "PYTHON_BIN", "value": platform["python"]},
+            # The snapshot holds only src/scripts/configs; dots_vae checks this pinned checkout.
+            {"key": "TTS_DOTS_SOURCE", "value": str(PROJECT / "cache/third_party/dots.tts")},
         ],
         "mount": [
             {
