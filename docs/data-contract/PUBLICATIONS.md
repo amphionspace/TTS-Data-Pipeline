@@ -86,6 +86,7 @@
 | Features | dots_vae · `emilia_nv-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T095118bjt-01` | 1 个数据集（emilia_nv），174,179 行全部 ok；all_samples；dots.tts-soar VAE posterior + CAM++ x-vector + 参考段 x-vector（dots-reference-v1:codec-grid-v1-on-patches） | 2026-11-03 11:25 | dots.tts 副语言微调 |
 | Features | dots_vae · `<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T173207bjt-01` | 5 个数据集，230,083 行全部 ok；selection_branch（selection-nv-v1），text_kind=nv-canonical-v1 | 2026-11-03 18:34 | dots.tts 副语言训练（nv26 分词器） |
 | Features | dots_vae · `<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T190254bjt-01` | 4 个游戏数据集，680,109 行全部 ok；selection_branch（selection-game-zhen-v1），text_kind=asr_transcription | 2026-11-03 22:46 | dots.tts NV 实验的通用数据 |
+| Features | dots_vae · `<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s-20261106T092453bjt-01` | 5 个数据集，230,083 行全部 ok；selection_branch（selection-nv-v1），text_kind=nv-canonical-v1；参考段 x-vector 按 dots-reference-v2:min-3s-on-patches | 2026-11-06 10:00 | dots.tts 副语言训练（参考段 ≥ 3 s 对照） |
 
 ## 基础数据集
 
@@ -756,6 +757,23 @@
   zenless_voice `f7e6568aff6d6b607baa8fad8b029cbe30f68f8cb9f05eff88119df0a3f97ee0`
 - 内容：680,109 行全部 ok；selection_branch 绑定 `tts-selection-supervised-tts-20261103T190044bjt-01`；text 为选用的 ASR 转写（逐行与 selection 一致），
   text_kind=`asr_transcription`；language 列保留基础原始标签（en-US、zh-CN 等）
+
+### 2026-11-06 · 发布 · dots_vae · <dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s-20261106T092453bjt-01
+
+- 时间：2026-11-06 10:00（北京时间）
+- manifest：`datasets/<dataset_id>/v0.1/features/dots_vae/<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s-20261106T092453bjt-01/manifest.json`
+- SHA256：disfluencyspeech `029b444cd2c4823e6f8abf5fad04648a70408abc3d824695598f5da500e479b0`；
+  emilia_nv `a6b645cfea945d9b61c7dea578b70ded4d2fac69e6e2aa2333beb6f9166810bc`；
+  nonverbalspeech38k `0889502ff502f54cd7bbb0889060c8005048a8aa221fa5b32a1bd83b448311ec`；
+  nonverbaltts `d3018cfcfffed390fdecc219455d4a55d191ce80ae8a86e46ed1dae9abab092f`；
+  smiip_nv `0f975ca4e48157c79db6b668810b84638d0aac01422d1ffec0b3605c431b1c3b`
+- 内容：5 个数据集 230,083 行全部 ok；selection_branch 绑定 `tts-selection-supervised-tts-20261103T173114bjt-01`，text 与 text_kind=`nv-canonical-v1`
+  同 `<dataset_id>-…-v2-20261103T173207bjt-01`；profile `dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s`，参考段规则
+  `dots-reference-v2:min-3s-on-patches`：参考段长度下限为 min(19 patch = 3.04 s, 半句)，其余同 v1（长度、起点均匀取，seed 换为 `dots-reference-v2`），
+  有参考段的行与 v1 相同（无参考段 4 行）
+- 说明：与 `<dataset_id>-…-v2-20261103T173207bjt-01` 逐行核对，target 集合相同，xvector 与 latents 摘要全部一致，只有参考段及其 x-vector 不同。
+  参考段中位数 2.72 s → 3.52 s，79.4% 达到 3.04 s（其余为不足 6 s 的句子，取半句）；参考段 x-vector 与整句 x-vector 的余弦均值 0.775 → 0.861，
+  原参考段不足 1.5 s 的 46,886 行 0.594 → 0.853。代码为 pipeline `2a7a4f5`，ACP 提交时传入 dots.tts 源码路径（`650580c`），任务 `pt-i1xc8qih`
 
 ## 统一根维护
 
