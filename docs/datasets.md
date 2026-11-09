@@ -159,3 +159,7 @@ Wenet 每包当前扫描共享清单，安全哈希校验也有额外开销；�
 - `SMIIP_NV_SPK_finetune.zip` 是同一批音频（CRC 逐条一致）按 spk_train/spk_test 重新打包，作为语义依赖读取，
   只用于 metadata.original_split；spk_test（2,607 条）的 original_split_group=test，由 selection 留出。
 
+
+## FlexiVoice
+
+新增 `flexivoice` adapter，15 个指令子集；字段、身份及全量命令见 [接入说明](flexivoice.md)。

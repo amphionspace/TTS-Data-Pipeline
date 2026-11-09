@@ -7,6 +7,7 @@ from . import (
     emilia,
     emilia_nv,
     emilia_yodas,
+    flexivoice,
     galgame,
     genshin_voice,
     hifitts,
@@ -26,6 +27,7 @@ from . import (
 )
 
 ADAPTERS = {
+    "flexivoice": flexivoice,
     "emilia": emilia,
     "emilia_nv": emilia_nv,
     "emilia_yodas": emilia_yodas,
