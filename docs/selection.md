@@ -4,6 +4,8 @@
 
 | 版本 | 规则文件 | 已发布 selection | 状态 |
 | --- | --- | --- | --- |
+| selection-flexivoice-v2 | configs/selections/selection-flexivoice-v2.json | `tts-selection-supervised-tts-20261111T162703bjt-01` | 当前 FlexiVoice 指令训练（见 [flexivoice](flexivoice.md)） |
+| selection-flexivoice-v1 | configs/selections/selection-flexivoice-v1.json | `tts-selection-supervised-tts-20261110T092455bjt-01` | 11-10/11 FlexiVoice 实验使用，保留 |
 | selection-v2 | configs/selections/selection-v2.json | `tts-selection-supervised-tts-20261012T123927bjt-01` | 当前，一阶段预训练 |
 | selection-v1 | configs/selections/selection-v1.json | `tts-selection-supervised-tts-20260929T151539bjt-01` | 现有训练 build 使用，保留 |
 
