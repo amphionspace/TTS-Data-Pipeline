@@ -445,6 +445,49 @@ def timeline_exclusions(rules_path, rules, inputs):
     return rows
 
 
+def audio_content_exclusions(rules, inputs):
+    """Audio-scoped invalid_audio (103) findings from pinned byte-level audits.
+
+    Each evidence TSV (scripts/audit_embedded_caf.py) lists records of one dataset whose audio
+    bytes are confirmed unusable as decoded, e.g. a WAV whose data chunk carries an embedded CAF
+    header. Scope is audio_sha256, so every row sharing those bytes is excluded."""
+    releases = {s["dataset_id"]: s for s in inputs}
+    repository = Path(__file__).resolve().parents[2]
+    rows = {}
+    for evidence in rules.get("audio_content_evidence", []):
+        path = repository / evidence["path"]
+        if file_sha(path) != evidence["sha256"]:
+            raise ValueError(f"Audio content evidence changed: {evidence['path']}")
+        source = releases[evidence["dataset_id"]]
+        found = {}
+        with path.open(newline="") as stream:
+            for record in csv.DictReader(stream, delimiter="\t"):
+                if record["dataset"] != evidence["dataset_id"]:
+                    raise ValueError("Audio content evidence names another dataset")
+                found.setdefault(record["audio_sha256"], record)
+        if len(found) != evidence["expected_audio"]:
+            raise ValueError(f"Audio content evidence scope changed: {len(found)}")
+        for sha, record in found.items():
+            key = {"audio_sha256": sha}
+            rows[sha] = {
+                "exclusion_id": digest(["selection-exclusion-v1", key, 103]),
+                "scope": key,
+                "reason": 103,
+                "evidence": {
+                    "dataset_id": source["dataset_id"],
+                    "base_manifest_sha256": source["manifest_sha256"],
+                    "finding": evidence["finding"],
+                    "path": evidence["path"],
+                    "sha256": evidence["sha256"],
+                    # The full record stays in the pinned TSV; keep exclusions.jsonl compact.
+                    "record": {k: record[k] for k in evidence["record_fields"]},
+                },
+                "purpose": "supervised_tts",
+                "recorded_at": now(),
+            }
+    return list(rows.values())
+
+
 def pin_annotations(root, rules, inputs):
     """Fix each adopted transcription and speaker_structure run to its manifest, snapshot and
     base. Returns (transcription inputs, speaker inputs): they stay separate lists so consumers
@@ -767,6 +810,7 @@ def plan(root, work, rules_path, *, selection_id=None):
     if parent_id:
         parent, exclusions = inherited_exclusions(root, parent_id)
         additions = timeline_exclusions(Path(rules_path).resolve(), rules, inputs)
+        additions += audio_content_exclusions(rules, inputs)
         known = {e["exclusion_id"] for e in exclusions}
         additions = [e for e in additions if e["exclusion_id"] not in known]
     else:

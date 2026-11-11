@@ -68,3 +68,26 @@ PYTHONPATH=src python -m tts_data_pipeline.dots_vae.reselect \
 最终 selection：`tts-selection-supervised-tts-20261110T092455bjt-01`，入选 **1,656,126 行 / 2,742.4787 原生小时**；dots 处理后总时长 2,758.1938 小时。再次全量检查参考池，未发现无参考目标（0 行）。对应规则即本仓库 `selection-flexivoice-v1.json`，发布时固定了全量特征作为处理后时长证据；该发布替代上面的原生参考时长试版。
 
 对应 selection features 已于 2026-11-10 09:59（北京时间）发布：`flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s-20261110T093409bjt-01`，1,656,126 行，全部 payload 哈希、目标覆盖和最终文本回读校验通过。manifest 位于 `datasets/flexivoice/v0.1/features/dots_vae/<feature_id>/manifest.json`。
+
+## 内嵌 CAF 头的 kespeech 音频（2026-11-11）
+
+kespeech 子集有 326,006 条 WAV 的 data 块并非 PCM，而是以一个 4096 字节的 Apple CAF 文件头开头（`caff`、`desc`、`lpcm`、`free`、`data`），
+其后才是真正的 16-bit little-endian PCM。任何 WAV 读取器都会把头部解码成约 128 ms 的满幅垃圾采样：开头与约 127 ms 处各一下咔声。
+经 250 ms 边缘静音归一化后，咔声落在训练目标的 0.25 s，指令模型生成音频在同一位置出现咔声。其他 14 个子集、NV 五个数据集均为 0。
+
+处理：base 不修改；`selection-flexivoice-v2` 按 103 排除这些音频（证据与规则见 [12](data-contract/specs/12-selections.md)），
+features 由全量 dots_vae 复用发布。剥离 CAF 头后重新提取可找回这批数据，尚未执行。
+
+```bash
+python scripts/audit_embedded_caf.py --root /workspace/data/DATA-TTS-UNIFIED --dataset flexivoice --out reports/embedded-caf
+python scripts/build_selection.py plan --work /tmp/selection-flexivoice-v2-20261111 \
+  --rules configs/selections/selection-flexivoice-v2.json
+python scripts/build_selection.py run --work /tmp/selection-flexivoice-v2-20261111 --workers 16
+PYTHONPATH=src python -m tts_data_pipeline.dots_vae.reselect --root /workspace/data/DATA-TTS-UNIFIED \
+  --selection selections/tts-selection-supervised-tts-20261111T162703bjt-01/manifest.json \
+  --features datasets/flexivoice/v0.1/features/dots_vae/flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s-20261109T160744bjt-01/manifest.json \
+  --work /workspace/workspace/yanglin/work/dots-vae-flexivoice-selected-nocaf-20261111
+```
+
+结果：selection `tts-selection-supervised-tts-20261111T162703bjt-01` 入选 **1,330,267 行 / 2,214.4 原生小时**（v1 为 1,656,126 行）；
+features `flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s-20261111T164240bjt-01` 于 2026-11-11 17:05 发布，全量校验通过。

@@ -148,6 +148,13 @@ action=keep 用基础文本，非 ok 记 1003；修订不带语言证据，不�
 此策略不发布“仅作参考”的额外行；每个 reason=0 的样本都可作为训练目标。
 features 只消费 reason=0 和 selected_text，训练 build 不再重复这些筛选或文本修订。
 
+`audio_content_evidence`（selection-flexivoice-v2 起）固定字节级音频审计的结果：每项给出 dataset_id、仓库内证据 TSV 路径与 SHA256、
+`expected_audio`（不同 audio_sha256 数）、finding 名称和写入排除条目的 record 字段。plan 时校验哈希与数量，每个音频生成一条
+scope 为 `audio_sha256`、reason 103 的排除（exclusion_id = digest(selection-exclusion-v1, scope, 103)），作为对父 selection 的 additions，
+共享这些字节的所有行（含指令变体）一并排除。证据 TSV 只是重算依据，不入统一根；完整记录在 TSV，exclusions.jsonl 只保留所列字段。
+`selection-flexivoice-v2` 在 v1 规则上加入 `embedded_caf_header`：kespeech WAV 的 data 块以 4096 字节 Apple CAF 头（`caff`/`desc`/`lpcm`/`free`/`data`）开头，
+被解码为约 128 ms 满幅垃圾采样，由 `scripts/audit_embedded_caf.py` 扫描完整 base 得到 326,006 条。
+
 执行器另支持两项尚无已发布规则使用的选项：`speaker_metadata` 从 base `metadata_json` 的键路径取说话人数（按 6002 判定，
 每个数据集在 speaker_inputs 与 speaker_metadata 中恰好出现一次）；文本来源的 `verification` 要求 ASR 文本与 base `text_variants`
 中指定 kind 的文本一致（比较前两边做 NFKC、casefold、去组合附加符、取 `[a-z0-9']+` 词并按 fold_words 映射、去撇号无分隔连接，
