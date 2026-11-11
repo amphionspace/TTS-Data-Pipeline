@@ -8,7 +8,7 @@ selection-v4 adds a pinned speaker_structure annotation: only rows with exactly 
 speaker count pass (`speaker_inputs`, reason 6002); a dataset without one may take its speaker
 count from base metadata (`speaker_metadata`), and an ASR text source may require agreement with a
 base text variant (`verification`, reason 1009).
-Reference pairing is deliberately unsupported.
+FlexiVoice rules also support path-based speakers and a closed cross-utterance reference pool.
 """
 
 import csv
@@ -87,6 +87,8 @@ REASONS = {
     4001: "duplicate_not_selected",
     4002: "conflicting_duplicate",
     5001: "reference_identity_unavailable",
+    5002: "reference_pair_unavailable",
+    3004: "source_config_not_selected",
     6002: "not_single_speaker",
     7001: "held_out",
     65535: "pending",
@@ -109,6 +111,7 @@ FLAGS = [
     "parent_policy",
     "speaker_policy",
     "sample_rate_policy",
+    "source_config_policy",
 ]
 # Dictionary version 5 adds 6002 and flag bit 15 (bits 13/14 keep the names spec 12 gave them
 # for versions 3/4); rules without speaker_inputs publish version 2 unchanged.
@@ -118,6 +121,17 @@ VERIFY_CODES = {1009}
 # Dictionary version 7 adds 3003 (native sample rate below a dataset-scoped minimum) and flag
 # bit 16; text-revision annotations reuse 1003 for rows the revision does not provide.
 RATE_CODES, RATE_BIT = {3003}, 16
+FLEXIVOICE_CODES = {3004, 5002}
+
+
+def decision_dtype(rules):
+    if rules.get("flexivoice"):
+        return np.dtype(
+            ROW.descr + [("speaker", "S32"), ("utterance", "S32"), ("reference_seconds", "<f8")]
+        )
+    return ROW
+
+
 REVISION_COLUMNS = {
     "sample_id": "sample_id",
     "status": "status",
@@ -651,19 +665,37 @@ def plan(root, work, rules_path, *, selection_id=None):
             "Existing selections need explicit exclusion inheritance; "
             "first-root executor refuses reset"
         )
-    if rules["reference_policy"] != "self":
-        raise ValueError("This executor supports self-reference selection only")
+    flex = rules.get("flexivoice")
+    if flex:
+        if (
+            rules["reference_policy"] != "same_speaker_cross_utterance"
+            or rules["source_priority"] != ["flexivoice"]
+            or not FLEXIVOICE_CODES <= set(rules["reason_priority"])
+            or rules.get("duplicate_policy") != "keep_instruction_variants"
+        ):
+            raise ValueError(
+                "FlexiVoice requires its cross-utterance and instruction-variant policy"
+            )
+        if not flex["source_configs"] or flex["min_reference_seconds"] < 3:
+            raise ValueError("FlexiVoice needs explicit subsets and reference duration >= 3 s")
+    elif rules["reference_policy"] != "self":
+        raise ValueError("Only self or FlexiVoice cross-utterance selection is supported")
     if rules.get("speaker_inputs") or rules.get("speaker_metadata"):
         if not SPEAKER_CODES <= set(rules["reason_priority"]):
             raise ValueError("Speaker rules need 6002 in reason_priority")
         for item in rules.get("speaker_inputs", []):
             count = item.get("speaker_count")
             if item["task"] != "speaker_structure" or type(count) is not int or count < 1:
-                raise ValueError("speaker_inputs need task speaker_structure and speaker_count >= 1")
+                raise ValueError(
+                    "speaker_inputs need task speaker_structure and speaker_count >= 1"
+                )
         for item in rules.get("speaker_metadata", []):
             count, path = item.get("speaker_count"), item.get("path")
-            if type(count) is not int or count < 1 or not path or not all(
-                isinstance(k, str) for k in path
+            if (
+                type(count) is not int
+                or count < 1
+                or not path
+                or not all(isinstance(k, str) for k in path)
             ):
                 raise ValueError("speaker_metadata needs a key path and speaker_count >= 1")
         covered = [
@@ -754,9 +786,38 @@ def plan(root, work, rules_path, *, selection_id=None):
         "exclusions": exclusions + additions,
         "exclusion_additions": [e["exclusion_id"] for e in additions],
         "implementation_sha256": file_sha(__file__),
+        "flexivoice_code_sha256": file_sha(Path(__file__).with_name("flexivoice.py"))
+        if flex
+        else None,
     }
     if speakers:
         result["speaker_inputs"] = speakers
+    if flex and flex.get("reference_duration_manifest"):
+        path = root / flex["reference_duration_manifest"]
+        feature = json.loads(path.read_text())
+        (source,) = inputs
+        (feature_base,) = (i for i in feature["inputs"] if i["artifact_kind"] == "base")
+        if (
+            feature["status"] != "complete"
+            or feature["kind"] != "dots_vae"
+            or feature["selection"]["mode"] != "all_samples"
+            or feature_base["manifest_sha256"] != source["manifest_sha256"]
+            or feature["rows"] != source["rows"]
+        ):
+            raise ValueError("Reference duration evidence must cover the same full base")
+        result["reference_duration_input"] = {
+            "manifest_path": str(path.relative_to(root)),
+            "manifest_sha256": file_sha(path),
+            "table_path": str(
+                Path("datasets")
+                / source["dataset_id"]
+                / source["release_id"]
+                / feature["table_path"]
+            ),
+            "lance_version": feature["lance_version"],
+            "profile_id": feature["profile_id"],
+            "rule": "processed_frames / 48000 for status=ok, else 0",
+        }
     write_json(work / "plan.json", result)
     event(
         work,
@@ -821,7 +882,9 @@ def classify(
         if 1003 not in reasons:
             reasons.append(1001)
         flags |= 1 << 1
-    if language not in rules["supported_languages"]:
+    if language not in rules["supported_languages"] and (
+        language or rules.get("require_language", True)
+    ):
         reasons.append(2001 if not language else 2002)
         flags |= 1 << 3
     if (
@@ -916,6 +979,27 @@ def classify(
     if duration > bounds["max_inclusive"]:
         reasons.append(3002)
         flags |= 1 << 4
+    if rules.get("flexivoice"):
+        from .flexivoice import speaker_key, utterance_key
+
+        policy = rules["flexivoice"]
+        speaker_id = speaker_key(
+            row["source_config"], json.loads(row["metadata_json"])["upstream"]["wav_path"]
+        )
+        if row["source_config"] not in policy["source_configs"]:
+            reasons.append(3004)
+            flags |= 1 << 17
+        if speaker_id is None:
+            reasons.append(5001)
+            flags |= 1 << 7
+        if speaker_id in policy["holdout_speakers"]:
+            reasons.append(7001)
+            flags |= 1 << 8
+        if evidence is not None:
+            evidence["speaker_hash"] = (
+                hashlib.sha256(speaker_id.encode()).digest() if speaker_id else b""
+            )
+            evidence["utterance_hash"] = hashlib.sha256(utterance_key(text).encode()).digest()
     reason = next((r for r in rules["reason_priority"] if r in reasons), 0)
     return reason, flags, language, text
 
@@ -935,7 +1019,9 @@ def scan_part(args):
     ds = open_base(p["root"], source)
     fragments = [ds.get_fragment(i) for i in task["fragments"]]
     temporary = path.with_suffix(".incomplete.npy")
-    array = np.lib.format.open_memmap(temporary, mode="w+", dtype=ROW, shape=(task["rows"],))
+    array = np.lib.format.open_memmap(
+        temporary, mode="w+", dtype=decision_dtype(p["rules"]), shape=(task["rows"],)
+    )
     rules = p["rules"]
     audio = {e["scope"]["audio_sha256"] for e in p["exclusions"] if "audio_sha256" in e["scope"]}
     samples = {}
@@ -950,10 +1036,21 @@ def scan_part(args):
     speaker_item = speaker_input(p, task["dataset"])
     speakers = aligned_rows(p, task, speaker_item)
     metadata_speaker = speaker_metadata(rules, task["dataset"])
-    verifying = transcription is not None and "verification" in (
-        rules["text_sources"][str(text_source)]
+    verifying = (
+        transcription is not None and "verification" in (rules["text_sources"][str(text_source)])
     )
-    columns = COLUMNS + (["metadata_json"] if held_out_rule(rules) or metadata_speaker else [])
+    columns = COLUMNS + (
+        ["metadata_json"]
+        if held_out_rule(rules) or metadata_speaker or rules.get("flexivoice")
+        else []
+    )
+    if rules.get("flexivoice"):
+        columns.append("source_config")
+    reference_seconds = (
+        np.load(Path(p["work"]) / "reference-seconds.npy", mmap_mode="r")
+        if p.get("reference_duration_input")
+        else None
+    )
     languages = {lang: i + 1 for i, lang in enumerate(rules["supported_languages"])}
     counter, lang_counts, lang_seconds = Counter(), Counter(), Counter()
     raw_counts, raw_seconds = Counter(), Counter()
@@ -1005,6 +1102,16 @@ def scan_part(args):
                 evidence["chars"],
                 evidence["repetition"],
                 text_source,
+            ) + (
+                (
+                    evidence["speaker_hash"],
+                    evidence["utterance_hash"],
+                    float(reference_seconds[task["offset"] + position])
+                    if reference_seconds is not None
+                    else row["duration_seconds"],
+                )
+                if rules.get("flexivoice")
+                else ()
             )
             checks["repetition_" + (evidence["repetition_path"] or "unchecked")] += 1
             checks["sample_exclusions"] += len(samples.get((task["dataset"], sid), []))
@@ -1047,12 +1154,70 @@ def load_plan(work):
     p = json.loads((Path(work) / "plan.json").read_text())
     if p["implementation_sha256"] != file_sha(__file__):
         raise ValueError("Executor changed since plan; review and create a new plan")
+    if p.get("flexivoice_code_sha256") and p["flexivoice_code_sha256"] != file_sha(
+        Path(__file__).with_name("flexivoice.py")
+    ):
+        raise ValueError("FlexiVoice policy changed since plan")
+    evidence = p.get("reference_duration_input")
+    if (
+        evidence
+        and file_sha(Path(p["root"]) / evidence["manifest_path"]) != evidence["manifest_sha256"]
+    ):
+        raise ValueError("Reference duration manifest changed since plan")
     return p
+
+
+def align_reference_durations(p):
+    """Measure reference eligibility on the same processed audio the x-vector uses."""
+    work = Path(p["work"])
+    path, receipt = work / "reference-seconds.npy", work / "reference-seconds.json"
+    if receipt.exists():
+        if file_sha(path) != json.loads(receipt.read_text())["sha256"]:
+            raise ValueError("Reference duration scratch changed")
+        return
+    (source,) = p["inputs"]
+    ids = np.asarray(
+        open_base(p["root"], source).to_table(columns=["sample_id"])["sample_id"].to_pylist(),
+        dtype="S64",
+    )
+    order = np.argsort(ids)
+    sorted_ids = ids[order]
+    seconds = np.lib.format.open_memmap(path, mode="w+", dtype="<f8", shape=(len(ids),))
+    seconds[:] = np.nan
+    evidence = p["reference_duration_input"]
+    features = lance.dataset(
+        Path(p["root"]) / evidence["table_path"], version=evidence["lance_version"]
+    )
+    for batch in features.scanner(
+        columns=["target_id", "status", "processed_frames", "profile_id"], batch_size=65536
+    ).to_batches():
+        targets = np.asarray(batch["target_id"].to_pylist(), dtype="S64")
+        positions = np.searchsorted(sorted_ids, targets)
+        if np.any(positions >= len(ids)) or not np.array_equal(sorted_ids[positions], targets):
+            raise ValueError("Reference duration target is absent from base")
+        at = order[positions]
+        if not np.isnan(seconds[at]).all() or len(np.unique(at)) != len(at):
+            raise ValueError("Duplicate reference duration targets")
+        if any(v != evidence["profile_id"] for v in batch["profile_id"].to_pylist()):
+            raise ValueError("Mixed reference duration profiles")
+        seconds[at] = [
+            frames / 48000 if status == "ok" else 0
+            for frames, status in zip(
+                batch["processed_frames"].to_pylist(), batch["status"].to_pylist(), strict=True
+            )
+        ]
+    if not np.isfinite(seconds).all() or (seconds < 0).any():
+        raise ValueError("Incomplete or invalid reference duration coverage")
+    seconds.flush()
+    write_json(receipt, {"sha256": file_sha(path), "input": evidence})
+    event(work, "reference_durations_aligned", rows=len(ids))
 
 
 def scan(work, workers=64):
     p = load_plan(work)
     align_annotations(work)
+    if p.get("reference_duration_input"):
+        align_reference_durations(p)
     completed = []
     with ProcessPoolExecutor(
         max_workers=workers, mp_context=multiprocessing.get_context("spawn")
@@ -1118,6 +1283,23 @@ def decide_group(members):
     return winner, conflict
 
 
+def cross_reference_filter(array, minimum):
+    """Keep a closed pool: every retained row has a different-text >= minimum reference.
+
+    A speaker with only one long text cannot keep that long text as a target; removing it
+    would orphan every short target. Such groups are excluded together.
+    """
+    eligible = np.flatnonzero(array["reason"] == 0)
+    ordered = eligible[np.argsort(array["speaker"][eligible], kind="stable")]
+    bounds = np.flatnonzero(array["speaker"][ordered][1:] != array["speaker"][ordered][:-1]) + 1
+    for members in np.split(ordered, bounds):
+        key = "reference_seconds" if "reference_seconds" in array.dtype.names else "duration"
+        long = members[array[key][members] >= minimum]
+        if len(np.unique(array["utterance"][long])) < 2:
+            array["reason"][members] = 5002
+            array["flags"][members] |= 1 << 7
+
+
 def resolve_duplicates(work):
     p = load_plan(work)
     work = Path(work)
@@ -1145,7 +1327,9 @@ def resolve_duplicates(work):
     for dataset, source in enumerate(sources):
         name = source["dataset_id"]
         path = work / (name + ".decisions.npy")
-        array = np.lib.format.open_memmap(path, mode="w+", dtype=ROW, shape=(source["rows"],))
+        array = np.lib.format.open_memmap(
+            path, mode="w+", dtype=decision_dtype(p["rules"]), shape=(source["rows"],)
+        )
         offset = 0
         for part in sorted((t for t in parts if t["dataset"] == name), key=lambda t: t["offset"]):
             if part["offset"] != offset or file_sha(part["file"]) != part["sha256"]:
@@ -1224,7 +1408,11 @@ def resolve_duplicates(work):
                 elif reason == 0:
                     if conflict:
                         reason = 4002
-                    elif winner is not None and (dataset, pos) != winner[:2]:
+                    elif (
+                        winner is not None
+                        and (dataset, pos) != winner[:2]
+                        and p["rules"].get("duplicate_policy") != "keep_instruction_variants"
+                    ):
                         reason = 4001
                 arrays[dataset]["reason"][pos] = reason
                 arrays[dataset]["flags"][pos] = flags
@@ -1245,6 +1433,9 @@ def resolve_duplicates(work):
                         if held
                         else "conflict"
                         if conflict
+                        else "instruction_variants"
+                        if winner
+                        and p["rules"].get("duplicate_policy") == "keep_instruction_variants"
                         else ("selected" if winner else "no_eligible"),
                         "raw_text_conflict": raw_text,
                         "raw_language_conflict": raw_lang,
@@ -1268,6 +1459,9 @@ def resolve_duplicates(work):
     table.create_scalar_index("audio_sha256", "BTREE")
     if table.count_rows() != stats["members"]:
         raise ValueError("Duplicate membership coverage mismatch")
+    if p["rules"].get("flexivoice"):
+        for array in arrays:
+            cross_reference_filter(array, p["rules"]["flexivoice"]["min_reference_seconds"])
     array_info = []
     for array, path in zip(arrays, array_paths, strict=True):
         array.flush()
@@ -1651,15 +1845,36 @@ def publish(work, workers=16):
     metadata_speakers = p["rules"].get("speaker_metadata")
     verifying = any("verification" in r for r in p["rules"].get("text_sources", {}).values())
     rating = bool(p["rules"].get("sample_rate_policy"))
-    version = 7 if rating else 6 if verifying else 5 if speaker_inputs or metadata_speakers else 2
+    version = (
+        8
+        if p["rules"].get("flexivoice")
+        else 7
+        if rating
+        else 6
+        if verifying
+        else 5
+        if speaker_inputs or metadata_speakers
+        else 2
+    )
     codes = {
         k: v
         for k, v in REASONS.items()
         if (version >= 5 or k not in SPEAKER_CODES)
         and (version >= 6 or k not in VERIFY_CODES)
         and (version >= 7 or k not in RATE_CODES)
+        and (version >= 8 or k not in FLEXIVOICE_CODES)
     }
-    bits = dict(enumerate(FLAGS if version >= 7 else FLAGS[:16] if version >= 5 else FLAGS[:13]))
+    bits = dict(
+        enumerate(
+            FLAGS
+            if version >= 8
+            else FLAGS[:17]
+            if version >= 7
+            else FLAGS[:16]
+            if version >= 5
+            else FLAGS[:13]
+        )
+    )
     checks = sum((Counter(t.get("checks", {})) for t in parts), Counter())
     manifest = {
         "contract_version": "v0.1",
@@ -1677,6 +1892,7 @@ def publish(work, workers=16):
             "path": "rules.json",
             "sha256": file_sha(incomplete / "rules.json"),
             "implementation_sha256": p["implementation_sha256"],
+            "flexivoice_code_sha256": p.get("flexivoice_code_sha256"),
         },
         # Version 2 adds 105/1003-1008/2003/2004 and flag bits 10-12; version 5 adds 6002 and
         # bit 15 (bits 13/14 keep spec 12's version 3/4 names, unused); version 6 adds 1009;
@@ -1699,6 +1915,8 @@ def publish(work, workers=16):
             "effective_count": len(p["exclusions"]),
         },
         "duplicates": {k: v for k, v in result.items() if k not in {"arrays", "duplicate_path"}},
+        "reference_policy": p["rules"]["reference_policy"],
+        "reference_duration_input": p.get("reference_duration_input"),
         "coverage": {
             "row_rules": sum(s["rows"] for s in p["inputs"]),
             "exact_duplicate_hashes": sum(s["rows"] for s in p["inputs"]),
@@ -1727,8 +1945,12 @@ def publish(work, workers=16):
                 for a in speaker_inputs or []
             ]
             + [
-                {"dataset_id": n, "source": "base metadata_json", "path": m["path"],
-                 "speaker_count": m["speaker_count"]}
+                {
+                    "dataset_id": n,
+                    "source": "base metadata_json",
+                    "path": m["path"],
+                    "speaker_count": m["speaker_count"],
+                }
                 for m in metadata_speakers or []
                 for n in m["datasets"]
             ],

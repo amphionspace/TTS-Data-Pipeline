@@ -125,6 +125,29 @@ selection仍从base建立，绝不以annotation分支为父。采样权重由训
 文本来源可为 text revision annotation（`text_sources` 条目 `kind=text_revision`）：ok 且 action=replace 用 result.text，
 action=keep 用基础文本，非 ok 记 1003；修订不带语言证据，不执行 2003。
 
+字典 version 8（规则含 `flexivoice` 时使用）在 version 7 之上新增：
+
+| 码 | 名称 | 含义 |
+| --- | --- | --- |
+| 3004 | source_config_not_selected | `source_config` 不在本次用途的子集集合内；flag bit 17 |
+| 5002 | reference_pair_unavailable | 最终入选集合中无法维持同说话人、不同归一化文本、足够长的跨句参考；flag bit 7 |
+
+`selection-flexivoice-v1` 使用 `reference_policy=same_speaker_cross_utterance`，
+从固定 base 的 `metadata_json.upstream.wav_path` 提取说话人键，解析实现摘要写入计划和 manifest。
+子集、1–30 秒原生时长、≥16 kHz、留出说话人、文本修订可用性都由 selection 决定。
+`require_language=false` 只放行缺失语言，不捏造标签；有语言标签但不在允许集合的行仍按 2002 排除。
+
+`duplicate_policy=keep_instruction_variants` 保留无冲突精确重复组内的所有合格行，不按音频丢弃指令变体。
+文本/语言冲突组仍按 4002 排除；任一组员属于留出说话人时，其合格精确副本一并按 7001 留出。
+重复表中的 representative 仅用于溯源，`group_disposition=instruction_variants` 不意味着只选代表。
+
+重复/留出过滤完成后执行参考池闭包检查：每位入选说话人必须至少有两种不同归一化文本的 ≥3 秒音频。
+本次规则通过 `flexivoice.reference_duration_manifest` 固定已发布的全量 dots_vae 测量，使用 status=ok 行的 `processed_frames / 48000`；失败行不能充当参考。manifest 的 `reference_duration_input` 记录来源 manifest/hash、表版本、profile 与计算规则；不重新解码音频。1–30 秒用途筛选仍使用原生时长。未提供该证据的规则使用原生时长，必须另行验证其适用性。
+比较文本时去除 `[Name]` 标签、NFKC、转小写、仅保留字母和数字。
+不满足者的所有原本合格行记 5002，因只留下短句会丢掉其唯一长句参考。
+此策略不发布“仅作参考”的额外行；每个 reason=0 的样本都可作为训练目标。
+features 只消费 reason=0 和 selected_text，训练 build 不再重复这些筛选或文本修订。
+
 执行器另支持两项尚无已发布规则使用的选项：`speaker_metadata` 从 base `metadata_json` 的键路径取说话人数（按 6002 判定，
 每个数据集在 speaker_inputs 与 speaker_metadata 中恰好出现一次）；文本来源的 `verification` 要求 ASR 文本与 base `text_variants`
 中指定 kind 的文本一致（比较前两边做 NFKC、casefold、去组合附加符、取 `[a-z0-9']+` 词并按 fold_words 映射、去撇号无分隔连接，
@@ -136,7 +159,7 @@ action=keep 用基础文本，非 ok 记 1003；修订不带语言证据，不�
 
 flags 独立分配 bit：0 音频问题，1 缺文本，2 配对问题，3 语言规则，4 时长规则，
 5 重复成员，6 未解决重复冲突，7 参考规则，8 留出评估，9 已确认排除；
-version 2 起 10 来源时间轴，11 文本策略，12 语言证据；version 3 起 13 质量策略；version 4 起 14 父 selection 未选（凡父未选的行都置位，不论主原因）；version 5 起 15 说话人策略；version 7 起 16 采样率策略。17–31 保留。
+version 2 起 10 来源时间轴，11 文本策略，12 语言证据；version 3 起 13 质量策略；version 4 起 14 父 selection 未选（凡父未选的行都置位，不论主原因）；version 5 起 15 说话人策略；version 7 起 16 采样率策略；version 8 起 17 来源子集策略。18–31 保留。
 不能使用 `1 << reason_code`；一个入选代表可以 reason=0 且 bit5=1。
 flags=0 只说明此次已执行检查未命中，不代表检查过所有质量维度；coverage 必须区分未检查和通过。
 遇到未知字典版本、未知码或未知 bit 的消费者须拒绝解释，而非默认入选。

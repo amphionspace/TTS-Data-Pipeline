@@ -15,6 +15,107 @@ from tts_data_pipeline.feature_runtime import sorted_set_hash
 DEFINITION = dict(timeline_profile_id="a" * 64, kind="dots_vae")
 
 
+@pytest.mark.parametrize("wrong_timeline", [False, True])
+def test_reselect_reuses_payloads_but_adopts_pinned_selection_text(tmp_path, wrong_timeline):
+    from tts_data_pipeline.dots_vae.reselect import republish
+    from tts_data_pipeline.feature_runtime import file_hash
+
+    release = tmp_path / "datasets/flexivoice/v0.1"
+    release.mkdir(parents=True)
+    rows = [base_row(i) for i in range(3)]
+    base = lance.write_dataset(pa.Table.from_pylist(rows), release / "samples.lance")
+    base_manifest = release / "manifest.json"
+    base_manifest.write_text(json.dumps({"status": "complete"}))
+    branch = base.create_branch("selected", base.version)
+    branch.add_columns(
+        pa.table(
+            {
+                "selection_reason": pa.array([0, 1001, 0], pa.uint16()),
+                "selected_text": pa.array(["new words", None, "new third"], pa.string()),
+                "selected_language": pa.array(["en", None, None], pa.string()),
+            }
+        )
+    )
+    source_input = {
+        "artifact_kind": "base",
+        "dataset_id": "flexivoice",
+        "release_id": "v0.1",
+        "manifest_path": str(base_manifest.relative_to(tmp_path)),
+        "manifest_sha256": file_hash(base_manifest),
+        "table_path": "samples.lance",
+        "lance_version": base.version,
+        "branch": None,
+    }
+    selection = {
+        "status": "complete",
+        "selection_id": "selected",
+        "inputs": [source_input],
+        "outputs": [
+            {
+                "dataset_id": "flexivoice",
+                "release_id": "v0.1",
+                "rows": 3,
+                "selected_rows": 2,
+                "table_path": str((release / "samples.lance").relative_to(tmp_path)),
+                "branch": "selected",
+                "base_version": base.version,
+                "lance_version": branch.version,
+            }
+        ],
+        "text_sources": {"0": {"kind": "base_normalization"}},
+    }
+    selection_path = tmp_path / "selection.json"
+    selection_path.write_text(json.dumps(selection))
+    source = release / "features/dots_vae/old"
+    source.mkdir(parents=True)
+    definition = {**DEFINITION, "reference_rule": model.REFERENCE_RULE}
+    # Source storage order need not equal the base/selection order.
+    table = make_table(rows, [value(28, i) for i in range(3)], definition, "p" * 64).take([2, 1, 0])
+    if wrong_timeline:
+        table = table.set_column(
+            table.schema.get_field_index("end_frame"),
+            table.schema.field("end_frame"),
+            pa.array([47999, 48000, 48000]),
+        )
+    ds = lance.write_dataset(table, source / "features.lance")
+    feature_path = source / "manifest.json"
+    feature_path.write_text(
+        json.dumps(
+            {
+                "status": "complete",
+                "kind": "dots_vae",
+                "dataset_id": "flexivoice",
+                "release_id": "v0.1",
+                "rows": 3,
+                "profile": definition,
+                "profile_id": "p" * 64,
+                "profile_name": "test-v1",
+                "inputs": [source_input],
+                "table_path": str((source / "features.lance").relative_to(release)),
+                "lance_version": ds.version,
+            }
+        )
+    )
+    if wrong_timeline:
+        with pytest.raises(ValueError, match="audio identity/timeline/profile"):
+            republish(tmp_path, selection_path, feature_path, tmp_path / "work")
+        assert list((release / "features/dots_vae").iterdir()) == [source]
+        return
+    path = republish(tmp_path, selection_path, feature_path, tmp_path / "work")
+    manifest = json.loads(path.read_text())
+    actual = lance.dataset(
+        release / manifest["table_path"], version=manifest["lance_version"]
+    ).to_table()
+    assert actual["target_id"].to_pylist() == [rows[2]["sample_id"], rows[0]["sample_id"]]
+    assert actual["text"].to_pylist() == ["new third", "new words"]
+    assert actual["language"].to_pylist() == ["zh", "en"]
+    for field in ("vae_mean", "vae_logstd", "xvector", "reference_xvector", "input_fingerprint"):
+        assert actual[field].equals(table.take([0, 2])[field])
+    assert manifest["selection"]["mode"] == "selection_branch"
+    assert manifest["execution"]["requested_gpus"] == []
+    assert ds.to_table()["text"].to_pylist() == table["text"].to_pylist()
+
+
 def base_row(i, frames=48000):
     return dict(
         sample_id=f"{i:064x}",
