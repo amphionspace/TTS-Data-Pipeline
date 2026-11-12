@@ -21,6 +21,17 @@ PROFILE_NAMES = {
     "dots-reference-v1:codec-grid-v1-on-patches": PROFILE_NAME,
     "dots-reference-v2:min-3s-on-patches": "dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s",
 }
+# v3: raw-caf-repair-v1 waveform (no edge silence normalization, embedded CAF header skipped).
+RAW_PROFILE_NAMES = {
+    "dots-reference-v1:codec-grid-v1-on-patches": "dots-tts-soar-vae-xvec-48k-fp32-v3",
+    "dots-reference-v2:min-3s-on-patches": "dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s",
+}
+
+
+def profile_name(reference_rule, waveform_policy=model.WAVEFORM_POLICY):
+    if waveform_policy == model.WAVEFORM_POLICY:
+        return PROFILE_NAMES[reference_rule]
+    return RAW_PROFILE_NAMES[reference_rule]
 REFERENCE_SPANS = {
     "dots-reference-v1:codec-grid-v1-on-patches": "N = num_latent_frames // 4 patches; "
     "lo = max(4, ceil(0.1 N)); hi = N // 2; lo > hi -> none; "
@@ -36,7 +47,61 @@ LATENT_DIM = 128
 XVECTOR_DIM = 512
 
 
-def profile(model_root, reference_rule=model.REFERENCE_RULE):
+def waveform_section(waveform_policy):
+    section = {
+        "order": [
+            "decode_native_whole_sample",
+            "mix_channels",
+            "resample_48k",
+            "normalize_edge_silence",
+            "zero_pad_to_multiple",
+        ],
+        "channel_policy": "arithmetic_mean_float32",
+        "sample_rate": model.SAMPLE_RATE,
+        "resampling": dict(
+            implementation="dots_tts.utils.audio.high_quality_resample (CPU float32)",
+            resampling_method="sinc_interp_kaiser",
+            lowpass_filter_width=64,
+            rolloff=0.95,
+        ),
+        "edge_silence": dict(
+            implementation="dots_tts normalize_edge_silence_duration",
+            target_ms=250.0,
+            top_db_below_peak=30.0,
+            offsets="edge_leading_delta/edge_trailing_delta, signed 48 kHz samples",
+        ),
+        "align_multiple": model.ALIGN,
+        "silent_audio": "failed silent_audio",
+    }
+    if waveform_policy == model.WAVEFORM_POLICY:
+        return section  # Unchanged: the published v2 profile ids depend on these bytes.
+    section["policy"] = waveform_policy
+    section["order"] = [
+        "skip_embedded_caf_header",
+        "decode_native_whole_sample",
+        "mix_channels",
+        "resample_48k",
+        "zero_pad_to_multiple",
+    ]
+    section["edge_silence"] = dict(
+        implementation="none: the recording's own leading/trailing audio is kept",
+        offsets="edge_leading_delta = edge_trailing_delta = 0",
+    )
+    section["embedded_caf"] = dict(
+        implementation="tts_data_pipeline.wav_repair.embedded_caf_header",
+        file_sha256=file_hash(Path(__file__).parents[1] / "wav_repair.py"),
+        rule="RIFF data chunk starting with 'caff': require desc lpcm, 16-bit little-endian "
+        "integer, WAV rate and channels, 1 frame per packet; skip the CAF header bytes "
+        "(through the CAF data chunk's edit count) as whole frames",
+        identity="start_frame = skipped frames, end_frame = decoded native frames "
+        "(native timeline of the WAV as decoded)",
+    )
+    return section
+
+
+def profile(model_root, reference_rule=model.REFERENCE_RULE, waveform_policy=model.WAVEFORM_POLICY):
+    if waveform_policy not in model.WAVEFORM_POLICIES:
+        raise ValueError(f"Unknown waveform policy {waveform_policy}")
     root = Path(model_root)
     source = model.DOTS_SOURCE
     revision = subprocess.check_output(
@@ -58,7 +123,7 @@ def profile(model_root, reference_rule=model.REFERENCE_RULE):
         length_policy="use_complete_actual_decode",
         implicit_pad_or_trim="none",
     )
-    return {
+    result = {
         "kind": KIND,
         "architecture": "dots.tts AudioVAE encoder posterior + CAM++ x-vector",
         "model": dict(
@@ -86,31 +151,7 @@ def profile(model_root, reference_rule=model.REFERENCE_RULE):
         },
         "timeline": timeline,
         "timeline_profile_id": digest(timeline),
-        "waveform": {
-            "order": [
-                "decode_native_whole_sample",
-                "mix_channels",
-                "resample_48k",
-                "normalize_edge_silence",
-                "zero_pad_to_multiple",
-            ],
-            "channel_policy": "arithmetic_mean_float32",
-            "sample_rate": model.SAMPLE_RATE,
-            "resampling": dict(
-                implementation="dots_tts.utils.audio.high_quality_resample (CPU float32)",
-                resampling_method="sinc_interp_kaiser",
-                lowpass_filter_width=64,
-                rolloff=0.95,
-            ),
-            "edge_silence": dict(
-                implementation="dots_tts normalize_edge_silence_duration",
-                target_ms=250.0,
-                top_db_below_peak=30.0,
-                offsets="edge_leading_delta/edge_trailing_delta, signed 48 kHz samples",
-            ),
-            "align_multiple": model.ALIGN,
-            "silent_audio": "failed silent_audio",
-        },
+        "waveform": waveform_section(waveform_policy),
         "latent": {
             "function": "AudioVAE.extract_latents (fp32, autocast off)",
             "stored": "posterior: mean = channels 0..127, logstd = channels 128..255",
@@ -151,6 +192,12 @@ def profile(model_root, reference_rule=model.REFERENCE_RULE):
         },
         "output": dict(latent_dim=LATENT_DIM, xvector_dim=XVECTOR_DIM, storage_dtype="float32"),
     }
+    if waveform_policy != model.WAVEFORM_POLICY:
+        result["reference_xvector"]["audio"] = (
+            "processed (not edge-normalized) 48 kHz waveform [S * 7680, min((S + L) * 7680, "
+            "processed_frames)); the alignment pad is excluded"
+        )
+    return result
 
 
 IDENTITY_KEYS = (
@@ -178,7 +225,7 @@ def feature_row(
         audio_sha256=row["audio_sha256"],
         timeline_profile_id=definition["timeline_profile_id"],
         native_sample_rate=row["sample_rate"],
-        start_frame=0,
+        start_frame=info.get("start_frame", 0),
         end_frame=info.get("end_frame", row["num_frames"]),
         profile_id=profile_id,
     )
@@ -190,7 +237,7 @@ def feature_row(
                 "feature-v1",
                 row["audio_sha256"],
                 definition["timeline_profile_id"],
-                0,
+                identity["start_frame"],
                 identity["end_frame"],
                 profile_id,
             ]

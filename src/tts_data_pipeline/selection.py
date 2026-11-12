@@ -862,6 +862,21 @@ def plan(root, work, rules_path, *, selection_id=None):
             "profile_id": feature["profile_id"],
             "rule": "processed_frames / 48000 for status=ok, else 0",
         }
+        raw = flex.get("reference_duration_waveform")
+        if raw is not None:
+            # Features without edge normalization: the processed audio is the resampled audio,
+            # minus any embedded CAF header (skipped before decoding, see wav_repair.py).
+            if raw["policy"] != "raw-caf-repair-v1":
+                raise ValueError(f"Unknown reference duration waveform {raw['policy']}")
+            caf = Path(__file__).resolve().parents[2] / raw["caf_evidence"]["path"]
+            if file_sha(caf) != raw["caf_evidence"]["sha256"]:
+                raise ValueError("Embedded CAF evidence changed")
+            result["reference_duration_input"].update(
+                waveform_policy=raw["policy"],
+                caf_evidence=raw["caf_evidence"],
+                rule="(resampled_frames - embedded CAF header frames * 48000 / native rate) "
+                "/ 48000 for status=ok, else 0; header frames from the pinned audit TSV",
+            )
     write_json(work / "plan.json", result)
     event(
         work,
@@ -1232,8 +1247,22 @@ def align_reference_durations(p):
     features = lance.dataset(
         Path(p["root"]) / evidence["table_path"], version=evidence["lance_version"]
     )
+    skip, frames_column = {}, "processed_frames"
+    if evidence.get("waveform_policy") == "raw-caf-repair-v1":
+        frames_column = "resampled_frames"
+        tsv = Path(__file__).resolve().parents[2] / evidence["caf_evidence"]["path"]
+        if file_sha(tsv) != evidence["caf_evidence"]["sha256"]:
+            raise ValueError("Embedded CAF evidence changed")
+        with tsv.open(newline="") as stream:
+            for record in csv.DictReader(stream, delimiter="\t"):
+                rate = int(record["sample_rate"])
+                # The CAF header ends on a frame boundary; 48 kHz must be an integer multiple.
+                frames = int(record["header_bytes"]) // 2
+                if 48000 % rate or int(record["header_bytes"]) % 2:
+                    raise ValueError(f"Inexact CAF header resampling: {record}")
+                skip[record["sample_id"].encode()] = frames * (48000 // rate)
     for batch in features.scanner(
-        columns=["target_id", "status", "processed_frames", "profile_id"], batch_size=65536
+        columns=["target_id", "status", frames_column, "profile_id"], batch_size=65536
     ).to_batches():
         targets = np.asarray(batch["target_id"].to_pylist(), dtype="S64")
         positions = np.searchsorted(sorted_ids, targets)
@@ -1245,9 +1274,9 @@ def align_reference_durations(p):
         if any(v != evidence["profile_id"] for v in batch["profile_id"].to_pylist()):
             raise ValueError("Mixed reference duration profiles")
         seconds[at] = [
-            frames / 48000 if status == "ok" else 0
-            for frames, status in zip(
-                batch["processed_frames"].to_pylist(), batch["status"].to_pylist(), strict=True
+            (frames - skip.get(target, 0)) / 48000 if status == "ok" else 0
+            for target, frames, status in zip(
+                targets, batch[frames_column].to_pylist(), batch["status"].to_pylist(), strict=True
             )
         ]
     if not np.isfinite(seconds).all() or (seconds < 0).any():

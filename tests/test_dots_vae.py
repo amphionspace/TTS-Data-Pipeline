@@ -279,7 +279,7 @@ def test_all_samples_publication(tmp_path, monkeypatch):
     monkeypatch.setattr(
         run,
         "profile",
-        lambda model_root, rule: dict(DEFINITION, model=str(model_root), reference_rule=rule),
+        lambda model_root, rule, policy="edge-silence-250ms-v1": dict(DEFINITION, model=str(model_root), reference_rule=rule, waveform={}),
     )
     monkeypatch.setattr(
         run, "read_base_manifest", lambda r: json.loads((r / "manifest.json").read_text())
@@ -338,7 +338,7 @@ def test_selection_branch_publication_carries_selected_text(tmp_path, monkeypatc
     selection = publish(tmp_path / "selection", workers=1)
     manifest_path = root / "selections" / selection["selection_id"] / "manifest.json"
     monkeypatch.setattr(
-        run, "profile", lambda model_root, rule: dict(DEFINITION, reference_rule=rule)
+        run, "profile", lambda model_root, rule, policy="edge-silence-250ms-v1": dict(DEFINITION, reference_rule=rule, waveform={})
     )
     p = run.prepare_selection(root, manifest_path, tmp_path / "work", tmp_path, task_size=2)
     (d,) = p["datasets"]

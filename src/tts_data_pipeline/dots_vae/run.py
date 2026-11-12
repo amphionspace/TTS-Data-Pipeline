@@ -38,8 +38,8 @@ from ..manifests import read_base_manifest
 from ..schema import digest
 from ..timestamps import BEIJING
 from ..writer import remove_uncommitted_data_files
-from .model import REFERENCE_RULE
-from .profile import KIND, PROFILE_NAMES, profile
+from .model import REFERENCE_RULE, WAVEFORM_POLICY
+from .profile import KIND, profile, profile_name as named_profile
 from .storage import make_table, validate_table
 
 INPUT_COLUMNS = [
@@ -103,14 +103,15 @@ def prepare(
     task_size=1024,
     output_root=None,
     reference_rule=REFERENCE_RULE,
+    waveform_policy=WAVEFORM_POLICY,
 ):
     work = Path(work).resolve()
     release_dir = Path(root) / "datasets" / dataset / release
     base = read_base_manifest(release_dir)
     if base["status"] != "complete":
         raise ValueError("Base release is not complete")
-    definition = profile(model_root, reference_rule)
-    profile_name = PROFILE_NAMES[reference_rule]
+    definition = profile(model_root, reference_rule, waveform_policy)
+    profile_name = named_profile(reference_rule, waveform_policy)
     source = dict(
         dataset_id=dataset,
         release_id=release,
@@ -205,6 +206,7 @@ def prepare_selection(
     task_size=1024,
     output_root=None,
     reference_rule=REFERENCE_RULE,
+    waveform_policy=WAVEFORM_POLICY,
 ):
     """One dots_vae run per selection output; targets are its selection_reason = 0 rows."""
     root, work = Path(root).resolve(), Path(work).resolve()
@@ -215,8 +217,8 @@ def prepare_selection(
     outputs = [o for o in selection["outputs"] if datasets is None or o["dataset_id"] in datasets]
     if datasets is not None and {o["dataset_id"] for o in outputs} != set(datasets):
         raise ValueError("Requested dataset is absent from the selection")
-    definition = profile(model_root, reference_rule)
-    profile_name = PROFILE_NAMES[reference_rule]
+    definition = profile(model_root, reference_rule, waveform_policy)
+    profile_name = named_profile(reference_rule, waveform_policy)
     created = datetime.now(BEIJING).isoformat()
     output_root = Path(output_root or root).resolve()
     plans = []
@@ -280,10 +282,16 @@ def prepare_selection(
     return p
 
 
+def waveform_policy(p):
+    """Waveform chain of a plan; v2 profiles predate the field and use the default chain."""
+    return p["profile"]["waveform"].get("policy", WAVEFORM_POLICY)
+
+
 def validate_plan(p):
     if (
         file_hash(__file__) != p["execution_code_sha256"]
-        or profile(p["model_root"], p["profile"]["reference_rule"]) != p["profile"]
+        or profile(p["model_root"], p["profile"]["reference_rule"], waveform_policy(p))
+        != p["profile"]
     ):
         raise ValueError("Pinned implementation, model or numerical profile changed")
     for d in p["datasets"]:
@@ -393,7 +401,9 @@ def worker(gpu, p, jobs, results, cpu_threads):
         torch.set_num_threads(2)
         pa.set_cpu_count(2)
         pa.set_io_thread_count(2)
-        encoder = Encoder(p["model_root"], f"cuda:{gpu}", p["profile"]["reference_rule"])
+        encoder = Encoder(
+            p["model_root"], f"cuda:{gpu}", p["profile"]["reference_rule"], waveform_policy(p)
+        )
         sources = {d["source"]["dataset_id"]: d for d in p["datasets"]}
         with (
             ThreadPoolExecutor(max_workers=cpu_threads) as pool,

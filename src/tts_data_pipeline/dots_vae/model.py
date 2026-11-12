@@ -7,7 +7,8 @@ a multiple of 7680. Latents come from that padded waveform plus a zero tail, so 
 frames see a computed lookahead as in a dots batch row that is not the longest. The x-vector
 uses the training fbank (kaiser 48k->16k), cropped to the first 10 s in place of dots' random
 crop, then CAM++. A second x-vector covers only the trainer's reference span: patches
-[reference_start_patch, reference_end_patch) of the edge-normalized waveform, whole.
+[reference_start_patch, reference_end_patch) of the processed waveform (edge-normalized
+under the default policy), whole.
 """
 
 import hashlib
@@ -20,6 +21,8 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 import torch
+
+from ..wav_repair import embedded_caf_header
 
 DOTS_SOURCE = Path(
     os.environ.get(
@@ -61,6 +64,12 @@ REFERENCE_RULES = {
     "dots-reference-v2:min-3s-on-patches": 19,
 }
 REFERENCE_RULE = "dots-reference-v1:codec-grid-v1-on-patches"
+# Waveform chains. edge-silence-250ms-v1 is the dots training preprocessing (the default and
+# every published v2 profile). raw-caf-repair-v1 keeps the recording's own edges (no 250 ms
+# edge silence normalization: it zero-pads hard starts into a step at 0.25 s and aligns every
+# onset there) and skips an embedded CAF header (wav_repair.py) before decoding the PCM.
+WAVEFORM_POLICIES = ("edge-silence-250ms-v1", "raw-caf-repair-v1")
+WAVEFORM_POLICY = WAVEFORM_POLICIES[0]
 # One encoder call holds at most this many padded 48 kHz samples (about 4 minutes).
 BATCH_SAMPLES = 48000 * 240
 MAX_BATCH = 32
@@ -136,8 +145,12 @@ def load_strict(module, path):
 
 
 class Encoder:
-    def __init__(self, model_root, device, reference_rule=REFERENCE_RULE):
+    def __init__(self, model_root, device, reference_rule=REFERENCE_RULE, waveform_policy=WAVEFORM_POLICY):
         import json
+
+        if waveform_policy not in WAVEFORM_POLICIES:
+            raise ValueError(f"Unknown waveform policy {waveform_policy}")
+        self.waveform_policy = waveform_policy
 
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
@@ -177,17 +190,30 @@ class Encoder:
         data, rate = sf.read(io.BytesIO(raw), dtype="float32", always_2d=True)
         if rate != row["sample_rate"] or data.shape[1] != row["channels"]:
             raise ValueError("Decoded audio differs from the base header")
+        start = 0
+        if self.waveform_policy == "raw-caf-repair-v1":
+            header = embedded_caf_header(raw, rate, data.shape[1])
+            if header:
+                if sf.info(io.BytesIO(raw)).subtype != "PCM_16":
+                    raise ValueError("Embedded CAF header in a WAV that is not 16-bit PCM")
+                start = header // (2 * data.shape[1])
+                data = data[start:]
         if not np.isfinite(data).all():
-            return None, dict(end_frame=len(data)), "nonfinite_audio"
+            return None, dict(start_frame=start, end_frame=start + len(data)), "nonfinite_audio"
         waveform = torch.from_numpy(data.T)
         if waveform.size(0) > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
         waveform = self.up["resample"](waveform.contiguous(), orig_sr=rate, target_sr=SAMPLE_RATE)
-        info = dict(end_frame=len(data), resampled_frames=int(waveform.size(-1)))
+        info = dict(
+            start_frame=start, end_frame=start + len(data), resampled_frames=int(waveform.size(-1))
+        )
         if waveform.numel() == 0 or float(waveform.abs().max()) <= 0.0:
             return None, info, "silent_audio"
-        leading, trailing = edge_deltas(waveform, self.up)
-        edged = self.up["normalize_edge"](waveform, sample_rate=SAMPLE_RATE)
+        if self.waveform_policy == "raw-caf-repair-v1":
+            leading, trailing, edged = 0, 0, waveform
+        else:
+            leading, trailing = edge_deltas(waveform, self.up)
+            edged = self.up["normalize_edge"](waveform, sample_rate=SAMPLE_RATE)
         expected = waveform.size(-1) + leading + trailing
         if edged.size(-1) != expected:
             raise ValueError("Edge offsets do not reproduce the upstream length")
@@ -247,7 +273,7 @@ class Encoder:
             )
             for i in good
         }
-        # The reference audio is the edge-normalized waveform; the alignment pad is excluded.
+        # The reference audio is the processed waveform; the alignment pad is excluded.
         references = {
             i: prepared[i][0][
                 :,
