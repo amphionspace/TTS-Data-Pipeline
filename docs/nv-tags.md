@@ -60,3 +60,7 @@ emilia_nv 其余 12 个 NVSpeech 原生标签不变；其他四个数据集没�
    1 秒以下片段、上游测试集（test、spk_test）与重复冲突，见 [selection 规范](data-contract/specs/12-selections.md#selection-nv-v1)。
 3. dots_vae `…-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-20261103T173207bjt-01`（selection_branch）：text 为选用文本，
    text_kind=`nv-canonical-v1`，manifest.text 记 annotation run 与映射版本。
+
+2026-11-12：NV 五个数据集另发布 v3-ref3s 特征 `<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261112T121520bjt-01`
+（同一 selection 与文本，不做 250 ms 边缘静音归一化），与 FlexiVoice v3 特征同一 profile，见 [flexivoice](flexivoice.md)。
+

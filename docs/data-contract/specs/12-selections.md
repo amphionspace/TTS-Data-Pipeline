@@ -155,6 +155,13 @@ scope 为 `audio_sha256`、reason 103 的排除（exclusion_id = digest(selectio
 `selection-flexivoice-v2` 在 v1 规则上加入 `embedded_caf_header`：kespeech WAV 的 data 块以 4096 字节 Apple CAF 头（`caff`/`desc`/`lpcm`/`free`/`data`）开头，
 被解码为约 128 ms 满幅垃圾采样，由 `scripts/audit_embedded_caf.py` 扫描完整 base 得到 326,006 条。
 
+`flexivoice.reference_duration_waveform`（selection-flexivoice-v3 起）声明目标特征的波形策略，参考池的时长按该策略的处理后时长判断，
+而不是全量特征的 processed_frames。目前只支持 `raw-caf-repair-v1`（不做 250 ms 边缘静音归一化，解码前跳过内嵌 CAF 头）：
+时长 = (resampled_frames − CAF 头帧数 × 48000 / 原生采样率) / 48000，resampled_frames 取自 `reference_duration_manifest` 固定的全量特征，
+CAF 头帧数取自 `caf_evidence` 固定哈希的审计 TSV（要求 48000 能被原生采样率整除，保证结果精确）。manifest 的 `reference_duration_input`
+另记 waveform_policy、caf_evidence 和该计算规则。`selection-flexivoice-v3` 在 v1 规则上使用此项、以 v1 为父 selection，不再按 103 排除 CAF 音频；
+去掉补零使部分说话人失去 ≥3 s 跨句参考，249 行改记 5002。
+
 执行器另支持两项尚无已发布规则使用的选项：`speaker_metadata` 从 base `metadata_json` 的键路径取说话人数（按 6002 判定，
 每个数据集在 speaker_inputs 与 speaker_metadata 中恰好出现一次）；文本来源的 `verification` 要求 ASR 文本与 base `text_variants`
 中指定 kind 的文本一致（比较前两边做 NFKC、casefold、去组合附加符、取 `[a-z0-9']+` 词并按 fold_words 映射、去撇号无分隔连接，

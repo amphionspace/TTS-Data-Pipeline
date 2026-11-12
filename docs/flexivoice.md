@@ -91,3 +91,27 @@ PYTHONPATH=src python -m tts_data_pipeline.dots_vae.reselect --root /workspace/d
 
 结果：selection `tts-selection-supervised-tts-20261111T162703bjt-01` 入选 **1,330,267 行 / 2,214.4 原生小时**（v1 为 1,656,126 行）；
 features `flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s-20261111T164240bjt-01` 于 2026-11-11 17:05 发布，全量校验通过。
+
+## v3：去掉 250 ms 边缘静音、修复 CAF 头（2026-11-12）
+
+v2 特征沿用 dots 训练预处理的 250 ms 边缘静音归一化：首个超过（峰值 −30 dB）阈值的采样前补零或裁剪到恰好 250 ms。
+从第一个采样就开始发声的录音（FlexiVoice train 4.45%、NV 0.1–9.8%）因此在 0.25 s 处从数字零阶跃到语音，所有起音也被对齐到 0.25 s；
+去 CAF 头的 2 epoch 实验生成音频仍有开头瞬态。v3 改为 dots_vae waveform 策略 `raw-caf-repair-v1`（profile `dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s`）：
+
+- 解码前用 `tts_data_pipeline/wav_repair.py` 检查 WAV data 块是否以 `caff` 开头；是则核对 CAF desc 为 16-bit little-endian 整数 PCM、
+  采样率和声道与 WAV 头一致，跳过头部（kespeech 均为 2048 帧），特征行的 start_frame 记跳过的帧数。不满足条件即报错，不猜测。
+- 不做边缘静音归一化（edge_leading/trailing_delta 均为 0），保留录音本身的首尾；只在末尾补零到 7680 的整数倍。
+- 参考段规则、x-vector、VAE 与 v2-ref3s 相同。
+
+selection `tts-selection-supervised-tts-20261112T112338bjt-01`（selection-flexivoice-v3）按 v3 波形时长重算参考池，KeSpeech CAF 样本全部保留，入选 1,655,877 行。
+NV 五个数据集同 profile 的特征为 `<dataset_id>-…-v3-ref3s-20261112T121520bjt-01`；训练 build 要求所有 binding 同一 profile_id。
+
+```bash
+export TTS_DOTS_SOURCE=$PWD/cache/third_party/dots.tts PYTHONPATH=src
+python scripts/build_selection.py plan --work /tmp/selection-flexivoice-v3-20261112 --rules configs/selections/selection-flexivoice-v3.json
+python scripts/build_selection.py run --work /tmp/selection-flexivoice-v3-20261112 --workers 16
+python scripts/extract_dots_vae.py plan-selection --selection <selection manifest> --work <work> \
+  --model <dots.tts-soar> --reference-rule dots-reference-v2:min-3s-on-patches --waveform-policy raw-caf-repair-v1
+python scripts/extract_dots_vae.py run --work <work> --gpus 0 1 2 3 4 --workers-per-gpu 2 --cpu-threads 6
+```
+
