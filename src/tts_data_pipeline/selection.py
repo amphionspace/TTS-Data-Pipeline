@@ -1042,10 +1042,15 @@ def classify(
         from .flexivoice import speaker_key, utterance_key
 
         policy = rules["flexivoice"]
-        speaker_id = speaker_key(
-            row["source_config"], json.loads(row["metadata_json"])["upstream"]["wav_path"]
-        )
-        if row["source_config"] not in policy["source_configs"]:
+        wav_path = json.loads(row["metadata_json"])["upstream"]["wav_path"]
+        speaker_id = speaker_key(row["source_config"], wav_path)
+        # emotion bundles several corpora (third path segment); an optional allow-list keeps some.
+        corpora = policy.get("emotion_corpora")
+        if row["source_config"] not in policy["source_configs"] or (
+            corpora is not None
+            and row["source_config"] == "emotion"
+            and wav_path.split("/")[2] not in corpora
+        ):
             reasons.append(3004)
             flags |= 1 << 17
         if speaker_id is None:
