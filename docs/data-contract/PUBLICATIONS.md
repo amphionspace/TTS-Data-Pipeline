@@ -69,6 +69,7 @@
 | Selection | `tts-selection-supervised-tts-20261111T162703bjt-01` | selection-flexivoice-v2；flexivoice；入选 1,330,267 条，2,214.4 小时；v1 + 排除 326,006 条内嵌 CAF 头的 KeSpeech 音频（103） | 2026-11-11 16:35 | 11-11 去 CAF 实验（`pt-ii8bqdpg`）；已由 v3 取代（v3 修复 CAF 头而不排除），保留供对照 |
 | Selection | `tts-selection-supervised-tts-20261112T112338bjt-01` | selection-flexivoice-v3；flexivoice；入选 1,655,877 条，2,742.2 小时；v1 规则，参考池按 raw-caf-repair-v1 波形时长判断（不做 250 ms 边缘归一化、扣除 CAF 头），KeSpeech CAF 样本保留 | 2026-11-12 11:26 | raw v3 实验（step932 `pt-x7s1wo9c`、lr 扫描 `pt-fg1ai7mx`）；新训练已由 v4 `…20261113T095517bjt-01` 取代，保留供对照 |
 | Selection | `tts-selection-supervised-tts-20261113T095517bjt-01` | selection-flexivoice-v4；flexivoice；入选 452,817 条，760.8 小时；v3 规则，只保留以风格为主的子集（WHSP、debatts、原神、星穹铁道，emotion 中的 ESD/RAVDESS/EMNS） | 2026-11-13 09:58 | 当前 FlexiVoice 指令训练 |
+| Selection | `tts-selection-supervised-tts-20261113T143403bjt-01` | selection-hifitts2-speaker40-v1；hifitts2；入选 171,761 条，500.4 小时；selection-v2 规则（base 文本）+ 每说话人至多 40 句（3–20 s）的固定抽样名单，名单外记 8002 | 2026-11-13 14:40 | dots.tts 指令训练 v5 的英文多说话人数据 |
 | Features | text · `text-selection-text-v1-20260930T153654bjt-01` | 16 个数据集，128,220,178 行 | 2026-09-30 17:01 | selection-v1 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-packed-v1-20260930T130829bjt-01` | 16 个数据集，128,220,178 行 | 2026-10-01 05:34 | selection-v1 |
 | Features | codec · `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20260930T181155bjt-01` | 12 个数据集，49,918,118 行 | 2026-10-01 13:33 | selection-v1 |
@@ -611,6 +612,17 @@
   入选 452,817 条 / 760.8 小时：genshin 289,242、starrail 95,453、ESD 35,000、debatts 19,732、WHSP 10,949、RAVDESS 1,260、EMNS 1,181
 - 说明：v3 中约 69% 的 FlexiVoice 行指令在描述音色（kespeech、childmandarin、l2、voxceleb），ears/expresso 的长描述混有音色，
   CREMA-D、IEMOCAP 质量低（同说话人 x-vector 相似度 0.40/0.43），均记 3004 不入选。分析见 LM-TTS-Training `docs/training/dots-instruct-flexivoice-20261109.md` §1.4、§6.3
+
+### 2026-11-13 · 发布 · tts-selection-supervised-tts-20261113T143403bjt-01
+
+- 时间：2026-11-13 14:40（北京时间）
+- manifest：`selections/tts-selection-supervised-tts-20261113T143403bjt-01/manifest.json`
+- SHA256：`c624976ee4f139e4d00d31ce61fa4cc16124feb2ebe9b5f5a8042def8fa39122`
+- 内容：selection-hifitts2-speaker40-v1，字典 version 9；父 selection selection-v2 `tts-selection-supervised-tts-20261012T123927bjt-01`，继承其排除；
+  只含 hifitts2，base 文本。`sample_evidence` 固定 `reports/sample/hifitts2-speaker40-v1.tsv`（SHA256 `cc6a0d6b2fc9dc92d79d8b49ec4557f6280a85905bf3d85200247a56f391be1b`，
+  173,651 行，不入统一根）：每个 base speaker_id 在 3–20 s 原生时长的句子中按 `sha256('hifitts2-speaker40-v1:' + sample_id)` 取前 40 句（`scripts/sample_per_speaker.py`）。
+  入选 171,761 条 / 500.4 小时（4,970 个说话人）；名单外 12,570,342 行记 8002，其余排除为 1007 标记文本 63,085、3001 2,634、7001 上游测试集 1,943、1006 104、1004 6
+- 说明：v4 训练集英文只有约 202 h、170 个多为游戏配音的说话人，英文 speaker-only 音色相似度明显低于中文；补入英文多说话人朗读。HiFiTTS-2 为 22.05 kHz
 
 ## Features
 

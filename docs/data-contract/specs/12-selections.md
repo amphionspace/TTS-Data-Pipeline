@@ -166,6 +166,16 @@ CAF 头帧数取自 `caf_evidence` 固定哈希的审计 TSV（要求 48000 能�
 其余 emotion 行与 `source_configs` 之外的行一样记 3004。`selection-flexivoice-v4` 以 v3 为父，只保留以风格为主的子集：
 WHSP、debatts、genshin、starrail，以及 emotion 中的 Emotion_Speech_Dataset、RAVDESS、EMNS。
 
+字典 version 9（规则含 `sample_evidence` 时使用）在 version 8 之上新增：
+
+| 码 | 名称 | 含义 |
+| --- | --- | --- |
+| 8002 | not_sampled | 数据集给出了固定抽样名单，该行不在名单中；不自动称为坏数据；flag bit 18 |
+
+`sample_evidence` 每项给出 dataset_id、仓库内名单 TSV 路径与 SHA256、`expected_rows` 和抽样规则说明；plan 时校验哈希、行数、数据集一致和 sample_id 唯一，
+manifest 记录名单及 base manifest 摘要。名单由确定性脚本生成（如 `scripts/sample_per_speaker.py`：按 base speaker_id 在时长范围内按 sha256(seed:sample_id) 取前 N 句），
+只决定"是否入选"，其余规则照常执行。`selection-hifitts2-speaker40-v1` 以 selection-v2 为父，只含 hifitts2，每说话人至多 40 句 3–20 s。
+
 执行器另支持两项尚无已发布规则使用的选项：`speaker_metadata` 从 base `metadata_json` 的键路径取说话人数（按 6002 判定，
 每个数据集在 speaker_inputs 与 speaker_metadata 中恰好出现一次）；文本来源的 `verification` 要求 ASR 文本与 base `text_variants`
 中指定 kind 的文本一致（比较前两边做 NFKC、casefold、去组合附加符、取 `[a-z0-9']+` 词并按 fold_words 映射、去撇号无分隔连接，
@@ -177,7 +187,7 @@ WHSP、debatts、genshin、starrail，以及 emotion 中的 Emotion_Speech_Datas
 
 flags 独立分配 bit：0 音频问题，1 缺文本，2 配对问题，3 语言规则，4 时长规则，
 5 重复成员，6 未解决重复冲突，7 参考规则，8 留出评估，9 已确认排除；
-version 2 起 10 来源时间轴，11 文本策略，12 语言证据；version 3 起 13 质量策略；version 4 起 14 父 selection 未选（凡父未选的行都置位，不论主原因）；version 5 起 15 说话人策略；version 7 起 16 采样率策略；version 8 起 17 来源子集策略。18–31 保留。
+version 2 起 10 来源时间轴，11 文本策略，12 语言证据；version 3 起 13 质量策略；version 4 起 14 父 selection 未选（凡父未选的行都置位，不论主原因）；version 5 起 15 说话人策略；version 7 起 16 采样率策略；version 8 起 17 来源子集策略；version 9 起 18 抽样策略。19–31 保留。
 不能使用 `1 << reason_code`；一个入选代表可以 reason=0 且 bit5=1。
 flags=0 只说明此次已执行检查未命中，不代表检查过所有质量维度；coverage 必须区分未检查和通过。
 遇到未知字典版本、未知码或未知 bit 的消费者须拒绝解释，而非默认入选。
