@@ -89,6 +89,7 @@ REASONS = {
     5001: "reference_identity_unavailable",
     5002: "reference_pair_unavailable",
     3004: "source_config_not_selected",
+    8002: "not_sampled",
     6002: "not_single_speaker",
     7001: "held_out",
     65535: "pending",
@@ -112,6 +113,7 @@ FLAGS = [
     "speaker_policy",
     "sample_rate_policy",
     "source_config_policy",
+    "sampling_policy",
 ]
 # Dictionary version 5 adds 6002 and flag bit 15 (bits 13/14 keep the names spec 12 gave them
 # for versions 3/4); rules without speaker_inputs publish version 2 unchanged.
@@ -122,6 +124,9 @@ VERIFY_CODES = {1009}
 # bit 16; text-revision annotations reuse 1003 for rows the revision does not provide.
 RATE_CODES, RATE_BIT = {3003}, 16
 FLEXIVOICE_CODES = {3004, 5002}
+# Dictionary version 9 (rules with sample_evidence) adds 8002: a row outside a pinned sample list
+# of its dataset; flag bit 18.
+SAMPLE_CODES, SAMPLE_BIT = {8002}, 18
 
 
 def decision_dtype(rules):
@@ -488,6 +493,39 @@ def audio_content_exclusions(rules, inputs):
     return list(rows.values())
 
 
+def sample_evidence(rules, inputs):
+    """Pin each sample list (scripts/sample_per_speaker.py): hash, dataset and row count."""
+    releases = {s["dataset_id"]: s for s in inputs}
+    repository = Path(__file__).resolve().parents[2]
+    pinned = []
+    for item in rules.get("sample_evidence", []):
+        path = repository / item["path"]
+        if file_sha(path) != item["sha256"]:
+            raise ValueError(f"Sample evidence changed: {item['path']}")
+        if item["dataset_id"] not in releases:
+            raise ValueError(f"Sample evidence for a dataset outside the selection: {item['dataset_id']}")
+        with path.open(newline="") as stream:
+            records = list(csv.DictReader(stream, delimiter="\t"))
+        if any(r["dataset"] != item["dataset_id"] for r in records):
+            raise ValueError("Sample evidence names another dataset")
+        if len({r["sample_id"] for r in records}) != len(records) or len(records) != item["expected_rows"]:
+            raise ValueError(f"Sample evidence scope changed: {len(records)}")
+        pinned.append({**item, "base_manifest_sha256": releases[item["dataset_id"]]["manifest_sha256"]})
+    return pinned
+
+
+def sample_list(p, dataset):
+    """Sample IDs a dataset is restricted to, or None without a pinned sample list."""
+    for item in p.get("sample_evidence", []):
+        if item["dataset_id"] == dataset:
+            path = Path(__file__).resolve().parents[2] / item["path"]
+            if file_sha(path) != item["sha256"]:
+                raise ValueError("Sample evidence changed since plan")
+            with path.open(newline="") as stream:
+                return {r["sample_id"] for r in csv.DictReader(stream, delimiter="\t")}
+    return None
+
+
 def pin_annotations(root, rules, inputs):
     """Fix each adopted transcription and speaker_structure run to its manifest, snapshot and
     base. Returns (transcription inputs, speaker inputs): they stay separate lists so consumers
@@ -816,6 +854,9 @@ def plan(root, work, rules_path, *, selection_id=None):
     else:
         parent, exclusions, additions = None, known_exclusions(root, inputs, rules), []
     transcriptions, speakers = pin_annotations(root, rules, inputs)
+    if rules.get("sample_evidence") and not SAMPLE_CODES <= set(rules["reason_priority"]):
+        raise ValueError("Sample evidence needs 8002 in reason_priority")
+    samples_pinned = sample_evidence(rules, inputs)
     result = {
         "selection_id": selection_id,
         "root": str(root),
@@ -829,6 +870,7 @@ def plan(root, work, rules_path, *, selection_id=None):
         "tasks": tasks,
         "exclusions": exclusions + additions,
         "exclusion_additions": [e["exclusion_id"] for e in additions],
+        "sample_evidence": samples_pinned,
         "implementation_sha256": file_sha(__file__),
         "flexivoice_code_sha256": file_sha(Path(__file__).with_name("flexivoice.py"))
         if flex
@@ -900,9 +942,20 @@ def asr_language_conflict(asr, language, source):
 
 
 def classify(
-    row, dataset, rules, audio_exclusions, sample_exclusions, asr=None, evidence=None, speaker=None
+    row,
+    dataset,
+    rules,
+    audio_exclusions,
+    sample_exclusions,
+    asr=None,
+    evidence=None,
+    speaker=None,
+    sampled=None,
 ):
     reasons, flags = [], 0
+    if sampled is not None and row["sample_id"] not in sampled:
+        reasons.append(8002)
+        flags |= 1 << SAMPLE_BIT
     raw_text = row["text"]
     text = chosen_text(raw_text, asr)
     language = rules["language_aliases"].get(row["language"], row["language"])
@@ -1094,6 +1147,7 @@ def scan_part(args):
             # One sample may carry several independent exclusions.
             samples.setdefault((entry["scope"]["dataset_id"], entry["scope"]["sample_id"]), [])
             samples[(entry["scope"]["dataset_id"], entry["scope"]["sample_id"])].append(entry)
+    sampled = sample_list(p, task["dataset"])
     transcription = next(iter(transcription_inputs(p, task["dataset"])), None)
     annotation = aligned_rows(p, task, transcription)
     text_source = transcription["text_source"] if transcription else 0
@@ -1148,7 +1202,7 @@ def scan_part(args):
                     "required": metadata_speaker["speaker_count"],
                 }
             reason, flags, lang, text = classify(
-                row, task["dataset"], rules, audio, samples, asr, evidence, speaker
+                row, task["dataset"], rules, audio, samples, asr, evidence, speaker, sampled
             )
             sid, sha = row["sample_id"], row["audio_sha256"]
             if len(sid) != 64 or any(c not in "0123456789abcdef" for c in sid):
@@ -1924,7 +1978,9 @@ def publish(work, workers=16):
     verifying = any("verification" in r for r in p["rules"].get("text_sources", {}).values())
     rating = bool(p["rules"].get("sample_rate_policy"))
     version = (
-        8
+        9
+        if p["rules"].get("sample_evidence")
+        else 8
         if p["rules"].get("flexivoice")
         else 7
         if rating
@@ -1941,10 +1997,13 @@ def publish(work, workers=16):
         and (version >= 6 or k not in VERIFY_CODES)
         and (version >= 7 or k not in RATE_CODES)
         and (version >= 8 or k not in FLEXIVOICE_CODES)
+        and (version >= 9 or k not in SAMPLE_CODES)
     }
     bits = dict(
         enumerate(
             FLAGS
+            if version >= 9
+            else FLAGS[:18]
             if version >= 8
             else FLAGS[:17]
             if version >= 7
@@ -1995,6 +2054,7 @@ def publish(work, workers=16):
         "duplicates": {k: v for k, v in result.items() if k not in {"arrays", "duplicate_path"}},
         "reference_policy": p["rules"]["reference_policy"],
         "reference_duration_input": p.get("reference_duration_input"),
+        "sample_evidence": p.get("sample_evidence") or None,
         "coverage": {
             "row_rules": sum(s["rows"] for s in p["inputs"]),
             "exact_duplicate_hashes": sum(s["rows"] for s in p["inputs"]),
