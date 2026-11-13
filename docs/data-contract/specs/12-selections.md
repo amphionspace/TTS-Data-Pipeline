@@ -162,6 +162,10 @@ CAF 头帧数取自 `caf_evidence` 固定哈希的审计 TSV（要求 48000 能�
 另记 waveform_policy、caf_evidence 和该计算规则。`selection-flexivoice-v3` 在 v1 规则上使用此项、以 v1 为父 selection，不再按 103 排除 CAF 音频；
 去掉补零使部分说话人失去 ≥3 s 跨句参考，249 行改记 5002。
 
+`flexivoice.emotion_corpora`（selection-flexivoice-v4 起，可选）：emotion 子集包含多个语料（`upstream.wav_path` 第三段），给出时只保留名单内的语料，
+其余 emotion 行与 `source_configs` 之外的行一样记 3004。`selection-flexivoice-v4` 以 v3 为父，只保留以风格为主的子集：
+WHSP、debatts、genshin、starrail，以及 emotion 中的 Emotion_Speech_Dataset、RAVDESS、EMNS。
+
 执行器另支持两项尚无已发布规则使用的选项：`speaker_metadata` 从 base `metadata_json` 的键路径取说话人数（按 6002 判定，
 每个数据集在 speaker_inputs 与 speaker_metadata 中恰好出现一次）；文本来源的 `verification` 要求 ASR 文本与 base `text_variants`
 中指定 kind 的文本一致（比较前两边做 NFKC、casefold、去组合附加符、取 `[a-z0-9']+` 词并按 fold_words 映射、去撇号无分隔连接，

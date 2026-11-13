@@ -67,7 +67,8 @@
 | Selection | `tts-selection-supervised-tts-20261110T091733bjt-01` | selection-flexivoice-v1 试版（参考池按原生时长）；flexivoice；入选 1,655,877 条，2,742.2 小时 | 2026-11-10 09:20 | 不用于训练，无 features；已由 `…20261110T092455bjt-01` 取代 |
 | Selection | `tts-selection-supervised-tts-20261110T092455bjt-01` | selection-flexivoice-v1；flexivoice 11 个子集；入选 1,656,126 条，2,742.5 小时；参考池按 250 ms 边缘归一化后的时长 | 2026-11-10 09:28 | FlexiVoice 指令训练 11-10/11 实验（含 CAF 头样本）；已由 v3 `…20261112T112338bjt-01` 取代，保留供对照；v2、v3 的父 selection |
 | Selection | `tts-selection-supervised-tts-20261111T162703bjt-01` | selection-flexivoice-v2；flexivoice；入选 1,330,267 条，2,214.4 小时；v1 + 排除 326,006 条内嵌 CAF 头的 KeSpeech 音频（103） | 2026-11-11 16:35 | 11-11 去 CAF 实验（`pt-ii8bqdpg`）；已由 v3 取代（v3 修复 CAF 头而不排除），保留供对照 |
-| Selection | `tts-selection-supervised-tts-20261112T112338bjt-01` | selection-flexivoice-v3；flexivoice；入选 1,655,877 条，2,742.2 小时；v1 规则，参考池按 raw-caf-repair-v1 波形时长判断（不做 250 ms 边缘归一化、扣除 CAF 头），KeSpeech CAF 样本保留 | 2026-11-12 11:26 | 当前 FlexiVoice 指令训练（v3 特征） |
+| Selection | `tts-selection-supervised-tts-20261112T112338bjt-01` | selection-flexivoice-v3；flexivoice；入选 1,655,877 条，2,742.2 小时；v1 规则，参考池按 raw-caf-repair-v1 波形时长判断（不做 250 ms 边缘归一化、扣除 CAF 头），KeSpeech CAF 样本保留 | 2026-11-12 11:26 | raw v3 实验（step932 `pt-x7s1wo9c`、lr 扫描 `pt-fg1ai7mx`）；新训练已由 v4 `…20261113T095517bjt-01` 取代，保留供对照 |
+| Selection | `tts-selection-supervised-tts-20261113T095517bjt-01` | selection-flexivoice-v4；flexivoice；入选 452,817 条，760.8 小时；v3 规则，只保留以风格为主的子集（WHSP、debatts、原神、星穹铁道，emotion 中的 ESD/RAVDESS/EMNS） | 2026-11-13 09:58 | 当前 FlexiVoice 指令训练 |
 | Features | text · `text-selection-text-v1-20260930T153654bjt-01` | 16 个数据集，128,220,178 行 | 2026-09-30 17:01 | selection-v1 |
 | Features | speaker_embedding · `speaker_embedding-qwen3-ecapa-24k-fp32-packed-v1-20260930T130829bjt-01` | 16 个数据集，128,220,178 行 | 2026-10-01 05:34 | selection-v1 |
 | Features | codec · `codec-qwen3-12hz-24k-k16-fp32-packed-actual-v2-20260930T181155bjt-01` | 12 个数据集，49,918,118 行 | 2026-10-01 13:33 | selection-v1 |
@@ -97,6 +98,8 @@
 | Features | dots_vae · `flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s-20261110T093409bjt-01` | 1 个数据集（flexivoice），1,656,126 行；selection_branch（selection-flexivoice-v1），text_kind=flexivoice-text-v1；由全量特征复用 | 2026-11-10 09:59 | FlexiVoice 指令训练 11-10/11 实验；已由 v3 特征取代，保留供对照 |
 | Features | dots_vae · `flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v2-ref3s-20261111T164240bjt-01` | 1 个数据集（flexivoice），1,330,267 行；selection_branch（selection-flexivoice-v2），text_kind=flexivoice-text-v1；由全量特征复用 | 2026-11-11 17:05 | 11-11 去 CAF 实验（`pt-ii8bqdpg`）；已由 v3 特征取代，保留供对照 |
 | Features | dots_vae · `<dataset_id>-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261112T121520bjt-01` | 5 个 NV 数据集，230,083 行全部 ok；selection_branch（selection-nv-v1），text_kind=nv-canonical-v1；profile v3-ref3s（raw-caf-repair-v1 波形：不做 250 ms 边缘归一化） | 2026-11-12 12:57 | 当前 NV 部分（与 FlexiVoice v3 特征同一 profile） |
+| Features | dots_vae · `flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261112T121538bjt-01` | 1 个数据集（flexivoice），1,655,877 行全部 ok；selection_branch（selection-flexivoice-v3），text_kind=flexivoice-text-v1；profile v3-ref3s（raw-caf-repair-v1：不做 250 ms 边缘归一化，325,819 条 KeSpeech CAF 头已修复） | 2026-11-12 16:39 | raw v3 实验与 v4 特征的复用来源；新训练已由 v4 特征取代 |
+| Features | dots_vae · `flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261113T100902bjt-01` | 1 个数据集（flexivoice），452,817 行全部 ok；selection_branch（selection-flexivoice-v4），text_kind=flexivoice-text-v1；由 v3 特征 `…20261112T121538bjt-01` 复用（无 CAF 修复行） | 2026-11-13 10:16 | 当前 FlexiVoice 指令训练（与 NV v3-ref3s 同一 profile） |
 
 ## 基础数据集
 
@@ -598,6 +601,17 @@
   KeSpeech 内嵌 CAF 头的 326,006 条不再排除，由特征提取在解码前修复
 - 说明：用于 v3-ref3s 特征（`raw-caf-repair-v1`）；规则见 [12](specs/12-selections.md)。CAF 证据 TSV 同 v2（不入统一根）
 
+### 2026-11-13 · 发布 · tts-selection-supervised-tts-20261113T095517bjt-01
+
+- 时间：2026-11-13 09:58（北京时间）
+- manifest：`selections/tts-selection-supervised-tts-20261113T095517bjt-01/manifest.json`
+- SHA256：`cba7e16fab4f922ef11ac2b9a8a5896bf7cdcef8ef005cd2673086e5688e995d`
+- 内容：selection-flexivoice-v4，字典 version 8；父 selection v3 `tts-selection-supervised-tts-20261112T112338bjt-01`，继承其排除。
+  `source_configs` 只留 WHSP、debatts、emotion、genshin、starrail，新增 `emotion_corpora` 白名单（Emotion_Speech_Dataset、RAVDESS、EMNS）。
+  入选 452,817 条 / 760.8 小时：genshin 289,242、starrail 95,453、ESD 35,000、debatts 19,732、WHSP 10,949、RAVDESS 1,260、EMNS 1,181
+- 说明：v3 中约 69% 的 FlexiVoice 行指令在描述音色（kespeech、childmandarin、l2、voxceleb），ears/expresso 的长描述混有音色，
+  CREMA-D、IEMOCAP 质量低（同说话人 x-vector 相似度 0.40/0.43），均记 3004 不入选。分析见 LM-TTS-Training `docs/training/dots-instruct-flexivoice-20261109.md` §1.4、§6.3
+
 ## Features
 
 ### 2026-09-30 · 发布 · text · text-selection-text-v1-20260930T153654bjt-01
@@ -889,6 +903,27 @@
   profile `dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s`（profile_id `a6d56e2c…`），参考段规则同 v2-ref3s；waveform `raw-caf-repair-v1`：
   解码前跳过内嵌 CAF 头（NV 无此情况），不做 250 ms 边缘静音归一化，只补齐到 7680 的整数倍
 - 说明：取代 `<dataset_id>-…-v2-ref3s-20261106T092453bjt-01` 用于后续训练；本机 GPU 0–4 提取（非 ACP）
+
+### 2026-11-12 · 发布 · dots_vae · flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261112T121538bjt-01
+
+- 时间：2026-11-12 16:39（北京时间）
+- manifest：`datasets/flexivoice/v0.1/features/dots_vae/flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261112T121538bjt-01/manifest.json`
+- SHA256：`41353add6666d8d1e438ec4b83306a3fae6e86727edf7f387651f5a23e017481`
+- 内容：1,655,877 行全部 ok；selection_branch 绑定 `tts-selection-supervised-tts-20261112T112338bjt-01`（selection-flexivoice-v3），text 为选用文本（flexivoice-text-v1）；
+  profile `dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s`（profile_id `a6d56e2c…`，与 NV `<dataset_id>-…-v3-ref3s-20261112T121520bjt-01` 相同），参考段规则同 v2-ref3s；
+  waveform `raw-caf-repair-v1`：全部行边缘偏移为 0；CAF 审计的 326,006 条中入选的 325,819 条 start_frame=2048（跳过 4096 字节 CAF 头），
+  其余 187 条因 v3 参考池按原始时长判断记 5002 未入选，非 CAF 行 start_frame 均为 0。payload、指纹与全部分片回读校验通过
+- 说明：本机 GPU 0–4 提取（非 ACP），重新从音频提取，不复用全量 v2 特征。取代 v1/v2 特征用于后续训练；首个使用者为 build
+  `dots-flexivoice-raw-selection-nv-ref3s-20261112`（FlexiVoice 1,655,877 行全部就绪）与训练 `pt-x7s1wo9c`（50% interleave）
+
+### 2026-11-13 · 发布 · dots_vae · flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261113T100902bjt-01
+
+- 时间：2026-11-13 10:16（北京时间）
+- manifest：`datasets/flexivoice/v0.1/features/dots_vae/flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261113T100902bjt-01/manifest.json`
+- SHA256：`1437f2c4d5ccca72da5742aa7b370e88ae42ef1c9941f3ac8792f1ce15c6b021`
+- 内容：452,817 行全部 ok；selection_branch 绑定 `tts-selection-supervised-tts-20261113T095517bjt-01`（selection-flexivoice-v4）；
+  profile v3-ref3s（profile_id `a6d56e2c…`），由 `flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261112T121538bjt-01` 经 `dots_vae.reselect` 复用（v4 不含 KeSpeech，所有行 start_frame=0）
+- 说明：首个使用者为 build `dots-flexivoice-v4-selection-nv-ref3s-20261113` 与训练 `pt-r8wymqby`
 
 ## 统一根维护
 

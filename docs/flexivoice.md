@@ -104,6 +104,7 @@ v2 特征沿用 dots 训练预处理的 250 ms 边缘静音归一化：首个超
 - 参考段规则、x-vector、VAE 与 v2-ref3s 相同。
 
 selection `tts-selection-supervised-tts-20261112T112338bjt-01`（selection-flexivoice-v3）按 v3 波形时长重算参考池，KeSpeech CAF 样本全部保留，入选 1,655,877 行。
+FlexiVoice v3 特征 `flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261112T121538bjt-01` 于 2026-11-12 16:39 发布（1,655,877 行，其中 325,819 条 CAF 头已修复）。
 NV 五个数据集同 profile 的特征为 `<dataset_id>-…-v3-ref3s-20261112T121520bjt-01`；训练 build 要求所有 binding 同一 profile_id。
 
 ```bash
@@ -114,4 +115,12 @@ python scripts/extract_dots_vae.py plan-selection --selection <selection manifes
   --model <dots.tts-soar> --reference-rule dots-reference-v2:min-3s-on-patches --waveform-policy raw-caf-repair-v1
 python scripts/extract_dots_vae.py run --work <work> --gpus 0 1 2 3 4 --workers-per-gpu 2 --cpu-threads 6
 ```
+
+## v4：只保留以风格为主的子集（2026-11-13）
+
+v3 中约 69% 的入选行指令在描述音色（kespeech 的年龄 / 性别 / 方言、childmandarin 的儿童声线、l2 的口音性别、voxceleb 的 ParaSpeechCaps 描述），
+ears / expresso 的长描述也混有音色，与"音色来自参考"的指令 TTS 目标冲突；emotion 中的 CREMA-D、IEMOCAP 质量低。
+`selection-flexivoice-v4`（`configs/selections/selection-flexivoice-v4.json`）只保留 WHSP、debatts、ESD、RAVDESS、EMNS、genshin、starrail：
+selection `tts-selection-supervised-tts-20261113T095517bjt-01`，452,817 行 / 760.8 小时；features
+`flexivoice-dots_vae-dots-tts-soar-vae-xvec-48k-fp32-v3-ref3s-20261113T100902bjt-01` 由 v3 特征复用发布（不需要 GPU）。
 
