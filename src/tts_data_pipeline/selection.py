@@ -89,6 +89,7 @@ REASONS = {
     5001: "reference_identity_unavailable",
     5002: "reference_pair_unavailable",
     3004: "source_config_not_selected",
+    3005: "instruction_unavailable",
     8002: "not_sampled",
     6002: "not_single_speaker",
     7001: "held_out",
@@ -114,6 +115,7 @@ FLAGS = [
     "sample_rate_policy",
     "source_config_policy",
     "sampling_policy",
+    "instruction_policy",
 ]
 # Dictionary version 5 adds 6002 and flag bit 15 (bits 13/14 keep the names spec 12 gave them
 # for versions 3/4); rules without speaker_inputs publish version 2 unchanged.
@@ -127,6 +129,16 @@ FLEXIVOICE_CODES = {3004, 5002}
 # Dictionary version 9 (rules with sample_evidence) adds 8002: a row outside a pinned sample list
 # of its dataset; flag bit 18.
 SAMPLE_CODES, SAMPLE_BIT = {8002}, 18
+# Dictionary version 10 (rules with instruction_inputs) adds 3005: a row of a subset whose pinned
+# instruction revision has no usable style instruction; flag bit 19.
+INSTRUCTION_CODES, INSTRUCTION_BIT = {3005}, 19
+INSTRUCTION_COLUMNS = {
+    "sample_id": "sample_id",
+    "status": "status",
+    "error_code": "error_code",
+    "action": "result.action",
+    "instruction": "result.instruction",
+}
 
 
 def decision_dtype(rules):
@@ -594,6 +606,96 @@ def pin_annotations(root, rules, inputs):
     return pinned, speakers
 
 
+def pin_instruction_inputs(root, rules, inputs):
+    """Fix each instruction revision run (task flexivoice_instruction) to its manifest and base.
+    Rows of the listed source_configs take the revised instruction; other rows keep theirs."""
+    releases = {s["dataset_id"]: s for s in inputs}
+    pinned = []
+    for item in rules.get("instruction_inputs", []):
+        if item["task"] != "flexivoice_instruction" or not item.get("source_configs"):
+            raise ValueError("instruction_inputs need task flexivoice_instruction and source_configs")
+        folder = Path("annotations") / item["task"] / item["run_id"]
+        manifest = json.loads((Path(root) / folder / "manifest.json").read_text())
+        if manifest["status"] != "complete" or manifest["run_id"] != item["run_id"]:
+            raise ValueError("Instruction annotation is not a complete publication")
+        if set(item["source_configs"]) - set(manifest["profile"]["target_source_configs"]):
+            raise ValueError("Instruction annotation does not cover the requested subsets")
+        bases = {s["dataset_id"]: s for s in manifest["inputs"]}
+        outputs = {o["dataset_id"]: o for o in manifest["outputs"]}
+        for name in item["datasets"]:
+            source, table = releases[name], outputs[name]["table"]
+            if (
+                bases[name]["manifest_sha256"] != source["manifest_sha256"]
+                or bases[name]["lance_version"] != source["lance_version"]
+                or table["rows"] != source["rows"]
+                or table["branch"] is not None
+            ):
+                raise ValueError(f"Instruction annotation was computed on a different base: {name}")
+            pinned.append(
+                {
+                    "role": "instruction",
+                    "task": item["task"],
+                    "run_id": item["run_id"],
+                    "manifest_path": str(folder / "manifest.json"),
+                    "manifest_sha256": file_sha(Path(root) / folder / "manifest.json"),
+                    "profile_id": manifest["profile_id"],
+                    "dataset_id": name,
+                    "release_id": source["release_id"],
+                    "table_path": table["table_path"],
+                    "branch": None,
+                    "lance_version": table["lance_version"],
+                    "rows": table["rows"],
+                    "columns": sorted(INSTRUCTION_COLUMNS.values()),
+                    "source_configs": sorted(item["source_configs"]),
+                    "base_manifest_sha256": source["manifest_sha256"],
+                    "base_lance_version": source["lance_version"],
+                }
+            )
+    return pinned
+
+
+def instruction_input(p, name):
+    return next((a for a in p.get("instruction_inputs", []) if a["dataset_id"] == name), None)
+
+
+def selected_instructions(rows, configs, item):
+    """selected_instruction per row: the revised style instruction for target subsets (None when
+    unavailable, which classify excludes with 3005), None (keep base instruction) elsewhere."""
+    values = []
+    for row, config in zip(rows, configs, strict=True):
+        if item is None or config not in item["source_configs"]:
+            values.append(None)
+        elif row["status"] == "ok" and row["action"] == "replace" and (row["instruction"] or "").strip():
+            values.append(row["instruction"].strip())
+        else:
+            values.append(None)
+    return values
+
+
+def instruction_values(p, source):
+    """selected_instruction for every base row of one dataset, in base order; None without an
+    instruction input."""
+    item = instruction_input(p, source["dataset_id"])
+    if item is None:
+        return None
+    import pyarrow.parquet as pq
+
+    folder = Path(p["work"]) / "annotations"
+    done = json.loads((folder / "aligned.json").read_text())
+    rows = []
+    for task in (t for t in p["tasks"] if t["dataset"] == source["dataset_id"]):
+        path = folder / f"{aligned_key(item, task['offset'])}.parquet"
+        if file_sha(path) != done[path.stem]["sha256"]:
+            raise ValueError("Aligned annotation scratch changed")
+        rows += pq.read_table(path, columns=["status", "action", "instruction"]).to_pylist()
+    base = open_base(p["root"], source)
+    configs = base.to_table(columns=["source_config"], scan_in_order=True)["source_config"]
+    values = selected_instructions(rows, configs.to_pylist(), item)
+    if len(values) != source["rows"]:
+        raise ValueError("Instruction values do not cover the base")
+    return values
+
+
 def transcription_inputs(p, name=None):
     """Pinned text sources (annotation_inputs)."""
     return [a for a in p.get("annotation_inputs", []) if name is None or a["dataset_id"] == name]
@@ -610,7 +712,7 @@ def speaker_metadata(rules, name):
 
 def aligned_key(item, offset):
     """Scratch name of one aligned scan slice; transcription keeps its original name."""
-    kind = "speaker-" if item.get("role") == "speaker" else ""
+    kind = {"speaker": "speaker-", "instruction": "instruction-"}.get(item.get("role"), "")
     return f"{item['dataset_id']}-{kind}{offset:012d}"
 
 
@@ -630,7 +732,8 @@ def align_annotations(work):
     import pyarrow.parquet as pq
 
     done = {}
-    for item in p["annotation_inputs"] + p.get("speaker_inputs", []):
+    items = p["annotation_inputs"] + p.get("speaker_inputs", []) + p.get("instruction_inputs", [])
+    for item in items:
         name = item["dataset_id"]
         source = next(s for s in p["inputs"] if s["dataset_id"] == name)
         base = open_base(p["root"], source)
@@ -647,6 +750,9 @@ def align_annotations(work):
                 ["sample_id", "status", "audio_sha256", "speaker_count"],
                 item["columns"],
             )
+        elif item.get("role") == "instruction":
+            names = list(INSTRUCTION_COLUMNS)
+            columns = [INSTRUCTION_COLUMNS[k] for k in names]
         elif revision:
             names = list(REVISION_COLUMNS)
             columns = [REVISION_COLUMNS[k] for k in names]
@@ -854,6 +960,9 @@ def plan(root, work, rules_path, *, selection_id=None):
     else:
         parent, exclusions, additions = None, known_exclusions(root, inputs, rules), []
     transcriptions, speakers = pin_annotations(root, rules, inputs)
+    instructions = pin_instruction_inputs(root, rules, inputs)
+    if instructions and not (flex and INSTRUCTION_CODES <= set(rules["reason_priority"])):
+        raise ValueError("instruction_inputs need FlexiVoice rules and 3005 in reason_priority")
     if rules.get("sample_evidence") and not SAMPLE_CODES <= set(rules["reason_priority"]):
         raise ValueError("Sample evidence needs 8002 in reason_priority")
     samples_pinned = sample_evidence(rules, inputs)
@@ -878,6 +987,8 @@ def plan(root, work, rules_path, *, selection_id=None):
     }
     if speakers:
         result["speaker_inputs"] = speakers
+    if instructions:
+        result["instruction_inputs"] = instructions
     if flex and flex.get("reference_duration_manifest"):
         path = root / flex["reference_duration_manifest"]
         feature = json.loads(path.read_text())
@@ -951,6 +1062,7 @@ def classify(
     evidence=None,
     speaker=None,
     sampled=None,
+    instruction=None,
 ):
     reasons, flags = [], 0
     if sampled is not None and row["sample_id"] not in sampled:
@@ -1112,6 +1224,15 @@ def classify(
         if speaker_id in policy["holdout_speakers"]:
             reasons.append(7001)
             flags |= 1 << 8
+        if instruction is not None:
+            if instruction["row"]["sample_id"] != row["sample_id"]:
+                raise ValueError("Instruction annotation is not aligned")
+            if row["source_config"] in instruction["item"]["source_configs"] and not (
+                selected_instructions([instruction["row"]], [row["source_config"]],
+                                      instruction["item"])[0]
+            ):
+                reasons.append(3005)
+                flags |= 1 << INSTRUCTION_BIT
         if evidence is not None:
             evidence["speaker_hash"] = (
                 hashlib.sha256(speaker_id.encode()).digest() if speaker_id else b""
@@ -1153,6 +1274,8 @@ def scan_part(args):
     text_source = transcription["text_source"] if transcription else 0
     speaker_item = speaker_input(p, task["dataset"])
     speakers = aligned_rows(p, task, speaker_item)
+    instruction_item = instruction_input(p, task["dataset"])
+    instructions = aligned_rows(p, task, instruction_item)
     metadata_speaker = speaker_metadata(rules, task["dataset"])
     verifying = (
         transcription is not None and "verification" in (rules["text_sources"][str(text_source)])
@@ -1202,7 +1325,18 @@ def scan_part(args):
                     "required": metadata_speaker["speaker_count"],
                 }
             reason, flags, lang, text = classify(
-                row, task["dataset"], rules, audio, samples, asr, evidence, speaker, sampled
+                row,
+                task["dataset"],
+                rules,
+                audio,
+                samples,
+                asr,
+                evidence,
+                speaker,
+                sampled,
+                {"row": instructions[position], "item": instruction_item}
+                if instructions is not None
+                else None,
             )
             sid, sha = row["sample_id"], row["audio_sha256"]
             if len(sid) != 64 or any(c not in "0123456789abcdef" for c in sid):
@@ -1664,6 +1798,7 @@ def publish_branch(args):
     if file_sha(array_info["path"]) != array_info["sha256"]:
         raise ValueError("Changed decision array")
     branch_name = p["selection_id"]
+    instructions = instruction_values(p, source)
     if state.exists():
         output = json.loads(state.read_text())
         branch = ds.checkout_version((branch_name, output["lance_version"]))
@@ -1687,6 +1822,7 @@ def publish_branch(args):
                     ("selected_text_source", pa.uint32()),
                     ("selected_language", pa.string()),
                 ]
+                + ([("selected_instruction", pa.string())] if instructions is not None else [])
             )
 
             @lance.batch_udf(output_schema=schema)
@@ -1709,16 +1845,18 @@ def publish_branch(args):
                     aliases[lang] if lang in aliases and aliases[lang] != lang else None
                     for lang in languages
                 ]
-                return pa.record_batch(
-                    [
-                        pa.array(expected["reason"]),
-                        pa.array(expected["flags"]),
-                        pa.array(values, type=pa.string()),
-                        pa.array(codes, type=pa.uint32()),
-                        pa.array(language_overrides, type=pa.string()),
-                    ],
-                    schema=schema,
-                )
+                columns = [
+                    pa.array(expected["reason"]),
+                    pa.array(expected["flags"]),
+                    pa.array(values, type=pa.string()),
+                    pa.array(codes, type=pa.uint32()),
+                    pa.array(language_overrides, type=pa.string()),
+                ]
+                if instructions is not None:
+                    columns.append(
+                        pa.array([instructions[i] for i in positions], type=pa.string())
+                    )
+                return pa.record_batch(columns, schema=schema)
 
             branch.add_columns(
                 selection_columns,
@@ -1741,7 +1879,8 @@ def publish_branch(args):
             "selected_text_source",
             "language",
             "selected_language",
-        ],
+        ]
+        + (["selected_instruction"] if instructions is not None else []),
         batch_size=65536,
         scan_in_order=True,
     ):
@@ -1777,6 +1916,11 @@ def publish_branch(args):
         ]
         if batch.column("selected_language").to_pylist() != expected_languages:
             raise ValueError("Selected language does not match alias rule")
+        if instructions is not None and (
+            batch.column("selected_instruction").to_pylist()
+            != instructions[position : position + len(batch)]
+        ):
+            raise ValueError("Selected instruction does not match the pinned revision")
         ordered.update(b"".join(s + b"\n" for s in actual_ids))
         codes, counts = np.unique(actual_reasons, return_counts=True)
         reasons.update({str(int(c)): int(n) for c, n in zip(codes, counts, strict=True)})
@@ -1978,7 +2122,9 @@ def publish(work, workers=16):
     verifying = any("verification" in r for r in p["rules"].get("text_sources", {}).values())
     rating = bool(p["rules"].get("sample_rate_policy"))
     version = (
-        9
+        10
+        if p.get("instruction_inputs")
+        else 9
         if p["rules"].get("sample_evidence")
         else 8
         if p["rules"].get("flexivoice")
@@ -1998,10 +2144,13 @@ def publish(work, workers=16):
         and (version >= 7 or k not in RATE_CODES)
         and (version >= 8 or k not in FLEXIVOICE_CODES)
         and (version >= 9 or k not in SAMPLE_CODES)
+        and (version >= 10 or k not in INSTRUCTION_CODES)
     }
     bits = dict(
         enumerate(
             FLAGS
+            if version >= 10
+            else FLAGS[:19]
             if version >= 9
             else FLAGS[:18]
             if version >= 8
@@ -2024,6 +2173,7 @@ def publish(work, workers=16):
         "inputs": p["inputs"],
         "outputs": sorted(outputs, key=lambda o: o["dataset_id"]),
         "annotation_inputs": p.get("annotation_inputs", []),
+        "instruction_inputs": p.get("instruction_inputs") or None,
         "text_sources": text_sources(p),
         "rules": {
             "path": "rules.json",

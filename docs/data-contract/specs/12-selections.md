@@ -176,6 +176,16 @@ WHSP、debatts、genshin、starrail，以及 emotion 中的 Emotion_Speech_Datas
 manifest 记录名单及 base manifest 摘要。名单由确定性脚本生成（如 `scripts/sample_per_speaker.py`：按 base speaker_id 在时长范围内按 sha256(seed:sample_id) 取前 N 句），
 只决定"是否入选"，其余规则照常执行。`selection-hifitts2-speaker40-v1` 以 selection-v2 为父，只含 hifitts2，每说话人至多 40 句 3–20 s。
 
+字典 version 10（规则含 `instruction_inputs` 时使用，仅 FlexiVoice 规则）在 version 9 之上新增：
+
+| 码 | 名称 | 含义 |
+| --- | --- | --- |
+| 3005 | instruction_unavailable | 该行属于 instruction revision 的目标子集，但固定的 revision 没有可用的风格指令（失败、无风格或被拒）；flag bit 19 |
+
+`instruction_inputs` 每项给出 task（`flexivoice_instruction`）、run_id、datasets 和 `source_configs`；plan 时按 annotation 规则固定 manifest、base 版本与行数，
+并要求 `source_configs` 在该 run 的目标子集内。发布的分支新增列 `selected_instruction`：目标子集为改写后的指令，其余为 null（沿用 base 指令），
+发布时逐行与对齐的 annotation 核对。`selection-flexivoice-v6` 以 v4 为父，加回 ears、expresso，二者指令由 instruction revision 替换。
+
 执行器另支持两项尚无已发布规则使用的选项：`speaker_metadata` 从 base `metadata_json` 的键路径取说话人数（按 6002 判定，
 每个数据集在 speaker_inputs 与 speaker_metadata 中恰好出现一次）；文本来源的 `verification` 要求 ASR 文本与 base `text_variants`
 中指定 kind 的文本一致（比较前两边做 NFKC、casefold、去组合附加符、取 `[a-z0-9']+` 词并按 fold_words 映射、去撇号无分隔连接，
